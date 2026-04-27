@@ -18,6 +18,11 @@ const TAMBOS_BASE = [
   { num: "-", nombre: "CANAGRO" }, { num: "-", nombre: "CHAME" },
 ];
 const CAMIONES_BASE = ["GRISARO", "CUARELA", "BARTOLINI", "LLANO 1", "LLANO 2", "GALVAN", "ANGRIGIANI"];
+const FORT_DESTINOS = ["Tetra", "Ultra", "Yogur", "Postre", "Acción Correctiva"];
+const PERFILES = {
+  supervisor: { usuario: "Supervisor", clave: "Yatasto2026$",  label: "Supervisor",       icon: "👔" },
+  jefe:       { usuario: "Jefe",       clave: "BuenaLeche123$", label: "Jefe de Planta",  icon: "👑" },
+};
 const SILOS = ["100 NUEVO", "100 VIEJO", "80", "60", "42", "40F", "15"];
 const SILOS_TODOS = [...SILOS, "TQ1", "TQ2", "TQ3", "TQ6", "TQ7", "TQ8", "TQ9", "POSTRE", "TINA", "DULCE"];
 const CIP_SILOS = ["100 N", "100 V", "80", "60", "42", "40F", "15", "LINEA 1", "LINEA 2"];
@@ -105,12 +110,60 @@ async function save(date, sec, data) {
   try { await window.storage.set(sKey(date, sec), JSON.stringify(data)); } catch (e) { console.error(e); }
 }
 async function loadCfg() {
-  const def = { tambosCustom: [], camionesCustom: [] };
+  const def = { tambosCustom: [], camionesCustom: [], transportistas: [] };
   try { const r = await window.storage.get(CFG_KEY); return r ? { ...def, ...JSON.parse(r.value) } : def; }
   catch { return def; }
 }
 async function saveCfg(data) {
   try { await window.storage.set(CFG_KEY, JSON.stringify(data)); } catch (e) { console.error(e); }
+}
+const ELIM_KEY  = "yatasto:eliminados";
+const USERS_KEY = "yatasto:usuarios";
+const SESSION_ID = (() => {
+  try {
+    let id = sessionStorage.getItem("yatasto:sid");
+    if (!id) { id = Date.now().toString(36) + Math.random().toString(36).slice(2, 7); sessionStorage.setItem("yatasto:sid", id); }
+    return id;
+  } catch { return "local-" + Math.random().toString(36).slice(2, 7); }
+})();
+
+// Rangos de referencia para alertas de calidad
+const QUALITY_REFS = { "pH": { min: 6.6, max: 6.8 }, "Acidez": { min: 14, max: 18 } };
+
+async function updateHeartbeat(nombre, rol) {
+  try {
+    const r = await window.storage.get(USERS_KEY);
+    const users = r ? JSON.parse(r.value) : [];
+    const now = Date.now();
+    const filtered = users.filter(u => u.id !== SESSION_ID && now - u.ts < 120000);
+    filtered.push({ id: SESSION_ID, nombre: nombre || "Operario", rol: rol || "Operario", ts: now });
+    await window.storage.set(USERS_KEY, JSON.stringify(filtered));
+  } catch {}
+}
+async function getActiveUsers() {
+  try {
+    const r = await window.storage.get(USERS_KEY);
+    if (!r) return [];
+    const now = Date.now();
+    return (JSON.parse(r.value) || []).filter(u => now - u.ts < 120000);
+  } catch { return []; }
+}
+
+function buildResumen(tipo, item) {
+  if (tipo==="ingreso")     return `[${item.num||"-"}] ${item.tambo||"—"} — ${item.litrosFca||0} L → ${item.destino||"?"}`;
+  if (tipo==="carga")       return `${item.label||""} ${item.destino||"—"} — ${item.litros||0} L desde ${item.siloProveniente||"?"}`;
+  if (tipo==="movimiento")  return `${item.desde||"?"}→${item.hasta||"?"} — ${item.litros||0} L${item.motivo?" ("+item.motivo+")":""}`;
+  if (tipo==="control")     return `Silo ${item.silo||"?"} — pH ${item.ph||"?"} / ${item.hora||"?"}`;
+  if (tipo==="fortificado") return `${item.siloOrigen||"?"}→${item.siloDestino||"?"} — ${item.litrosBase||0} L${item.paraQue?" ("+item.paraQue+")":""}`;
+  return String(item.id||"");
+}
+async function logDelete(tipo, item) {
+  try {
+    const r = await window.storage.get(ELIM_KEY);
+    const log = r ? JSON.parse(r.value) : [];
+    log.unshift({ fecha: getToday(), hora: getNow(), tipo, resumen: buildResumen(tipo, item) });
+    await window.storage.set(ELIM_KEY, JSON.stringify(log.slice(0, 300)));
+  } catch {}
 }
 
 // Calcula litros netos por silo: ingresos + movimientos − cargas − fort_origen + fort_destino
@@ -387,7 +440,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
   );
 };
 
-const SecIngresos = ({ date }) => {
+const SecIngresos = ({ date, syncKey = 0 }) => {
   const [list, setList] = useState([]);
   const [modal, setModal] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -398,7 +451,7 @@ const SecIngresos = ({ date }) => {
   useEffect(() => {
     load(date, "ingresos", []).then(d => { setList(d); setLoading(false); });
     loadCfg().then(cfg => setTambos([...TAMBOS_BASE, ...(cfg.tambosCustom || [])]));
-  }, [date]);
+  }, [date, syncKey]);
 
   const persist = async updated => { setList(updated); await save(date, "ingresos", updated); };
   const onSave = async item => {
@@ -407,7 +460,11 @@ const SecIngresos = ({ date }) => {
     setModal(null);
   };
   const onDelete = async id => {
-    if (confirm("¿Eliminar este ingreso?")) { await persist(list.filter(i => i.id !== id)); setModal(null); }
+    if (confirm("¿Eliminar este ingreso?")) {
+      const item = list.find(i => i.id === id);
+      if (item) await logDelete("ingreso", item);
+      await persist(list.filter(i => i.id !== id)); setModal(null);
+    }
   };
   const saveNuevoTambo = async () => {
     if (!newTambo.nombre.trim()) return;
@@ -559,7 +616,7 @@ const CIPRow = ({ nombre, tipo, data, onChange }) => {
   );
 };
 
-const SecCIP = ({ date }) => {
+const SecCIP = ({ date, syncKey = 0 }) => {
   const [data, setData] = useState({});
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("silos");
@@ -570,7 +627,7 @@ const SecCIP = ({ date }) => {
   useEffect(() => {
     load(date, "cip", {}).then(d => { setData(d); setLoading(false); });
     loadCfg().then(cfg => setCamiones([...CAMIONES_BASE, ...(cfg.camionesCustom || [])]));
-  }, [date]);
+  }, [date, syncKey]);
 
   const updateSilo = async (s, v) => { const u = { ...data, silos: { ...(data.silos || {}), [s]: v } }; setData(u); await save(date, "cip", u); };
   const updateCamion = async (c, v) => { const u = { ...data, camiones: { ...(data.camiones || {}), [c]: v } }; setData(u); await save(date, "cip", u); };
@@ -634,10 +691,29 @@ const SecCIP = ({ date }) => {
 };
 
 // ─── CARGA DE CAMIONES ────────────────────────────────────────
-const emptyCarga = () => ({ id: Date.now(), label: "CARGA 1", destino: "", siloProveniente: "", limpCisterna: "", litros: "", T: "", gC: "", pH: "", A: "", gD: "", hora: getNow(), responsable: "", obs: "" });
+const emptyCarga = () => ({ id: Date.now(), label: "CARGA 1", destino: "", transportista: "", siloProveniente: "", limpCisterna: "", litros: "", T: "", gC: "", pH: "", A: "", gD: "", hora: getNow(), responsable: "", obs: "" });
 const CargaForm = ({ initial, onSave, onClose, onDelete }) => {
   const [f, setF] = useState(initial || emptyCarga());
   const set = k => v => setF(p => ({ ...p, [k]: v }));
+  const [transportistas, setTransportistas] = useState([]);
+  const [transModal, setTransModal] = useState(false);
+  const [newTrans, setNewTrans] = useState("");
+
+  useEffect(() => {
+    loadCfg().then(cfg => setTransportistas(cfg.transportistas || []));
+  }, []);
+
+  const saveNuevoTrans = async () => {
+    if (!newTrans.trim()) return;
+    const nombre = newTrans.trim().toUpperCase();
+    const cfg = await loadCfg();
+    const updated = { ...cfg, transportistas: [...(cfg.transportistas || []), nombre] };
+    await saveCfg(updated);
+    setTransportistas(updated.transportistas);
+    set("transportista")(nombre);
+    setNewTrans(""); setTransModal(false);
+  };
+
   return (
     <div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 6, marginBottom: 12 }}>
@@ -646,6 +722,22 @@ const CargaForm = ({ initial, onSave, onClose, onDelete }) => {
         ))}
       </div>
       <F label="Destino"><Inp value={f.destino} onChange={set("destino")} placeholder="Destino de la carga..." /></F>
+
+      {/* Transportista */}
+      <div style={{ marginBottom: 12 }}>
+        <label style={lbl}>Transportista</label>
+        <div style={{ display: "flex", gap: 8 }}>
+          <div style={{ flex: 1 }}>
+            <Sel value={f.transportista || ""} onChange={set("transportista")} options={transportistas} placeholder="Seleccionar transportista..." />
+          </div>
+          <button onClick={() => setTransModal(true)} style={{
+            background: C.card, border: `1px solid ${C.accentDark}`, color: C.accent,
+            borderRadius: 8, padding: "11px 14px", cursor: "pointer", fontSize: 13, fontWeight: 700,
+            whiteSpace: "nowrap",
+          }}>+ Nuevo</button>
+        </div>
+      </div>
+
       <F label="Silo Proveniente"><Sel value={f.siloProveniente} onChange={set("siloProveniente")} options={SILOS_TODOS} placeholder="Silo origen..." /></F>
       <F label="Limpieza Cisterna"><Sel value={f.limpCisterna} onChange={set("limpCisterna")} options={["Sí", "No", "Pendiente"]} placeholder="¿Limpieza?" /></F>
       <F label="Litros"><Inp type="number" value={f.litros} onChange={set("litros")} placeholder="0" /></F>
@@ -674,17 +766,38 @@ const CargaForm = ({ initial, onSave, onClose, onDelete }) => {
         }}>Guardar</button>
       </div>
       {onDelete && <button style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar</button>}
+
+      {transModal && (
+        <Modal title="Agregar Transportista" onClose={() => setTransModal(false)}>
+          <F label="Nombre del transportista">
+            <input style={inp} type="text" autoFocus value={newTrans}
+              onChange={e => setNewTrans(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && saveNuevoTrans()}
+              placeholder="Ej: MARTINEZ" />
+          </F>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <button style={btnSecondary} onClick={() => setTransModal(false)}>Cancelar</button>
+            <button style={btnPrimary} onClick={saveNuevoTrans}>Guardar</button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 };
-const SecCarga = ({ date }) => {
+const SecCarga = ({ date, syncKey = 0 }) => {
   const [list, setList] = useState([]);
   const [modal, setModal] = useState(null);
   const [loading, setLoading] = useState(true);
-  useEffect(() => { load(date, "carga", []).then(d => { setList(d); setLoading(false); }); }, [date]);
+  useEffect(() => { load(date, "carga", []).then(d => { setList(d); setLoading(false); }); }, [date, syncKey]);
   const persist = async u => { setList(u); await save(date, "carga", u); };
   const onSave = async item => { const ex = list.find(i => i.id === item.id); await persist(ex ? list.map(i => i.id === item.id ? item : i) : [...list, item]); setModal(null); };
-  const onDelete = async id => { if (confirm("¿Eliminar?")) { await persist(list.filter(i => i.id !== id)); setModal(null); } };
+  const onDelete = async id => {
+    if (confirm("¿Eliminar?")) {
+      const item = list.find(i => i.id === id);
+      if (item) await logDelete("carga", item);
+      await persist(list.filter(i => i.id !== id)); setModal(null);
+    }
+  };
   if (loading) return <div style={{ padding: 40, textAlign: "center", color: C.sub }}>Cargando...</div>;
   return (
     <div>
@@ -697,6 +810,9 @@ const SecCarga = ({ date }) => {
             <span style={{ background: C.accentDim, color: C.accent, borderRadius: 6, padding: "2px 10px", fontSize: 12, fontWeight: 700 }}>{c.label}</span>
           </div>
           <div style={{ fontSize: 15, color: C.text, marginBottom: 4 }}>{c.destino || "Sin destino"}</div>
+          {c.transportista && (
+            <div style={{ fontSize: 12, color: "#60a5fa", marginBottom: 2 }}>🚛 {c.transportista}</div>
+          )}
           <div style={{ fontSize: 13, color: C.sub }}>
             {c.siloProveniente && <span>Desde {c.siloProveniente} </span>}
             {c.litros && <span>· {parseFloat(c.litros).toLocaleString("es-AR")} L </span>}
@@ -774,17 +890,31 @@ const CtrlForm = ({ initial, onSave, onClose, onDelete }) => {
   );
 };
 
-const SecMovimientos = ({ date }) => {
+const SecMovimientos = ({ date, syncKey = 0 }) => {
   const [data, setData] = useState({ movs: [], ctrls: [] });
   const [modal, setModal] = useState(null);
   const [tab, setTab] = useState("movs");
   const [loading, setLoading] = useState(true);
-  useEffect(() => { load(date, "movimientos", { movs: [], ctrls: [] }).then(d => { setData(d); setLoading(false); }); }, [date]);
+  useEffect(() => { load(date, "movimientos", { movs: [], ctrls: [] }).then(d => { setData(d); setLoading(false); }); }, [date, syncKey]);
   const persist = async u => { setData(u); await save(date, "movimientos", u); };
   const saveMov = async item => { const l = data.movs; const ex = l.find(i => i.id === item.id); await persist({ ...data, movs: ex ? l.map(i => i.id === item.id ? item : i) : [...l, item] }); setModal(null); };
   const saveCtrl = async item => { const l = data.ctrls; const ex = l.find(i => i.id === item.id); await persist({ ...data, ctrls: ex ? l.map(i => i.id === item.id ? item : i) : [...l, item] }); setModal(null); };
-  const delMov = async id => { if (confirm("¿Eliminar?")) await persist({ ...data, movs: data.movs.filter(i => i.id !== id) }); setModal(null); };
-  const delCtrl = async id => { if (confirm("¿Eliminar?")) await persist({ ...data, ctrls: data.ctrls.filter(i => i.id !== id) }); setModal(null); };
+  const delMov  = async id => {
+    if (confirm("¿Eliminar?")) {
+      const item = data.movs.find(i=>i.id===id);
+      if (item) await logDelete("movimiento", item);
+      await persist({ ...data, movs: data.movs.filter(i => i.id !== id) });
+    }
+    setModal(null);
+  };
+  const delCtrl = async id => {
+    if (confirm("¿Eliminar?")) {
+      const item = data.ctrls.find(i=>i.id===id);
+      if (item) await logDelete("control", item);
+      await persist({ ...data, ctrls: data.ctrls.filter(i => i.id !== id) });
+    }
+    setModal(null);
+  };
   if (loading) return <div style={{ padding: 40, textAlign: "center", color: C.sub }}>Cargando...</div>;
   return (
     <div>
@@ -847,7 +977,7 @@ const SecMovimientos = ({ date }) => {
 };
 
 // ─── STOCK POR TURNO ─────────────────────────────────────────
-const SecStock = ({ date }) => {
+const SecStock = ({ date, syncKey = 0 }) => {
   const [data, setData] = useState({});
   const [loading, setLoading] = useState(true);
   const [turno, setTurno] = useState(getCurrentTurno());
@@ -897,7 +1027,7 @@ const SecStock = ({ date }) => {
       setData(updated);
       setLoading(false);
     });
-  }, [date]);
+  }, [date, syncKey]);
 
   const updateSilo = async (t, s, k, v) => {
     const u = {
@@ -1056,6 +1186,7 @@ const UNIDADES_FORT = ["kg", "g", "L", "mL", "mg", "cc"];
 const emptyFort = () => ({
   id: Date.now(),
   hora: getNow(),
+  paraQue: "",
   siloOrigen: "",
   litrosBase: "",
   siloDestino: "",
@@ -1082,6 +1213,9 @@ const FortForm = ({ initial, onSave, onClose, onDelete }) => {
 
   return (
     <div>
+      <F label="Para qué producto">
+        <Sel value={f.paraQue||""} onChange={set("paraQue")} options={FORT_DESTINOS} placeholder="Seleccionar destino..." />
+      </F>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
         <F label="Hora"><input style={inp} type="time" value={f.hora} onChange={e => set("hora")(e.target.value)} /></F>
         <F label="Litros base"><Inp type="number" value={f.litrosBase} onChange={set("litrosBase")} placeholder="0" /></F>
@@ -1161,14 +1295,14 @@ const FortForm = ({ initial, onSave, onClose, onDelete }) => {
   );
 };
 
-const SecFortificados = ({ date }) => {
+const SecFortificados = ({ date, syncKey = 0 }) => {
   const [list, setList] = useState([]);
   const [modal, setModal] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     load(date, "fortificados", []).then(d => { setList(d); setLoading(false); });
-  }, [date]);
+  }, [date, syncKey]);
 
   const persist = async u => { setList(u); await save(date, "fortificados", u); };
   const onSave = async item => {
@@ -1177,7 +1311,12 @@ const SecFortificados = ({ date }) => {
     setModal(null);
   };
   const onDelete = async id => {
-    if (confirm("¿Eliminar este lote?")) { await persist(list.filter(i => i.id !== id)); setModal(null); }
+    if (confirm("¿Eliminar este lote?")) {
+      const item = list.find(i => i.id === id);
+      if (item) await logDelete("fortificado", item);
+      await persist(list.filter(i => i.id !== id));
+      setModal(null);
+    }
   };
 
   const totalL = list.reduce((s, i) => s + (parseFloat(i.litrosBase) || 0), 0);
@@ -1209,9 +1348,12 @@ const SecFortificados = ({ date }) => {
         <div key={f.id} onClick={() => setModal(f)} style={{ ...card, cursor: "pointer", borderLeftWidth: 3, borderLeftColor: "#27ae60" }}>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
             <span style={{ fontFamily: "monospace", fontWeight: 700, color: C.accent, fontSize: 17 }}>{f.hora}</span>
-            <span style={{ background: "#0d2b1a", color: "#27ae60", borderRadius: 6, padding: "2px 10px", fontSize: 12, fontWeight: 700 }}>
-              {f.litrosBase ? `${parseFloat(f.litrosBase).toLocaleString("es-AR")} L` : "Sin litros"}
-            </span>
+            <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+              {f.paraQue && <span style={{ background:"#0a2218", color:"#27ae60", borderRadius:6, padding:"2px 8px", fontSize:11, fontWeight:700, border:"1px solid #27ae6044" }}>{f.paraQue}</span>}
+              <span style={{ background: "#0d2b1a", color: "#27ae60", borderRadius: 6, padding: "2px 10px", fontSize: 12, fontWeight: 700 }}>
+                {f.litrosBase ? `${parseFloat(f.litrosBase).toLocaleString("es-AR")} L` : "Sin litros"}
+              </span>
+            </div>
           </div>
           {(f.siloOrigen || f.siloDestino) && (
             <div style={{ fontSize: 13, color: C.sub, marginBottom: 4 }}>
@@ -1322,28 +1464,47 @@ const InformeModal = ({ date, onClose }) => {
       {/* Ingresos */}
       {d.ing.length > 0 && (
         <Blk title={`🚛 Ingresos (${d.ing.length} camiones · ${totalIng.toLocaleString("es-AR")} L)`}>
-          {d.ing.map(i => <Fila key={i.id} lbl={`${i.hora}  [${i.num}] ${i.tambo || "—"}`} val={`${parseFloat(i.litrosFca || 0).toLocaleString("es-AR")} L`} color={C.accent} />)}
+          {d.ing.map(i => (
+            <div key={i.id}>
+              <Fila lbl={`${i.hora}  [${i.num}] ${i.tambo || "—"}${i.producto ? "  ·  "+i.producto : ""}`} val={`${parseFloat(i.litrosFca || 0).toLocaleString("es-AR")} L`} color={C.accent} />
+              {i.obs && <div style={{fontSize:11,color:C.sub,padding:"2px 0 4px 8px",borderBottom:`1px solid ${C.border}22`,fontStyle:"italic"}}>💬 {i.obs}</div>}
+            </div>
+          ))}
         </Blk>
       )}
 
       {/* Movimientos */}
       {(d.mov.movs || []).length > 0 && (
         <Blk title="🔄 Movimientos">
-          {d.mov.movs.map(m => <Fila key={m.id} lbl={`${m.hora}  ${m.desde || "?"}→${m.hasta || "?"}${m.motivo ? " · " + m.motivo : ""}`} val={`${parseFloat(m.litros || 0).toLocaleString("es-AR")} L`} />)}
+          {d.mov.movs.map(m => (
+            <div key={m.id}>
+              <Fila lbl={`${m.hora}  ${m.desde || "?"}→${m.hasta || "?"}${m.motivo ? " · " + m.motivo : ""}`} val={`${parseFloat(m.litros || 0).toLocaleString("es-AR")} L`} />
+            </div>
+          ))}
         </Blk>
       )}
 
       {/* Cargas */}
       {d.carg.length > 0 && (
         <Blk title={`🚚 Cargas (${totalCarg.toLocaleString("es-AR")} L)`}>
-          {d.carg.map(c => <Fila key={c.id} lbl={`${c.hora}  ${c.label || ""}  ${c.destino || "—"}`} val={`${parseFloat(c.litros || 0).toLocaleString("es-AR")} L`} />)}
+          {d.carg.map(c => (
+            <div key={c.id}>
+              <Fila lbl={`${c.hora}  ${c.label || ""}  ${c.destino || "—"}`} val={`${parseFloat(c.litros || 0).toLocaleString("es-AR")} L`} />
+              {c.obs && <div style={{fontSize:11,color:C.sub,padding:"2px 0 4px 8px",borderBottom:`1px solid ${C.border}22`,fontStyle:"italic"}}>💬 {c.obs}</div>}
+            </div>
+          ))}
         </Blk>
       )}
 
       {/* Fortificados */}
       {d.fort.length > 0 && (
         <Blk title={`⚗️ Fortificados (${totalFort.toLocaleString("es-AR")} L)`}>
-          {d.fort.map(f => <Fila key={f.id} lbl={`${f.hora}  ${f.siloOrigen || "?"}→${f.siloDestino || "?"}`} val={`${parseFloat(f.litrosBase || 0).toLocaleString("es-AR")} L`} color="#27ae60" />)}
+          {d.fort.map(f => (
+            <div key={f.id}>
+              <Fila lbl={`${f.hora}  ${f.paraQue||""}  ${f.siloOrigen || "?"}→${f.siloDestino || "?"}`} val={`${parseFloat(f.litrosBase || 0).toLocaleString("es-AR")} L`} color="#27ae60" />
+              {f.obs && <div style={{fontSize:11,color:C.sub,padding:"2px 0 4px 8px",borderBottom:`1px solid ${C.border}22`,fontStyle:"italic"}}>💬 {f.obs}</div>}
+            </div>
+          ))}
         </Blk>
       )}
 
@@ -1378,6 +1539,369 @@ const InformeModal = ({ date, onClose }) => {
   );
 };
 
+// ─── DASHBOARD SUPERVISOR / JEFE ─────────────────────────────
+const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
+  const [tab, setTab]         = useState("resumen");
+  const [d, setD]             = useState(null);
+  const [users, setUsers]     = useState([]);
+  const [exportDate, setExportDate] = useState(date);
+  const [exporting, setExporting]   = useState(false);
+
+  useEffect(() => {
+    setExportDate(date);
+    Promise.all([
+      load(date, "ingresos", []),
+      load(date, "carga", []),
+      load(date, "movimientos", { movs: [], ctrls: [] }),
+      load(date, "stock", {}),
+      load(date, "fortificados", []),
+      load(date, "cip", {}),
+      calcAutoLitros(date),
+      window.storage.get(ELIM_KEY).then(r => r ? JSON.parse(r.value) : []).catch(() => []),
+      getActiveUsers(),
+    ]).then(([ing, cargas, movData, stock, forts, cip, autoLitros, historial, activeUsers]) => {
+      setD({ ing, cargas, movData, stock, forts, cip, autoLitros, historial });
+      setUsers(activeUsers);
+    });
+  }, [date, syncKey]);
+
+  if (!d) return <div style={{padding:40,textAlign:"center",color:C.sub}}>Cargando dashboard...</div>;
+
+  // ── Estadísticas calculadas ──────────────────────────────────
+  const totalIngresados = d.ing.reduce((s,i)=>s+(parseFloat(i.litrosFca)||0), 0);
+  const totalCargados   = d.cargas.reduce((s,c)=>s+(parseFloat(c.litros)||0), 0);
+  const balance         = totalIngresados - totalCargados;
+  const tambosUnicos    = new Set(d.ing.map(i=>i.tambo).filter(Boolean)).size;
+
+  const qualFields = [
+    ["Acidez","acidezFca"],["pH","phFca"],["GB","gbFca"],
+    ["SNG","sngFca"],["Densidad","densFca"],["Proteína","protFca"],
+  ];
+  const quality = {};
+  qualFields.forEach(([label,key]) => {
+    const vals = d.ing.map(i=>parseFloat(i[key])).filter(v=>!isNaN(v)&&v>0);
+    if (vals.length>0) quality[label] = {
+      avg: vals.reduce((s,v)=>s+v,0)/vals.length,
+      min: Math.min(...vals), max: Math.max(...vals), n: vals.length,
+    };
+  });
+
+  const TIPO_LABEL = { ingreso:"Ingreso", carga:"Carga", movimiento:"Movimiento", control:"Control Silo", fortificado:"Fortificado" };
+  const TIPO_COL   = { ingreso:C.accent, carga:"#60a5fa", movimiento:"#a78bfa", control:"#34d399", fortificado:"#27ae60" };
+
+  // ── Componentes visuales ─────────────────────────────────────
+  const StatCard = ({ icon, label, value, unit, color, sub }) => (
+    <div style={{background:C.card,borderRadius:12,padding:"14px 10px",border:`1px solid ${C.border}`,textAlign:"center"}}>
+      <div style={{fontSize:22,marginBottom:4}}>{icon}</div>
+      <div style={{fontSize:21,fontWeight:800,color:color||C.text,fontFamily:"monospace",lineHeight:1}}>
+        {typeof value==="number" ? value.toLocaleString("es-AR") : value}
+        {unit && <span style={{fontSize:11,fontWeight:400,color:C.sub,marginLeft:3}}>{unit}</span>}
+      </div>
+      <div style={{fontSize:10,color:C.sub,textTransform:"uppercase",letterSpacing:"0.08em",marginTop:4}}>{label}</div>
+      {sub && <div style={{fontSize:10,color:C.muted,marginTop:2}}>{sub}</div>}
+    </div>
+  );
+
+  const SiloBar = ({ silo }) => {
+    const litros = d.autoLitros[silo]||0;
+    const cap    = SILO_CAP[silo]||10000;
+    const pct    = Math.min(100, Math.max(0,(litros/cap)*100));
+    let prod="";
+    for (const t of TURNOS) { const p=((((d.stock[t]||{}).silos||{})[silo])||{}).producto; if(p){prod=p;break;} }
+    const fillColor = PROD_COLOR[prod] || C.accent;
+    const isEmpty   = litros<=0;
+    return (
+      <div style={{...card,padding:"10px 14px",marginBottom:6}}>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:5,alignItems:"center"}}>
+          <span style={{fontSize:13,fontWeight:700,color:C.text}}>Silo {silo}</span>
+          <span style={{fontSize:13,fontFamily:"monospace",fontWeight:700,color:isEmpty?C.danger:C.accent}}>
+            {litros.toLocaleString("es-AR")} L
+          </span>
+        </div>
+        <div style={{background:C.muted,borderRadius:6,height:12,overflow:"hidden",marginBottom:5}}>
+          <div style={{width:`${pct}%`,height:"100%",background:isEmpty?C.danger:fillColor,borderRadius:6,transition:"width 0.6s ease"}} />
+        </div>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <span style={{fontSize:11,color:isEmpty?C.danger:C.sub}}>{prod||"Sin producto"}</span>
+          <span style={{fontSize:10,color:C.muted}}>{pct.toFixed(1)}% · {(cap/1000).toFixed(0)}k L cap.</span>
+        </div>
+      </div>
+    );
+  };
+
+  // ── Funciones de exportación ─────────────────────────────────
+  const doExportCSV = async () => {
+    setExporting(true);
+    try {
+      const [ing,cargas,movData] = await Promise.all([
+        load(exportDate,"ingresos",[]),
+        load(exportDate,"carga",[]),
+        load(exportDate,"movimientos",{movs:[]}),
+      ]);
+      let csv = `YATASTO - INFORME DIARIO - ${fmtDate(exportDate)}\n\n`;
+      csv += "INGRESOS\nHora,Tambo,Litros,Destino,pH,Acidez,GB,SNG,Densidad,Proteína,Responsable\n";
+      ing.forEach(i => { csv+=`${i.hora||""},${i.tambo||""},${i.litrosFca||""},${i.destino||""},${i.phFca||""},${i.acidezFca||""},${i.gbFca||""},${i.sngFca||""},${i.densFca||""},${i.protFca||""},${i.responsable||""}\n`; });
+      csv += "\nCARGAS\nHora,Label,Destino,Transportista,Silo,Litros,pH,Temp,Responsable\n";
+      cargas.forEach(c => { csv+=`${c.hora||""},${c.label||""},${c.destino||""},${c.transportista||""},${c.siloProveniente||""},${c.litros||""},${c.pH||""},${c.gC||""},${c.responsable||""}\n`; });
+      csv += "\nMOVIMIENTOS\nHora,Desde,Hasta,Litros,Motivo,Responsable\n";
+      (movData.movs||[]).forEach(m => { csv+=`${m.hora||""},${m.desde||""},${m.hasta||""},${m.litros||""},${m.motivo||""},${m.resp||""}\n`; });
+      const blob = new Blob(["﻿"+csv],{type:"text/csv;charset=utf-8"});
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement("a"); a.href=url; a.download=`yatasto_${exportDate}.csv`; a.click();
+      URL.revokeObjectURL(url);
+    } finally { setExporting(false); }
+  };
+
+  const doExportXLS = async () => {
+    setExporting(true);
+    try {
+      const [ing,cargas] = await Promise.all([
+        load(exportDate,"ingresos",[]),
+        load(exportDate,"carga",[]),
+      ]);
+      let html = `<h2 style="color:#f59e0b">Yatasto · Informe Diario · ${fmtDate(exportDate)}</h2>`;
+      const th = s => `<th style="background:#1a2035;color:#f59e0b;padding:6px 10px;border:1px solid #2a3050">${s}</th>`;
+      const td = s => `<td style="padding:5px 10px;border:1px solid #2a3050">${s||""}</td>`;
+      html += `<h3>Ingresos (${ing.length})</h3><table style="border-collapse:collapse;width:100%"><tr>${["Hora","Tambo","Litros","Destino","pH","Acidez","GB","SNG","Dens.","Prot.","Resp."].map(th).join("")}</tr>`;
+      ing.forEach(i => { html+=`<tr>${[i.hora,i.tambo,i.litrosFca,i.destino,i.phFca,i.acidezFca,i.gbFca,i.sngFca,i.densFca,i.protFca,i.responsable].map(td).join("")}</tr>`; });
+      html += `</table><h3>Cargas (${cargas.length})</h3><table style="border-collapse:collapse;width:100%"><tr>${["Hora","Label","Destino","Transportista","Silo","Litros","pH","Temp","Resp."].map(th).join("")}</tr>`;
+      cargas.forEach(c => { html+=`<tr>${[c.hora,c.label,c.destino,c.transportista,c.siloProveniente,c.litros,c.pH,c.gC,c.responsable].map(td).join("")}</tr>`; });
+      html += `</table>`;
+      const blob = new Blob([`<html><head><meta charset="utf-8"></head><body style="background:#080c18;color:#e8edf5;font-family:Arial">${html}</body></html>`],{type:"application/vnd.ms-excel;charset=utf-8"});
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement("a"); a.href=url; a.download=`yatasto_${exportDate}.xls`; a.click();
+      URL.revokeObjectURL(url);
+    } finally { setExporting(false); }
+  };
+
+  const doExportPDF = async () => {
+    setExporting(true);
+    try {
+      const [ing,cargas,stk] = await Promise.all([
+        load(exportDate,"ingresos",[]),
+        load(exportDate,"carga",[]),
+        load(exportDate,"stock",{}),
+      ]);
+      const autoL = await calcAutoLitros(exportDate);
+      let html = `<style>body{font-family:Arial,sans-serif;font-size:11px;margin:20px;color:#111}h1{font-size:16px;border-bottom:2px solid #f59e0b;padding-bottom:6px}h2{font-size:13px;color:#333;margin-top:16px}table{border-collapse:collapse;width:100%;margin-bottom:14px}th{background:#f59e0b;color:#000;padding:5px 8px;text-align:left;font-size:10px}td{border:1px solid #ccc;padding:4px 8px;font-size:10px}tr:nth-child(even){background:#f9f9f9}.stats{display:flex;flex-wrap:wrap;gap:10px;margin:10px 0}.stat{background:#f5f5f5;border:1px solid #ddd;border-radius:6px;padding:8px 14px;text-align:center}.stat .v{font-size:18px;font-weight:bold;color:#f59e0b}.stat .l{font-size:9px;color:#888;text-transform:uppercase}@media print{button{display:none}}</style>`;
+      html += `<h1>🏭 Yatasto — Informe Diario — ${fmtDate(exportDate)}</h1>`;
+      html += `<div class="stats">
+        <div class="stat"><div class="v">${ing.reduce((s,i)=>s+(parseFloat(i.litrosFca)||0),0).toLocaleString("es-AR")} L</div><div class="l">Ingresados</div></div>
+        <div class="stat"><div class="v">${cargas.reduce((s,c)=>s+(parseFloat(c.litros)||0),0).toLocaleString("es-AR")} L</div><div class="l">Cargados</div></div>
+        <div class="stat"><div class="v">${ing.length}</div><div class="l">Camiones</div></div>
+        <div class="stat"><div class="v">${cargas.length}</div><div class="l">Cargas</div></div>
+      </div>`;
+      html += `<h2>Ingresos (${ing.length})</h2><table><tr><th>Hora</th><th>Nº</th><th>Tambo</th><th>Litros</th><th>Dest.</th><th>pH</th><th>Acidez</th><th>GB</th><th>SNG</th><th>Dens.</th><th>Prot.</th><th>Resp.</th></tr>`;
+      ing.forEach(i => { html+=`<tr><td>${i.hora||""}</td><td>${i.num||""}</td><td>${i.tambo||""}</td><td>${i.litrosFca||""}</td><td>${i.destino||""}</td><td>${i.phFca||""}</td><td>${i.acidezFca||""}</td><td>${i.gbFca||""}</td><td>${i.sngFca||""}</td><td>${i.densFca||""}</td><td>${i.protFca||""}</td><td>${i.responsable||""}</td></tr>`; });
+      html += `</table><h2>Cargas (${cargas.length})</h2><table><tr><th>Hora</th><th>Label</th><th>Destino</th><th>Transportista</th><th>Silo</th><th>Litros</th><th>pH</th><th>Temp</th><th>Resp.</th></tr>`;
+      cargas.forEach(c => { html+=`<tr><td>${c.hora||""}</td><td>${c.label||""}</td><td>${c.destino||""}</td><td>${c.transportista||""}</td><td>${c.siloProveniente||""}</td><td>${c.litros||""}</td><td>${c.pH||""}</td><td>${c.gC||""}</td><td>${c.responsable||""}</td></tr>`; });
+      html += `</table><h2>Estado de Silos</h2><table><tr><th>Silo</th><th>Litros</th><th>Capacidad</th><th>% Lleno</th><th>Producto</th></tr>`;
+      STOCK_SILOS.forEach(silo => {
+        const litros=autoL[silo]||0; const cap=SILO_CAP[silo]||10000;
+        const pct=cap>0?((litros/cap)*100).toFixed(1):"0.0";
+        let prod=""; for(const t of TURNOS){const p=((((stk[t]||{}).silos||{})[silo])||{}).producto;if(p){prod=p;break;}}
+        html+=`<tr><td>${silo}</td><td>${litros.toLocaleString("es-AR")}</td><td>${cap.toLocaleString("es-AR")}</td><td>${pct}%</td><td>${prod}</td></tr>`;
+      });
+      html+=`</table><br><button onclick="window.print()" style="background:#f59e0b;color:#000;border:none;padding:8px 18px;border-radius:6px;font-size:12px;cursor:pointer;font-weight:bold">🖨️ Imprimir / Guardar PDF</button>`;
+      const w = window.open("","_blank");
+      if(w){w.document.write(`<html><head><title>Yatasto ${exportDate}</title></head><body>${html}</body></html>`);w.document.close();}
+      else { alert("Bloqueado por el navegador. Permitir popups para exportar a PDF."); }
+    } finally { setExporting(false); }
+  };
+
+  // ── Alertas automáticas ──────────────────────────────────────
+  const alertas = [];
+  STOCK_SILOS.forEach(s => {
+    const litros=d.autoLitros[s]||0; const cap=SILO_CAP[s]||10000; const pct=(litros/cap)*100;
+    if(litros>0&&pct>90) alertas.push({tipo:"warn",msg:`Silo ${s} al ${pct.toFixed(0)}% — casi lleno`});
+    if(litros<0)         alertas.push({tipo:"err", msg:`Silo ${s}: balance negativo (${litros.toLocaleString("es-AR")} L)`});
+  });
+  if(quality["pH"]) {
+    const r=QUALITY_REFS["pH"];
+    if(quality["pH"].min<r.min||quality["pH"].max>r.max)
+      alertas.push({tipo:"warn",msg:`pH fuera de rango: avg ${quality["pH"].avg.toFixed(2)} (ref: ${r.min}–${r.max})`});
+  }
+  if(quality["Acidez"]) {
+    const r=QUALITY_REFS["Acidez"];
+    if(quality["Acidez"].min<r.min||quality["Acidez"].max>r.max)
+      alertas.push({tipo:"warn",msg:`Acidez fuera de rango: avg ${quality["Acidez"].avg.toFixed(1)} (ref: ${r.min}–${r.max})`});
+  }
+
+  return (
+    <div>
+      {/* Header de perfil */}
+      <div style={{...card,borderColor:"#5b21b644",background:"#0f0a1e",marginBottom:14}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+          <div>
+            <div style={{fontSize:10,color:"#a78bfa",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:2}}>Perfil activo · {fmtDate(date)}</div>
+            <div style={{fontSize:18,fontWeight:700,color:C.text}}>{perfilLabel}</div>
+            {users.length>0 && <div style={{fontSize:11,color:C.success,marginTop:4}}>● {users.length} usuario{users.length>1?"s":""} activo{users.length>1?"s":""}</div>}
+          </div>
+          <div style={{textAlign:"right"}}>
+            <span style={{fontSize:32}}>{PERFILES[perfil]?.icon||"👔"}</span>
+          </div>
+        </div>
+        {users.length>0 && (
+          <div style={{marginTop:8,display:"flex",flexWrap:"wrap",gap:4}}>
+            {users.map(u=>(
+              <span key={u.id} style={{fontSize:10,background:C.muted,borderRadius:4,padding:"2px 8px",color:C.text}}>
+                {u.nombre} · {u.rol}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Tabs */}
+      <div style={{display:"flex",gap:4,marginBottom:14,overflowX:"auto",paddingBottom:2}}>
+        {[["resumen","📊","Resumen"],["silos","🏭","Silos"],["calidad","📈","Calidad"],["historial","📋","Historial"],["exportar","📤","Exportar"]].map(([t,ico,lbl])=>(
+          <button key={t} onClick={()=>setTab(t)} style={{
+            ...(tab===t?btnPrimary:btnSecondary),
+            padding:"8px 6px",fontSize:11,whiteSpace:"nowrap",flex:1,minWidth:0,
+          }}>{ico}<br/>{lbl}</button>
+        ))}
+      </div>
+
+      {/* ── RESUMEN ── */}
+      {tab==="resumen" && (
+        <div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
+            <StatCard icon="🥛" label="Ingresados" value={totalIngresados} unit="L" color={C.accent} />
+            <StatCard icon="🚚" label="Cargados"   value={totalCargados}   unit="L" color="#60a5fa" />
+            <StatCard icon="⚖️" label="Balance"    value={balance}         unit="L" color={balance>=0?C.success:C.danger} />
+            <StatCard icon="🚛" label="Camiones"   value={d.ing.length}    color={C.text} sub={`${tambosUnicos} tambos únicos`} />
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:12}}>
+            <StatCard icon="📦" label="Cargas"    value={d.cargas.length}             color={C.text} />
+            <StatCard icon="⚗️" label="Fort."     value={d.forts.length}              color="#27ae60" />
+            <StatCard icon="🔄" label="Movim."    value={(d.movData.movs||[]).length} color="#a78bfa" />
+          </div>
+          {alertas.length===0 ? (
+            <div style={{...card,borderColor:C.success+"55",background:"#081608",textAlign:"center",padding:16}}>
+              <div style={{fontSize:24,marginBottom:4}}>✅</div>
+              <div style={{fontSize:13,color:C.success,fontWeight:700}}>Sin alertas activas</div>
+              <div style={{fontSize:11,color:C.sub,marginTop:2}}>Todo en orden</div>
+            </div>
+          ) : (
+            <div style={{...card,borderColor:C.danger+"44",background:"#160808"}}>
+              <div style={{...secTitle,color:C.danger}}>⚠️ Alertas ({alertas.length})</div>
+              {alertas.map((a,i)=>(
+                <div key={i} style={{fontSize:12,color:a.tipo==="err"?C.danger:C.accent,padding:"5px 0",borderBottom:`1px solid ${C.border}33`}}>
+                  {a.tipo==="err"?"🔴":"🟡"} {a.msg}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── SILOS ── */}
+      {tab==="silos" && (
+        <div>
+          <div style={{...secTitle,marginBottom:10}}>Estado de silos — {fmtDate(date)}</div>
+          {STOCK_SILOS.map(s=><SiloBar key={s} silo={s} />)}
+        </div>
+      )}
+
+      {/* ── CALIDAD ── */}
+      {tab==="calidad" && (
+        <div>
+          {Object.keys(quality).length===0 ? (
+            <div style={{textAlign:"center",padding:"48px 24px",color:C.sub}}>
+              <div style={{fontSize:40,marginBottom:10}}>📈</div>
+              <div>Sin ingresos registrados</div>
+            </div>
+          ) : (
+            <>
+              <div style={{...secTitle}}>Promedios del día · {d.ing.length} camiones · {fmtDate(date)}</div>
+              {Object.entries(quality).map(([label,v])=>(
+                <div key={label} style={{...card,padding:"10px 14px",marginBottom:6}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                    <span style={{fontSize:12,color:C.sub,fontWeight:700}}>{label}</span>
+                    <span style={{fontSize:18,fontWeight:800,color:C.accent,fontFamily:"monospace"}}>{v.avg.toFixed(3)}</span>
+                  </div>
+                  <div style={{background:C.muted,borderRadius:4,height:6,overflow:"hidden",marginBottom:5}}>
+                    <div style={{width:`${Math.min(100,(v.avg/20)*100)}%`,height:"100%",background:C.accent,transition:"width 0.5s"}} />
+                  </div>
+                  <div style={{display:"flex",justifyContent:"space-between"}}>
+                    <span style={{fontSize:10,color:C.muted}}>mín <b style={{color:C.text}}>{v.min.toFixed(3)}</b></span>
+                    <span style={{fontSize:10,color:C.muted}}>n={v.n}</span>
+                    <span style={{fontSize:10,color:C.muted}}>máx <b style={{color:C.text}}>{v.max.toFixed(3)}</b></span>
+                  </div>
+                  {QUALITY_REFS[label] && (()=>{
+                    const r=QUALITY_REFS[label]; const ok=v.avg>=r.min&&v.avg<=r.max;
+                    return <div style={{marginTop:4,fontSize:10,color:ok?C.success:C.danger}}>{ok?"✅":"⚠️"} Ref: {r.min}–{r.max}</div>;
+                  })()}
+                </div>
+              ))}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ── HISTORIAL ── */}
+      {tab==="historial" && (
+        <div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
+            {[["🚛","Ingresos",d.ing.length],["🚚","Cargas",d.cargas.length],["⚗️","Fort.",d.forts.length],["🔄","Movim.",(d.movData.movs||[]).length]].map(([ico,lbl,cnt])=>(
+              <div key={lbl} style={{...card,textAlign:"center",padding:"12px 8px"}}>
+                <div style={{fontSize:20}}>{ico}</div>
+                <div style={{fontSize:22,fontWeight:800,color:C.accent}}>{cnt}</div>
+                <div style={{fontSize:10,color:C.sub,textTransform:"uppercase"}}>{lbl}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{...secTitle}}>🗑️ Eliminaciones recientes</div>
+          {d.historial.length===0 ? (
+            <div style={{textAlign:"center",padding:"24px",color:C.sub,fontSize:12}}>Sin eliminaciones registradas</div>
+          ) : d.historial.slice(0,30).map((e,i)=>(
+            <div key={i} style={{...card,padding:10,marginBottom:6}}>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+                <span style={{fontSize:10,background:TIPO_COL[e.tipo]+"22",color:TIPO_COL[e.tipo],borderRadius:4,padding:"2px 7px",fontWeight:700,textTransform:"uppercase"}}>
+                  {TIPO_LABEL[e.tipo]||e.tipo}
+                </span>
+                <span style={{fontSize:11,color:C.muted,fontFamily:"monospace"}}>{e.fecha} {e.hora}</span>
+              </div>
+              <div style={{fontSize:12,color:C.sub,marginTop:2}}>{e.resumen}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── EXPORTAR ── */}
+      {tab==="exportar" && (
+        <div>
+          <div style={{...panel,marginBottom:14}}>
+            <div style={secTitle}>📅 Seleccionar fecha</div>
+            <div style={{display:"flex",gap:8}}>
+              <input type="date" value={exportDate} onChange={e=>setExportDate(e.target.value)} style={{...inp,flex:1}} />
+              <button onClick={()=>setExportDate(date)} style={{...btnSecondary,width:"auto",padding:"10px 14px",whiteSpace:"nowrap"}}>Hoy</button>
+            </div>
+            <div style={{fontSize:11,color:C.sub,marginTop:8,textAlign:"center"}}>Exportando datos del {fmtDate(exportDate)}</div>
+          </div>
+
+          <div style={{...secTitle}}>Formato de exportación</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr",gap:10}}>
+            <button onClick={doExportCSV} disabled={exporting} style={{background:"#064e3b",color:"#34d399",border:"1px solid #34d39944",borderRadius:12,padding:"16px 18px",cursor:"pointer",textAlign:"left",opacity:exporting?0.6:1}}>
+              <div style={{fontSize:17,marginBottom:3,fontWeight:700}}>📊 Exportar CSV</div>
+              <div style={{fontSize:11,color:"#6ee7b7"}}>Ingresos · Cargas · Movimientos — Compatible con Excel, Google Sheets y cualquier planilla</div>
+            </button>
+            <button onClick={doExportXLS} disabled={exporting} style={{background:"#1e3a5f",color:"#60a5fa",border:"1px solid #60a5fa44",borderRadius:12,padding:"16px 18px",cursor:"pointer",textAlign:"left",opacity:exporting?0.6:1}}>
+              <div style={{fontSize:17,marginBottom:3,fontWeight:700}}>📗 Exportar Excel (.xls)</div>
+              <div style={{fontSize:11,color:"#93c5fd"}}>Tabla formateada lista para abrir en Microsoft Excel</div>
+            </button>
+            <button onClick={doExportPDF} disabled={exporting} style={{background:"#4a1942",color:"#e879f9",border:"1px solid #e879f944",borderRadius:12,padding:"16px 18px",cursor:"pointer",textAlign:"left",opacity:exporting?0.6:1}}>
+              <div style={{fontSize:17,marginBottom:3,fontWeight:700}}>📄 Ver / Imprimir PDF</div>
+              <div style={{fontSize:11,color:"#f0abfc"}}>Abre una vista de impresión — guardá como PDF desde el navegador</div>
+            </button>
+          </div>
+          {exporting && <div style={{textAlign:"center",marginTop:14,color:C.accent,fontSize:13}}>⏳ Preparando exportación...</div>}
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ─── APP PRINCIPAL ────────────────────────────────────────────
 export default function App() {
   const [section, setSection] = useState("ingresos");
@@ -1386,7 +1910,17 @@ export default function App() {
   const [informe, setInforme] = useState(false);
   const [initModal, setInitModal] = useState(false);
   const [initNombre, setInitNombre] = useState("");
+  const [perfil, setPerfil] = useState(null); // null | "supervisor" | "jefe"
+  const [perfilModal, setPerfilModal] = useState(false);
+  const [loginUser, setLoginUser] = useState("");
+  const [loginPass, setLoginPass] = useState("");
+  const [loginError, setLoginError] = useState("");
+  const [syncKey, setSyncKey] = useState(0); // incrementa cada 30s → refresca datos en todas las secciones
   const isToday = date === getToday();
+
+  const navItems = perfil
+    ? [...NAV, { id: "supervisor", label: "Superv.", icon: PERFILES[perfil]?.icon || "👔" }]
+    : NAV;
 
   // Pedir identificación al inicio si el turno actual no tiene responsable
   useEffect(() => {
@@ -1397,12 +1931,48 @@ export default function App() {
     });
   }, []);
 
+  // Sync cada 30s: refresca datos de todas las secciones + registra presencia de usuario
+  useEffect(() => {
+    const rol    = perfil ? PERFILES[perfil].label : "Operario";
+    const nombre = initNombre || "Operario";
+    updateHeartbeat(nombre, rol);
+    const interval = setInterval(() => {
+      setSyncKey(k => k + 1);
+      updateHeartbeat(nombre, rol);
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [perfil, initNombre]);
+
   const guardarResponsable = async () => {
     if (!initNombre.trim()) return;
     const t = getCurrentTurno();
     const d = await load(date, "stock", {});
     await save(date, "stock", { ...d, [t]: { ...(d[t] || {}), resp: initNombre.trim() } });
     setInitModal(false);
+  };
+
+  const handleLogin = () => {
+    const key = Object.keys(PERFILES).find(k =>
+      PERFILES[k].usuario === loginUser && PERFILES[k].clave === loginPass
+    );
+    if (key) {
+      setPerfil(key);
+      setLoginUser(""); setLoginPass(""); setLoginError("");
+      setPerfilModal(false);
+    } else {
+      setLoginError("Usuario o contraseña incorrectos.");
+    }
+  };
+
+  const handleLogout = () => {
+    setPerfil(null);
+    if (section === "supervisor") setSection("ingresos");
+    setPerfilModal(false);
+  };
+
+  const closePerfilModal = () => {
+    setPerfilModal(false);
+    setLoginUser(""); setLoginPass(""); setLoginError("");
   };
 
   return (
@@ -1427,6 +1997,52 @@ export default function App() {
         </Modal>
       )}
 
+      {/* Modal perfil / login */}
+      {perfilModal && (
+        <Modal title="Acceso con perfil" onClose={closePerfilModal} zIndex={200}>
+          {perfil ? (
+            <div>
+              <div style={{ textAlign: "center", marginBottom: 20 }}>
+                <div style={{ fontSize: 40, marginBottom: 8 }}>{PERFILES[perfil].icon}</div>
+                <div style={{ fontSize: 17, fontWeight: 700, color: C.text }}>{PERFILES[perfil].label}</div>
+                <div style={{ fontSize: 12, color: C.success, marginTop: 4, fontWeight: 600 }}>● Sesión activa</div>
+              </div>
+              <button
+                style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, width: "100%" }}
+                onClick={handleLogout}
+              >Cerrar sesión</button>
+            </div>
+          ) : (
+            <div>
+              <div style={{ color: C.sub, fontSize: 13, marginBottom: 16, lineHeight: 1.5 }}>
+                Ingresá tus credenciales para acceder con un perfil especial.
+              </div>
+              <F label="Usuario">
+                <input style={inp} type="text" autoFocus value={loginUser}
+                  onChange={e => { setLoginUser(e.target.value); setLoginError(""); }}
+                  onKeyDown={e => e.key === "Enter" && document.getElementById("loginPassInput")?.focus()}
+                  placeholder="Usuario" />
+              </F>
+              <F label="Contraseña">
+                <input id="loginPassInput" style={inp} type="password" value={loginPass}
+                  onChange={e => { setLoginPass(e.target.value); setLoginError(""); }}
+                  onKeyDown={e => e.key === "Enter" && handleLogin()}
+                  placeholder="Contraseña" />
+              </F>
+              {loginError && (
+                <div style={{ color: C.danger, fontSize: 12, marginBottom: 10, padding: "6px 10px", background: "#ef444418", borderRadius: 6 }}>
+                  {loginError}
+                </div>
+              )}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                <button style={btnSecondary} onClick={closePerfilModal}>Cancelar</button>
+                <button style={btnPrimary} onClick={handleLogin}>Ingresar</button>
+              </div>
+            </div>
+          )}
+        </Modal>
+      )}
+
       {/* Modal informe */}
       {informe && <InformeModal date={date} onClose={() => setInforme(false)} />}
 
@@ -1435,10 +2051,23 @@ export default function App() {
         <div>
           <div style={{ fontSize: 10, color: C.accent, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.15em" }}>🏭 Yatasto · Recibo</div>
           <div style={{ fontSize: 20, fontWeight: 700, color: C.text, lineHeight: 1.1 }}>
-            {NAV.find(n => n.id === section)?.icon} {NAV.find(n => n.id === section)?.label}
+            {navItems.find(n => n.id === section)?.icon} {navItems.find(n => n.id === section)?.label}
           </div>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          {/* Botón perfil */}
+          <button onClick={() => setPerfilModal(true)} title={perfil ? PERFILES[perfil].label : "Acceder con perfil"} style={{
+            background: perfil ? C.accentDim : C.card,
+            border: `1px solid ${perfil ? C.accentDark : C.border}`,
+            borderRadius: 10, color: perfil ? C.accent : C.sub,
+            padding: "7px 11px", cursor: "pointer", fontSize: 16,
+            position: "relative", lineHeight: 1,
+          }}>
+            👤
+            {perfil && (
+              <span style={{ position: "absolute", top: 4, right: 4, width: 7, height: 7, background: C.success, borderRadius: "50%", display: "block", border: `1.5px solid ${C.surface}` }} />
+            )}
+          </button>
           <button onClick={() => setInforme(true)} style={{
             background: C.card, border: `1px solid ${C.border}`,
             borderRadius: 10, color: C.text, padding: "8px 10px",
@@ -1464,17 +2093,18 @@ export default function App() {
 
       {/* Content */}
       <div style={{ padding: "12px 16px 0" }}>
-        {section === "ingresos" && <SecIngresos date={date} />}
-        {section === "cip" && <SecCIP date={date} />}
-        {section === "carga" && <SecCarga date={date} />}
-        {section === "movimientos" && <SecMovimientos date={date} />}
-        {section === "stock" && <SecStock date={date} />}
-        {section === "fortificados" && <SecFortificados date={date} />}
+        {section === "ingresos"    && <SecIngresos    date={date} syncKey={syncKey} />}
+        {section === "cip"         && <SecCIP          date={date} syncKey={syncKey} />}
+        {section === "carga"       && <SecCarga        date={date} syncKey={syncKey} />}
+        {section === "movimientos" && <SecMovimientos  date={date} syncKey={syncKey} />}
+        {section === "stock"       && <SecStock        date={date} syncKey={syncKey} />}
+        {section === "fortificados"&& <SecFortificados date={date} syncKey={syncKey} />}
+        {section === "supervisor"  && perfil && <SecDashboard date={date} perfil={perfil} perfilLabel={PERFILES[perfil]?.label || ""} syncKey={syncKey} />}
       </div>
 
       {/* Bottom nav */}
-      <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: C.surface, borderTop: `1px solid ${C.border}`, display: "grid", gridTemplateColumns: "repeat(6,1fr)", zIndex: 40 }}>
-        {NAV.map(n => (
+      <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: C.surface, borderTop: `1px solid ${C.border}`, display: "grid", gridTemplateColumns: `repeat(${navItems.length},1fr)`, zIndex: 40 }}>
+        {navItems.map(n => (
           <button key={n.id} onClick={() => setSection(n.id)} style={{
             background: "none", border: "none", cursor: "pointer", padding: "10px 0 13px",
             display: "flex", flexDirection: "column", alignItems: "center", gap: 2,
