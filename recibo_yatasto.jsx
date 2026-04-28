@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, Fragment } from "react";
 
 // ─── CONSTANTES ───────────────────────────────────────────────
 const TAMBOS_BASE = [
@@ -127,8 +127,27 @@ const SESSION_ID = (() => {
   } catch { return "local-" + Math.random().toString(36).slice(2, 7); }
 })();
 
-// Rangos de referencia para alertas de calidad
-const QUALITY_REFS = { "pH": { min: 6.6, max: 6.8 }, "Acidez": { min: 14, max: 18 } };
+// Rangos de referencia para alertas de calidad (solo visibles a Supervisor/Jefe)
+const QUALITY_REFS = {
+  "pH":          { min: 6.6,  max: 6.8  },
+  "Acidez":      { min: 14,   max: 18   },
+  "GB":          { min: 3,    max: 4    },
+  "SNG":         { min: 8,    max: 8.7  },
+  "Proteína":    { min: 2.9,  max: 3.5  },
+  "Temperatura": { min: 3,    max: 8    },
+  "Aguado":      { min: 0,    max: 0,   critical: true }, // debe ser EXACTAMENTE 0
+};
+
+// Campos a comparar Tambo vs Fábrica para detección de desvíos
+const DIFF_FIELDS = [
+  { label: "Litros",    fca: "litrosFca", tbo: "litrosTbo",  thresh: 100,   pct: true,  critical: false },
+  { label: "GB",        fca: "gbFca",     tbo: "gbTbo",      thresh: 0.25,  pct: false, critical: false },
+  { label: "SNG",       fca: "sngFca",    tbo: "sngTbo",     thresh: 0.25,  pct: false, critical: false },
+  { label: "Densidad",  fca: "densFca",   tbo: "densTbo",    thresh: 0.003, pct: false, critical: false },
+  { label: "Aguado",    fca: "aguadoFca", tbo: "aguadoTbo",  thresh: 0.01,  pct: false, critical: true  },
+  { label: "Proteína",  fca: "protFca",   tbo: "protTbo",    thresh: 0.2,   pct: false, critical: false },
+  { label: "Alcohol",   fca: "alcFca",    tbo: "alcTbo",     thresh: 1,     pct: false, critical: false },
+];
 
 async function updateHeartbeat(nombre, rol) {
   try {
@@ -831,7 +850,7 @@ const SecCarga = ({ date, syncKey = 0 }) => {
 };
 
 // ─── MOVIMIENTOS ─────────────────────────────────────────────
-const emptyMov = () => ({ id: Date.now(), hora: getNow(), desde: "", hasta: "", litros: "", motivo: "", resp: "" });
+const emptyMov = () => ({ id: Date.now(), hora: getNow(), desde: "", hasta: "", litros: "", producto: "", motivo: "", resp: "" });
 const emptyCtrl = () => ({ id: Date.now(), hora: getNow(), silo: "", ph: "", gD: "", gC: "", alc: "", mg: "", sng: "", dens: "", fp: "", prot: "", resp: "" });
 
 const MovForm = ({ initial, onSave, onClose, onDelete }) => {
@@ -847,6 +866,7 @@ const MovForm = ({ initial, onSave, onClose, onDelete }) => {
         <F label="Desde"><Sel value={f.desde} onChange={set("desde")} options={SILOS_TODOS} placeholder="Origen..." /></F>
         <F label="Hasta"><Sel value={f.hasta} onChange={set("hasta")} options={SILOS_TODOS} placeholder="Destino..." /></F>
       </div>
+      <F label="Producto que se mueve"><Sel value={f.producto || ""} onChange={set("producto")} options={PRODS_STOCK} placeholder="Seleccionar producto..." /></F>
       <F label="Motivo"><Inp value={f.motivo || ""} onChange={set("motivo")} placeholder="Ej: Trasvase, Mezcla, etc." /></F>
       <F label="Responsable"><Inp value={f.resp} onChange={set("resp")} /></F>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
@@ -933,8 +953,15 @@ const SecMovimientos = ({ date, syncKey = 0 }) => {
                 <span style={{ fontFamily: "monospace", color: C.accent, fontWeight: 700, fontSize: 16 }}>{m.hora}</span>
                 {m.litros && <span style={{ color: C.text, fontWeight: 600 }}>{parseFloat(m.litros).toLocaleString("es-AR")} L</span>}
               </div>
-              <div style={{ fontSize: 14, color: C.sub }}>{m.desde || "?"} → {m.hasta || "?"}</div>
-              {m.motivo && <div style={{ fontSize: 12, color: C.accent, marginTop: 2, fontStyle: "italic" }}>{m.motivo}</div>}
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
+                <span style={{ fontSize: 14, color: C.sub }}>{m.desde || "?"} → {m.hasta || "?"}</span>
+                {m.producto && (
+                  <span style={{ fontSize: 11, background: C.accentDim, color: C.accent, borderRadius: 5, padding: "1px 8px", fontWeight: 700 }}>
+                    {m.producto}
+                  </span>
+                )}
+              </div>
+              {m.motivo && <div style={{ fontSize: 12, color: C.sub, marginTop: 2, fontStyle: "italic" }}>{m.motivo}</div>}
               {m.resp && <div style={{ fontSize: 12, color: C.muted, marginTop: 1 }}>{m.resp}</div>}
             </div>
           ))}
@@ -1575,7 +1602,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
 
   const qualFields = [
     ["Acidez", "acidezFca"], ["pH", "phFca"], ["GB", "gbFca"],
-    ["SNG", "sngFca"], ["Densidad", "densFca"], ["Proteína", "protFca"],
+    ["SNG", "sngFca"], ["Proteína", "protFca"], ["Temperatura", "tC"], ["Aguado", "aguadoFca"],
   ];
   const quality = {};
   qualFields.forEach(([label, key]) => {
@@ -1716,16 +1743,53 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
     if (litros > 0 && pct > 90) alertas.push({ tipo: "warn", msg: `Silo ${s} al ${pct.toFixed(0)}% — casi lleno` });
     if (litros < 0) alertas.push({ tipo: "err", msg: `Silo ${s}: balance negativo (${litros.toLocaleString("es-AR")} L)` });
   });
-  if (quality["pH"]) {
-    const r = QUALITY_REFS["pH"];
-    if (quality["pH"].min < r.min || quality["pH"].max > r.max)
-      alertas.push({ tipo: "warn", msg: `pH fuera de rango: avg ${quality["pH"].avg.toFixed(2)} (ref: ${r.min}–${r.max})` });
-  }
-  if (quality["Acidez"]) {
-    const r = QUALITY_REFS["Acidez"];
-    if (quality["Acidez"].min < r.min || quality["Acidez"].max > r.max)
-      alertas.push({ tipo: "warn", msg: `Acidez fuera de rango: avg ${quality["Acidez"].avg.toFixed(1)} (ref: ${r.min}–${r.max})` });
-  }
+  // Alertas por parámetros de calidad (todos los rangos de QUALITY_REFS)
+  qualFields.forEach(([label]) => {
+    const ref = QUALITY_REFS[label];
+    if (!ref || !quality[label]) return;
+    const v = quality[label];
+    const outOfRange = v.avg < ref.min || v.avg > ref.max;
+    if (outOfRange) {
+      const isCrit = ref.critical || label === "Aguado";
+      alertas.push({
+        tipo: isCrit ? "err" : "warn",
+        msg: isCrit
+          ? `🚨 AGUADO detectado — promedio ${v.avg.toFixed(3)} (debe ser 0) — revisar adulteración`
+          : `${label} fuera de rango: promedio ${v.avg.toFixed(2)} (ref: ${ref.min}–${ref.max})`,
+      });
+    }
+  });
+  // Alertas por desvíos Tambo vs Fábrica (cualquier ingreso con aguado > 0 = crítico)
+  const ingConAguado = d.ing.filter(i => parseFloat(i.aguadoFca) > 0 || parseFloat(i.aguadoTbo) > 0);
+  if (ingConAguado.length > 0)
+    alertas.push({ tipo: "err", msg: `🚨 ${ingConAguado.length} camión/es con AGUADO detectado: ${ingConAguado.map(i => i.tambo || "?").join(", ")}` });
+  const ingConDesvio = d.ing.filter(i => {
+    const dL = Math.abs((parseFloat(i.litrosFca) || 0) - (parseFloat(i.litrosTbo) || 0));
+    return dL > 150;
+  });
+  if (ingConDesvio.length > 0)
+    alertas.push({ tipo: "warn", msg: `⚖️ ${ingConDesvio.length} camión/es con diferencia de litros Tbo/Fca > 150 L` });
+
+  // ── Análisis diferencias Tambo vs Fábrica ────────────────────
+  const analisisDifs = d.ing.map(ing => {
+    const diffs = DIFF_FIELDS.map(f => {
+      const vFca = parseFloat(ing[f.fca]);
+      const vTbo = parseFloat(ing[f.tbo]);
+      if (isNaN(vFca) || isNaN(vTbo) || (vFca === 0 && vTbo === 0)) return null;
+      const diff = vFca - vTbo;
+      const absDiff = Math.abs(diff);
+      const pctDiff = vTbo !== 0 ? (diff / Math.abs(vTbo)) * 100 : null;
+      const flagged = absDiff > f.thresh;
+      return { ...f, vFca, vTbo, diff, absDiff, pctDiff, flagged };
+    }).filter(Boolean);
+    const flaggedCount = diffs.filter(df => df.flagged).length;
+    const hasCritical = diffs.some(df => df.flagged && df.critical);
+    const severity = hasCritical ? "crit" : flaggedCount >= 2 ? "warn" : flaggedCount >= 1 ? "attn" : "ok";
+    return { ing, diffs, flaggedCount, hasCritical, severity };
+  }).sort((a, b) => {
+    const o = { crit: 0, warn: 1, attn: 2, ok: 3 };
+    return o[a.severity] - o[b.severity] || b.flaggedCount - a.flaggedCount;
+  });
 
   return (
     <div>
@@ -1754,7 +1818,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
 
       {/* Tabs */}
       <div style={{ display: "flex", gap: 4, marginBottom: 14, overflowX: "auto", paddingBottom: 2 }}>
-        {[["resumen", "📊", "Resumen"], ["silos", "🏭", "Silos"], ["calidad", "📈", "Calidad"], ["historial", "📋", "Historial"], ["exportar", "📤", "Exportar"]].map(([t, ico, lbl]) => (
+        {[["resumen", "📊", "Resumen"], ["silos", "🏭", "Silos"], ["calidad", "📈", "Calidad"], ["difs", "🔍", "Difs."], ["historial", "📋", "Historial"], ["exportar", "📤", "Exportar"]].map(([t, ico, lbl]) => (
           <button key={t} onClick={() => setTab(t)} style={{
             ...(tab === t ? btnPrimary : btnSecondary),
             padding: "8px 6px", fontSize: 11, whiteSpace: "nowrap", flex: 1, minWidth: 0,
@@ -1838,6 +1902,133 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
           )}
         </div>
       )}
+
+      {/* ── DIFS TAMBO vs FÁBRICA ── */}
+      {tab === "difs" && (() => {
+        const conProblemas = analisisDifs.filter(a => a.severity !== "ok");
+        const critCount  = analisisDifs.filter(a => a.severity === "crit").length;
+        const warnCount  = analisisDifs.filter(a => a.severity === "warn").length;
+        const attnCount  = analisisDifs.filter(a => a.severity === "attn").length;
+
+        const SEV = {
+          crit: { label: "🚨 ADULTERACIÓN",  bg: "#450a0a", border: "#ef444466", text: "#fca5a5", badge: "#ef4444" },
+          warn: { label: "🔴 ALERTA",         bg: "#431407", border: "#f9731644", text: "#fdba74", badge: "#f97316" },
+          attn: { label: "🟡 DESVÍO",         bg: "#422006", border: "#d9770644", text: "#fde68a", badge: "#f59e0b" },
+          ok:   { label: "✅ Normal",          bg: C.card,    border: C.border,    text: C.sub,    badge: "#22c55e" },
+        };
+
+        return (
+          <div>
+            {/* Banner resumen */}
+            <div style={{ ...panel, marginBottom: 14, borderColor: critCount > 0 ? "#ef444466" : warnCount > 0 ? "#f9731644" : "#f59e0b44" }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 8 }}>
+                🔍 Auditoría Tambo vs Fábrica — {fmtDate(date)}
+              </div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {[
+                  { lbl: "Adulteración", val: critCount,  col: "#ef4444" },
+                  { lbl: "Alertas",      val: warnCount,  col: "#f97316" },
+                  { lbl: "Desvíos",      val: attnCount,  col: "#f59e0b" },
+                  { lbl: "Normales",     val: analisisDifs.length - conProblemas.length, col: "#22c55e" },
+                ].map(({ lbl, val, col }) => (
+                  <div key={lbl} style={{ flex: 1, minWidth: 60, textAlign: "center", background: col + "18", borderRadius: 10, padding: "8px 6px", border: `1px solid ${col}33` }}>
+                    <div style={{ fontSize: 20, fontWeight: 800, color: col }}>{val}</div>
+                    <div style={{ fontSize: 10, color: C.sub, marginTop: 1 }}>{lbl}</div>
+                  </div>
+                ))}
+              </div>
+              {critCount === 0 && conProblemas.length === 0 && (
+                <div style={{ textAlign: "center", marginTop: 10, color: "#22c55e", fontSize: 13, fontWeight: 600 }}>
+                  ✅ Todos los camiones dentro de parámetros normales
+                </div>
+              )}
+            </div>
+
+            {/* Umbral de referencia */}
+            <div style={{ fontSize: 10, color: C.muted, marginBottom: 10, padding: "6px 10px", background: C.card, borderRadius: 8, border: `1px solid ${C.border}` }}>
+              <b style={{ color: C.sub }}>Umbrales de alerta:</b>{" "}
+              Litros ±100 L · GB ±0.25 · SNG ±0.25 · Densidad ±0.003 · <b style={{ color: "#fca5a5" }}>Aguado &gt;0 = CRÍTICO</b> · Proteína ±0.2 · Alcohol ±1
+            </div>
+
+            {/* Cards por ingreso */}
+            {analisisDifs.length === 0 ? (
+              <div style={{ textAlign: "center", padding: 32, color: C.sub, fontSize: 13 }}>Sin ingresos registrados para esta fecha</div>
+            ) : analisisDifs.map(({ ing, diffs, flaggedCount, severity }, idx) => {
+              const sev = SEV[severity];
+              const flaggedDiffs = diffs.filter(df => df.flagged);
+              const okDiffs      = diffs.filter(df => !df.flagged);
+              const tamboParsed  = TAMBOS_BASE.find(t => String(t.num) === String(ing.tambo)) || null;
+              const tamboNombre  = tamboParsed ? `${tamboParsed.nombre} (#${tamboParsed.num})` : (ing.tambo ? `Tambo #${ing.tambo}` : "—");
+
+              return (
+                <div key={ing.id || idx} style={{ background: sev.bg, border: `1px solid ${sev.border}`, borderRadius: 14, padding: 14, marginBottom: 10 }}>
+                  {/* Cabecera */}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
+                    <div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: C.text }}>{tamboNombre}</div>
+                      <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>
+                        {ing.hora || "—"} · {(parseFloat(ing.litrosFca) || 0).toLocaleString("es-AR")} L Fca · {(parseFloat(ing.litrosTbo) || 0).toLocaleString("es-AR")} L Tbo
+                      </div>
+                    </div>
+                    <span style={{ fontSize: 11, background: sev.badge + "33", color: sev.badge, border: `1px solid ${sev.badge}55`, borderRadius: 8, padding: "4px 10px", fontWeight: 700, whiteSpace: "nowrap" }}>
+                      {sev.label}
+                    </span>
+                  </div>
+
+                  {/* Tabla de parámetros con desvío */}
+                  {flaggedDiffs.length > 0 && (
+                    <div style={{ marginBottom: 8 }}>
+                      <div style={{ fontSize: 10, color: sev.text, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 5, fontWeight: 700 }}>
+                        ⚠ {flaggedDiffs.length} parámetro{flaggedDiffs.length > 1 ? "s" : ""} fuera de rango
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "auto 1fr 1fr 1fr 1fr", gap: "3px 8px", alignItems: "center" }}>
+                        {/* Header */}
+                        {["Param.", "Tambo", "Fábrica", "Δ Dif.", "Δ %"].map(h => (
+                          <div key={h} style={{ fontSize: 9, color: C.muted, textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 600, paddingBottom: 3, borderBottom: `1px solid ${C.border}` }}>{h}</div>
+                        ))}
+                        {/* Filas */}
+                        {flaggedDiffs.map((df, i) => {
+                          const signo = df.diff > 0 ? "+" : "";
+                          const pctStr = df.pctDiff !== null ? `${signo}${df.pctDiff.toFixed(1)}%` : "—";
+                          const diffStr = df.label === "Litros"
+                            ? `${signo}${Math.round(df.diff).toLocaleString("es-AR")} L`
+                            : `${signo}${df.diff.toFixed(3)}`;
+                          const rowCol = df.critical ? "#fca5a5" : sev.text;
+                          return (
+                            <Fragment key={i}>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: rowCol }}>{df.label}{df.critical ? " 🚨" : ""}</div>
+                              <div style={{ fontSize: 11, color: C.text, fontFamily: "monospace" }}>{df.label === "Litros" ? (df.vTbo || 0).toLocaleString("es-AR") : df.vTbo.toFixed(3)}</div>
+                              <div style={{ fontSize: 11, color: C.text, fontFamily: "monospace" }}>{df.label === "Litros" ? (df.vFca || 0).toLocaleString("es-AR") : df.vFca.toFixed(3)}</div>
+                              <div style={{ fontSize: 11, color: rowCol, fontFamily: "monospace", fontWeight: 600 }}>{diffStr}</div>
+                              <div style={{ fontSize: 11, color: df.pctDiff !== null && Math.abs(df.pctDiff) > 5 ? rowCol : C.muted, fontFamily: "monospace" }}>{pctStr}</div>
+                            </Fragment>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Parámetros OK (colapsados) */}
+                  {severity === "ok" && okDiffs.length > 0 && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                      {okDiffs.map((df, i) => (
+                        <span key={i} style={{ fontSize: 10, background: "#16a34a22", color: "#4ade80", borderRadius: 5, padding: "2px 7px" }}>
+                          ✓ {df.label}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {severity !== "ok" && okDiffs.length > 0 && (
+                    <div style={{ fontSize: 10, color: C.muted, marginTop: 6 }}>
+                      Sin desvío: {okDiffs.map(df => df.label).join(", ")}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
 
       {/* ── HISTORIAL ── */}
       {tab === "historial" && (
