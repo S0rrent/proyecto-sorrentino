@@ -23,10 +23,10 @@ const PERFILES = {
   supervisor: { usuario: "Supervisor", clave: "Yatasto2026$", label: "Supervisor", icon: "👔" },
   jefe: { usuario: "Jefe", clave: "BuenaLeche123$", label: "Jefe de Planta", icon: "👑" },
 };
-const SILOS = ["100 NUEVO", "100 VIEJO", "80", "60", "42", "40F", "15"];
+const SILOS = ["100 NUEVO", "100 VIEJO", "80", "60", "42", "40F", "20", "15"];
 const SILOS_TODOS = [...SILOS, "TQ1", "TQ2", "TQ3", "TQ6", "TQ7", "TQ8", "TQ9", "POSTRE", "TINA", "DULCE"];
-const CIP_SILOS = ["100 N", "100 V", "80", "60", "42", "40F", "15", "LINEA 1", "LINEA 2"];
-const STOCK_SILOS = ["100 N", "100 V", "80", "60", "42", "40F", "15", "TQ6", "TQ7"];
+const CIP_SILOS = ["100 N", "100 V", "80", "60", "42", "40F", "20", "15", "LINEA 1", "LINEA 2"];
+const STOCK_SILOS = ["100 N", "100 V", "80", "60", "42", "40F", "20", "15", "TQ6", "TQ7"];
 const TURNOS = ["07:00", "14:00", "21:00"];
 const TURNO_LABELS = { "07:00": "Mañana", "14:00": "Tarde", "21:00": "Noche" };
 const TURNO_CIERRE = { "07:00": "14:00", "14:00": "21:00", "21:00": "07:00" }; // hora de cierre
@@ -48,8 +48,22 @@ const NAV = [
 const SILO_CAP = {
   "100 N": 100000, "100 V": 100000,
   "80": 80000, "60": 60000, "42": 42000,
-  "40F": 40000, "15": 15000,
+  "40F": 40000, "20": 20000, "15": 15000,
   "TQ6": 6000, "TQ7": 7000,
+};
+// Mínimos recomendados por silo (litros)
+const SILO_MIN = {
+  "100 N": 5000, "100 V": 5000,
+  "80": 4000, "60": 3000, "42": 2000,
+  "40F": 2000, "20": 1000, "15": 1000,
+  "TQ6": 500, "TQ7": 500,
+};
+// Máximos recomendados por silo (litros) — 95% de capacidad aprox.
+const SILO_MAX = {
+  "100 N": 95000, "100 V": 95000,
+  "80": 76000, "60": 57000, "42": 40000,
+  "40F": 38000, "20": 19000, "15": 14000,
+  "TQ6": 5700, "TQ7": 6650,
 };
 
 // Color de llenado por producto
@@ -68,9 +82,14 @@ const PROD_COLOR = {
 const SILO_STOCK_KEY = {
   "100 NUEVO": "100 N", "100 N": "100 N",
   "100 VIEJO": "100 V", "100 V": "100 V",
-  "80": "80", "60": "60", "42": "42", "40F": "40F", "15": "15",
+  "80": "80", "60": "60", "42": "42", "40F": "40F",
+  "20": "20", "15": "15",
   "TQ6": "TQ6", "TQ7": "TQ7",
 };
+// Productos de despacho para carga de camiones
+const CARGA_PRODUCTOS_BASE = ["Leche Entera", "Leche Descremada", "Suero", "Lactosa", "Concentrado", "Crema", "Otro"];
+// Productos concentrados que usan formulario simplificado en ingresos
+const PRODS_CONCENTRADOS = ["Lactosa", "Suero", "Concentrado"];
 
 // ─── UTILS ────────────────────────────────────────────────────
 const getToday = () => new Date().toISOString().split("T")[0];
@@ -110,15 +129,23 @@ async function save(date, sec, data) {
   try { await window.storage.set(sKey(date, sec), JSON.stringify(data)); } catch (e) { console.error(e); }
 }
 async function loadCfg() {
-  const def = { tambosCustom: [], camionesCustom: [], transportistas: [] };
+  const def = { tambosCustom: [], camionesCustom: [], transportistas: [], cargaProductosCustom: [] };
   try { const r = await window.storage.get(CFG_KEY); return r ? { ...def, ...JSON.parse(r.value) } : def; }
   catch { return def; }
+}
+// Saldo de silos entre días
+async function loadSaldo() {
+  try { const r = await window.storage.get(SALDO_KEY); return r ? JSON.parse(r.value) : null; } catch { return null; }
+}
+async function saveSaldo(data, fromDate) {
+  try { await window.storage.set(SALDO_KEY, JSON.stringify({ data, fromDate })); } catch { }
 }
 async function saveCfg(data) {
   try { await window.storage.set(CFG_KEY, JSON.stringify(data)); } catch (e) { console.error(e); }
 }
 const ELIM_KEY = "yatasto:eliminados";
 const USERS_KEY = "yatasto:usuarios";
+const SALDO_KEY = "yatasto:saldo-silos";
 const SESSION_ID = (() => {
   try {
     let id = sessionStorage.getItem("yatasto:sid");
@@ -185,15 +212,22 @@ async function logDelete(tipo, item) {
   } catch { }
 }
 
-// Calcula litros netos por silo: ingresos + movimientos − cargas − fort_origen + fort_destino
+// Calcula litros netos por silo: saldo_anterior + ingresos + movimientos − cargas − fort_origen + fort_destino
 async function calcAutoLitros(date) {
-  const [ingresos, movData, cargas, forts] = await Promise.all([
+  const [ingresos, movData, cargas, forts, saldo] = await Promise.all([
     load(date, "ingresos", []),
     load(date, "movimientos", { movs: [], ctrls: [] }),
     load(date, "carga", []),
     load(date, "fortificados", []),
+    loadSaldo(),
   ]);
   const totals = {};
+  // Saldo de días anteriores
+  if (saldo && saldo.fromDate && saldo.fromDate < date) {
+    Object.entries(saldo.data || {}).forEach(([key, litros]) => {
+      if (litros > 0) totals[key] = (totals[key] || 0) + litros;
+    });
+  }
   ingresos.forEach(ing => {
     const key = SILO_STOCK_KEY[ing.destino];
     if (key) totals[key] = (totals[key] || 0) + (parseFloat(ing.litrosFca) || 0);
@@ -386,7 +420,7 @@ const emptyIng = () => ({
   gbFca: "", gbTbo: "", sngFca: "", sngTbo: "",
   densFca: "", densTbo: "", aguadoFca: "", aguadoTbo: "",
   dcFca: "", dcTbo: "", protFca: "", protTbo: "", atm: "", obs: "",
-  producto: "",
+  producto: "", brix: "", organoleptico: "",
 });
 
 const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo }) => {
@@ -396,6 +430,8 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
     const t = tambos.find(t => t.nombre === nombre);
     setF(p => ({ ...p, tambo: nombre, num: t ? String(t.num) : p.num }));
   };
+  const isConcentrado = PRODS_CONCENTRADOS.includes(f.producto);
+
   return (
     <div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
@@ -413,42 +449,87 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
       <F label="Producto">
         <Sel value={f.producto || ""} onChange={set("producto")} options={PRODUCTOS} placeholder="Seleccionar producto..." />
       </F>
-      <div style={panel}>
-        <div style={secTitle}>📦 Litros & Destino</div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-          <F label="Litros Fábrica"><Inp type="number" value={f.litrosFca} onChange={set("litrosFca")} placeholder="0" /></F>
-          <F label="Litros Tambo"><Inp type="number" value={f.litrosTbo} onChange={set("litrosTbo")} placeholder="0" /></F>
+
+      {/* Badge que distingue el formulario */}
+      {isConcentrado && (
+        <div style={{ background: "#1e3a5f", border: "1px solid #3b82f644", borderRadius: 10, padding: "8px 12px", marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 16 }}>🧪</span>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#60a5fa" }}>Formulario simplificado — Producto concentrado</div>
+            <div style={{ fontSize: 10, color: C.sub }}>Solo se requieren los parámetros esenciales para este tipo de producto.</div>
+          </div>
         </div>
-        <F label="Destino — Silo"><Sel value={f.destino} onChange={set("destino")} options={SILOS} placeholder="Seleccionar silo..." /></F>
-        <F label="Temperatura llegada (°C)"><Inp type="number" value={f.tC} onChange={set("tC")} step="0.1" placeholder="°C" /></F>
-      </div>
-      <div style={panel}>
-        <div style={secTitle}>🧪 Parámetros básicos</div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-          <F label="Acidez Fca."><Inp type="number" value={f.acidezFca} onChange={set("acidezFca")} step="0.1" /></F>
-          <F label="pH Fca."><Inp type="number" value={f.phFca} onChange={set("phFca")} step="0.01" /></F>
-        </div>
-        <Pair label="Prueba Alcohol" v1={f.alcFca} v2={f.alcTbo} on1={set("alcFca")} on2={set("alcTbo")} />
-      </div>
-      <div style={panel}>
-        <div style={secTitle}>📊 Composición</div>
-        <Pair label="Grasa Butirosa (GB)" v1={f.gbFca} v2={f.gbTbo} on1={set("gbFca")} on2={set("gbTbo")} />
-        <Pair label="Sólidos No Grasos (SNG)" v1={f.sngFca} v2={f.sngTbo} on1={set("sngFca")} on2={set("sngTbo")} />
-        <Pair label="Densidad" v1={f.densFca} v2={f.densTbo} on1={set("densFca")} on2={set("densTbo")} />
-        <Pair label="Aguado" v1={f.aguadoFca} v2={f.aguadoTbo} on1={set("aguadoFca")} on2={set("aguadoTbo")} />
-        <Pair label="Leche de Descarte" v1={f.dcFca} v2={f.dcTbo} on1={set("dcFca")} on2={set("dcTbo")} />
-        <Pair label="Proteína" v1={f.protFca} v2={f.protTbo} on1={set("protFca")} on2={set("protTbo")} />
-        <F label="ATM"><Sel value={f.atm || ""} onChange={set("atm")} options={["Sí", "No"]} placeholder="ATM..." /></F>
-      </div>
+      )}
+
+      {/* ── Formulario CONCENTRADOS (Lactosa / Suero / Concentrado) ── */}
+      {isConcentrado ? (
+        <>
+          <div style={panel}>
+            <div style={secTitle}>📦 Destino & Litros</div>
+            <F label="Destino — Silo"><Sel value={f.destino} onChange={set("destino")} options={SILOS} placeholder="Seleccionar silo..." /></F>
+            <F label="Litros"><Inp type="number" value={f.litrosFca} onChange={set("litrosFca")} placeholder="0" /></F>
+            <F label="Temperatura llegada (°C)"><Inp type="number" value={f.tC} onChange={set("tC")} step="0.1" placeholder="°C" /></F>
+          </div>
+          <div style={panel}>
+            <div style={secTitle}>🧪 Parámetros</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <F label="Acidez"><Inp type="number" value={f.acidezFca} onChange={set("acidezFca")} step="0.1" /></F>
+              <F label="pH"><Inp type="number" value={f.phFca} onChange={set("phFca")} step="0.01" /></F>
+            </div>
+            <F label="°BRIX"><Inp type="number" value={f.brix || ""} onChange={set("brix")} step="0.1" placeholder="°Brix" /></F>
+            <F label="Organoléptico">
+              <Sel value={f.organoleptico || ""} onChange={set("organoleptico")} options={["Sí", "No"]} placeholder="¿Conforme?" />
+            </F>
+          </div>
+        </>
+      ) : (
+        /* ── Formulario LECHE NORMAL ── */
+        <>
+          <div style={panel}>
+            <div style={secTitle}>📦 Litros & Destino</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <F label="Litros Fábrica"><Inp type="number" value={f.litrosFca} onChange={set("litrosFca")} placeholder="0" /></F>
+              <F label="Litros Tambo"><Inp type="number" value={f.litrosTbo} onChange={set("litrosTbo")} placeholder="0" /></F>
+            </div>
+            <F label="Destino — Silo"><Sel value={f.destino} onChange={set("destino")} options={SILOS} placeholder="Seleccionar silo..." /></F>
+            <F label="Temperatura llegada (°C)"><Inp type="number" value={f.tC} onChange={set("tC")} step="0.1" placeholder="°C" /></F>
+          </div>
+          <div style={panel}>
+            <div style={secTitle}>🧪 Parámetros básicos</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <F label="Acidez Fca."><Inp type="number" value={f.acidezFca} onChange={set("acidezFca")} step="0.1" /></F>
+              <F label="pH Fca."><Inp type="number" value={f.phFca} onChange={set("phFca")} step="0.01" /></F>
+            </div>
+            <Pair label="Prueba Alcohol" v1={f.alcFca} v2={f.alcTbo} on1={set("alcFca")} on2={set("alcTbo")} />
+          </div>
+          <div style={panel}>
+            <div style={secTitle}>📊 Composición</div>
+            <Pair label="Grasa Butirosa (GB)" v1={f.gbFca} v2={f.gbTbo} on1={set("gbFca")} on2={set("gbTbo")} />
+            <Pair label="Sólidos No Grasos (SNG)" v1={f.sngFca} v2={f.sngTbo} on1={set("sngFca")} on2={set("sngTbo")} />
+            <Pair label="Densidad" v1={f.densFca} v2={f.densTbo} on1={set("densFca")} on2={set("densTbo")} />
+            <Pair label="Aguado" v1={f.aguadoFca} v2={f.aguadoTbo} on1={set("aguadoFca")} on2={set("aguadoTbo")} />
+            <Pair label="Leche de Descarte" v1={f.dcFca} v2={f.dcTbo} on1={set("dcFca")} on2={set("dcTbo")} />
+            <Pair label="Proteína" v1={f.protFca} v2={f.protTbo} on1={set("protFca")} on2={set("protTbo")} />
+            <F label="ATM"><Sel value={f.atm || ""} onChange={set("atm")} options={["Sí", "No"]} placeholder="ATM..." /></F>
+          </div>
+        </>
+      )}
+
       <F label="Observaciones">
         <textarea style={{ ...inp, minHeight: 60, resize: "vertical" }} value={f.obs} onChange={e => set("obs")(e.target.value)} placeholder="Observaciones..." />
       </F>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
         <button style={btnSecondary} onClick={onClose}>Cancelar</button>
         <button style={btnPrimary} onClick={() => {
-          const req = [["tambo", "Tambo"], ["litrosFca", "Litros Fábrica"], ["destino", "Destino"], ["producto", "Producto"],
-          ["acidezFca", "Acidez Fca."], ["phFca", "pH Fca."], ["alcFca", "Prueba Alcohol Fca."],
-          ["gbFca", "GB Fca."], ["sngFca", "SNG Fca."], ["densFca", "Densidad Fca."], ["protFca", "Proteína Fca."], ["atm", "ATM"]];
+          let req;
+          if (isConcentrado) {
+            req = [["tambo", "Tambo"], ["litrosFca", "Litros"], ["destino", "Destino"],
+                   ["acidezFca", "Acidez"], ["phFca", "pH"]];
+          } else {
+            req = [["tambo", "Tambo"], ["litrosFca", "Litros Fábrica"], ["destino", "Destino"], ["producto", "Producto"],
+                   ["acidezFca", "Acidez Fca."], ["phFca", "pH Fca."], ["alcFca", "Prueba Alcohol Fca."],
+                   ["gbFca", "GB Fca."], ["sngFca", "SNG Fca."], ["densFca", "Densidad Fca."], ["protFca", "Proteína Fca."], ["atm", "ATM"]];
+          }
           const miss = req.filter(([k]) => !String(f[k] || "").trim()).map(([, v]) => v);
           if (miss.length) { alert("Campos obligatorios sin completar:\n• " + miss.join("\n• ")); return; }
           onSave(f);
@@ -710,16 +791,22 @@ const SecCIP = ({ date, syncKey = 0 }) => {
 };
 
 // ─── CARGA DE CAMIONES ────────────────────────────────────────
-const emptyCarga = () => ({ id: Date.now(), label: "CARGA 1", destino: "", transportista: "", siloProveniente: "", limpCisterna: "", litros: "", T: "", gC: "", pH: "", A: "", gD: "", hora: getNow(), responsable: "", obs: "" });
+const emptyCarga = () => ({ id: Date.now(), label: "CARGA 1", destino: "", transportista: "", producto: "", siloProveniente: "", limpCisterna: "", litros: "", T: "", gC: "", pH: "", A: "", gD: "", hora: getNow(), responsable: "", obs: "" });
 const CargaForm = ({ initial, onSave, onClose, onDelete }) => {
   const [f, setF] = useState(initial || emptyCarga());
   const set = k => v => setF(p => ({ ...p, [k]: v }));
   const [transportistas, setTransportistas] = useState([]);
+  const [cargaProductos, setCargaProductos] = useState(CARGA_PRODUCTOS_BASE);
   const [transModal, setTransModal] = useState(false);
+  const [prodModal, setProdModal] = useState(false);
   const [newTrans, setNewTrans] = useState("");
+  const [newProd, setNewProd] = useState("");
 
   useEffect(() => {
-    loadCfg().then(cfg => setTransportistas(cfg.transportistas || []));
+    loadCfg().then(cfg => {
+      setTransportistas(cfg.transportistas || []);
+      setCargaProductos([...CARGA_PRODUCTOS_BASE, ...(cfg.cargaProductosCustom || [])]);
+    });
   }, []);
 
   const saveNuevoTrans = async () => {
@@ -733,6 +820,18 @@ const CargaForm = ({ initial, onSave, onClose, onDelete }) => {
     setNewTrans(""); setTransModal(false);
   };
 
+  const saveNuevoProd = async () => {
+    if (!newProd.trim()) return;
+    const nombre = newProd.trim();
+    const cfg = await loadCfg();
+    const updated = { ...cfg, cargaProductosCustom: [...(cfg.cargaProductosCustom || []), nombre] };
+    await saveCfg(updated);
+    const lista = [...CARGA_PRODUCTOS_BASE, ...updated.cargaProductosCustom];
+    setCargaProductos(lista);
+    set("producto")(nombre);
+    setNewProd(""); setProdModal(false);
+  };
+
   return (
     <div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 6, marginBottom: 12 }}>
@@ -741,6 +840,21 @@ const CargaForm = ({ initial, onSave, onClose, onDelete }) => {
         ))}
       </div>
       <F label="Destino"><Inp value={f.destino} onChange={set("destino")} placeholder="Destino de la carga..." /></F>
+
+      {/* Producto despachado */}
+      <div style={{ marginBottom: 12 }}>
+        <label style={lbl}>Producto que se envía</label>
+        <div style={{ display: "flex", gap: 8 }}>
+          <div style={{ flex: 1 }}>
+            <Sel value={f.producto || ""} onChange={set("producto")} options={cargaProductos} placeholder="Seleccionar producto..." />
+          </div>
+          <button onClick={() => setProdModal(true)} style={{
+            background: C.card, border: `1px solid ${C.accentDark}`, color: C.accent,
+            borderRadius: 8, padding: "11px 14px", cursor: "pointer", fontSize: 13, fontWeight: 700,
+            whiteSpace: "nowrap",
+          }}>+ Nuevo</button>
+        </div>
+      </div>
 
       {/* Transportista */}
       <div style={{ marginBottom: 12 }}>
@@ -800,6 +914,20 @@ const CargaForm = ({ initial, onSave, onClose, onDelete }) => {
           </div>
         </Modal>
       )}
+      {prodModal && (
+        <Modal title="Crear nuevo producto" onClose={() => setProdModal(false)}>
+          <F label="Nombre del producto">
+            <input style={inp} type="text" autoFocus value={newProd}
+              onChange={e => setNewProd(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && saveNuevoProd()}
+              placeholder="Ej: Leche Parcialmente Descremada" />
+          </F>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <button style={btnSecondary} onClick={() => setProdModal(false)}>Cancelar</button>
+            <button style={btnPrimary} onClick={saveNuevoProd}>Guardar</button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 };
@@ -828,7 +956,10 @@ const SecCarga = ({ date, syncKey = 0 }) => {
             <span style={{ fontFamily: "monospace", fontWeight: 700, color: C.accent, fontSize: 16 }}>{c.hora}</span>
             <span style={{ background: C.accentDim, color: C.accent, borderRadius: 6, padding: "2px 10px", fontSize: 12, fontWeight: 700 }}>{c.label}</span>
           </div>
-          <div style={{ fontSize: 15, color: C.text, marginBottom: 4 }}>{c.destino || "Sin destino"}</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 15, color: C.text }}>{c.destino || "Sin destino"}</span>
+            {c.producto && <span style={{ fontSize: 11, background: "#1e3a5f", color: "#60a5fa", borderRadius: 6, padding: "2px 8px", fontWeight: 700, border: "1px solid #3b82f644" }}>{c.producto}</span>}
+          </div>
           {c.transportista && (
             <div style={{ fontSize: 12, color: "#60a5fa", marginBottom: 2 }}>🚛 {c.transportista}</div>
           )}
@@ -1010,14 +1141,18 @@ const SecStock = ({ date, syncKey = 0 }) => {
   const [turno, setTurno] = useState(getCurrentTurno());
   const [autoLitros, setAutoLitros] = useState({});
   const [silosVaciados, setSilosVaciados] = useState([]);
+  const [saldo, setSaldo] = useState(null);   // { data: {}, fromDate: "YYYY-MM-DD" }
+  const [updatingSaldo, setUpdatingSaldo] = useState(false);
 
   useEffect(() => {
     Promise.all([
       load(date, "stock", {}),
       load(date, "ingresos", []),
       calcAutoLitros(date),
-    ]).then(([d, ingresos, autoTotals]) => {
+      loadSaldo(),
+    ]).then(([d, ingresos, autoTotals, saldoData]) => {
       setAutoLitros(autoTotals);
+      setSaldo(saldoData);
 
       // Inferir producto por silo desde ingresos del día
       const inferred = {};
@@ -1068,6 +1203,15 @@ const SecStock = ({ date, syncKey = 0 }) => {
     setData(u); await save(date, "stock", u);
   };
 
+  const actualizarSaldo = async () => {
+    setUpdatingSaldo(true);
+    const totals = await calcAutoLitros(date);
+    await saveSaldo(totals, date);
+    setSaldo({ data: totals, fromDate: date });
+    setUpdatingSaldo(false);
+    alert(`✅ Saldo guardado (${date}). Mañana los silos iniciarán con estas cantidades.`);
+  };
+
   if (loading) return <div style={{ padding: 40, textAlign: "center", color: C.sub }}>Cargando...</div>;
   const td = data[turno] || {};
 
@@ -1085,6 +1229,38 @@ const SecStock = ({ date, syncKey = 0 }) => {
           <button onClick={() => setSilosVaciados([])} style={{ background: "none", border: "none", color: C.sub, fontSize: 22, cursor: "pointer", padding: "0 4px" }}>×</button>
         </div>
       )}
+
+      {/* Banner saldo anterior */}
+      {saldo && saldo.fromDate && saldo.fromDate < date && (
+        <div style={{ ...card, borderColor: "#1d4ed844", background: "#0c1a35", marginBottom: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+            <div>
+              <div style={{ fontSize: 11, color: "#60a5fa", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 3 }}>
+                📦 Saldo anterior incluido — {fmtDate(saldo.fromDate)}
+              </div>
+              <div style={{ fontSize: 12, color: C.sub, lineHeight: 1.5 }}>
+                Los litros que quedaron en silos el {fmtDate(saldo.fromDate)} están sumados al stock de hoy.
+              </div>
+            </div>
+          </div>
+          <div style={{ marginTop: 8, display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {Object.entries(saldo.data || {}).filter(([, l]) => l > 0).map(([silo, litros]) => (
+              <span key={silo} style={{ fontSize: 10, background: "#1e3a5f", color: "#93c5fd", borderRadius: 6, padding: "3px 8px", border: "1px solid #3b82f633" }}>
+                {silo}: {Math.round(litros).toLocaleString("es-AR")} L
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Botón cerrar día / guardar saldo */}
+      <button
+        onClick={actualizarSaldo}
+        disabled={updatingSaldo}
+        style={{ ...btnSecondary, marginBottom: 14, borderColor: "#1d4ed844", color: "#60a5fa", fontSize: 13, opacity: updatingSaldo ? 0.6 : 1 }}
+      >
+        {updatingSaldo ? "⏳ Guardando..." : "💾 Cerrar día — guardar saldo para mañana"}
+      </button>
 
       {/* Selector de turno */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 14 }}>
@@ -1115,13 +1291,17 @@ const SecStock = ({ date, syncKey = 0 }) => {
         const sd = ((td.silos || {})[silo]) || {};
         const litrosAuto = Math.max(0, autoLitros[silo] || 0);
         const cap = SILO_CAP[silo] || 100000;
+        const siloMin = SILO_MIN[silo] || 0;
+        const siloMax = SILO_MAX[silo] || cap;
+        const espacio = Math.max(0, siloMax - litrosAuto);
         const fillPct = Math.min(1, litrosAuto / cap);
         const fillColor = PROD_COLOR[sd.producto] || (litrosAuto > 0 ? PROD_COLOR["Leche Cruda"] : null);
         const hasData = litrosAuto > 0 || sd.producto || sd.ph;
         const pct = (fillPct * 100).toFixed(1);
+        const nivelAlerta = litrosAuto > siloMax ? "over" : litrosAuto < siloMin && litrosAuto > 0 ? "low" : "ok";
 
         return (
-          <div key={silo} style={{ ...card, borderColor: hasData ? C.accentDark : C.border, padding: 12 }}>
+          <div key={silo} style={{ ...card, borderColor: nivelAlerta === "over" ? C.danger : nivelAlerta === "low" ? "#f59e0b" : hasData ? C.accentDark : C.border, padding: 12 }}>
             {/* Header: nombre + litros acumulados */}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
               <span style={{ fontWeight: 700, fontSize: 14, color: C.text, letterSpacing: "0.04em" }}>
@@ -1143,12 +1323,12 @@ const SecStock = ({ date, syncKey = 0 }) => {
                 <div style={{ marginBottom: 8 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: C.sub, marginBottom: 4 }}>
                     <span style={{ textTransform: "uppercase", letterSpacing: "0.08em" }}>Nivel</span>
-                    <span style={{ fontWeight: 700, color: litrosAuto > 0 ? C.text : C.sub }}>{pct}%</span>
+                    <span style={{ fontWeight: 700, color: nivelAlerta === "over" ? C.danger : nivelAlerta === "low" ? C.accent : litrosAuto > 0 ? C.text : C.sub }}>{pct}%</span>
                   </div>
                   <div style={{ background: C.muted, borderRadius: 4, height: 6, overflow: "hidden" }}>
                     <div style={{
                       height: "100%", borderRadius: 4,
-                      background: fillColor || "#3a4460",
+                      background: nivelAlerta === "over" ? C.danger : fillColor || "#3a4460",
                       width: `${fillPct * 100}%`,
                       transition: "width 1.2s ease, background 0.6s ease",
                       boxShadow: fillColor ? `0 0 6px ${fillColor}66` : "none",
@@ -1157,7 +1337,7 @@ const SecStock = ({ date, syncKey = 0 }) => {
                 </div>
 
                 {/* Litros en silo / capacidad */}
-                <div style={{ fontSize: 11, color: C.sub, marginBottom: 10 }}>
+                <div style={{ fontSize: 11, color: C.sub, marginBottom: 8 }}>
                   <span style={{ color: litrosAuto > 0 ? C.text : C.sub, fontFamily: "monospace", fontWeight: 600 }}>
                     {litrosAuto.toLocaleString("es-AR")}
                   </span>
@@ -1179,6 +1359,46 @@ const SecStock = ({ date, syncKey = 0 }) => {
                   ))}
                 </select>
               </div>
+            </div>
+
+            {/* ── Panel info operario ── */}
+            <div style={{ background: C.surface, borderRadius: 8, padding: "10px 12px", marginBottom: 10, border: `1px solid ${C.muted}` }}>
+              <div style={{ fontSize: 9, color: C.sub, textTransform: "uppercase", letterSpacing: "0.1em", fontWeight: 700, marginBottom: 6 }}>Parámetros del silo</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 12px" }}>
+                {[
+                  ["Capacidad total",    `${cap.toLocaleString("es-AR")} L`,     C.muted],
+                  ["Mín. recomendado",   `${siloMin.toLocaleString("es-AR")} L`, "#22c55e"],
+                  ["Máx. recomendado",   `${siloMax.toLocaleString("es-AR")} L`, C.accent],
+                  ["Espacio disponible", `${espacio.toLocaleString("es-AR")} L`, "#60a5fa"],
+                ].map(([label, val, color]) => (
+                  <Fragment key={label}>
+                    <span style={{ fontSize: 10, color: C.sub }}>{label}</span>
+                    <span style={{ fontSize: 10, fontFamily: "monospace", fontWeight: 700, color }}>{val}</span>
+                  </Fragment>
+                ))}
+              </div>
+              {nivelAlerta !== "ok" && (
+                <div style={{ marginTop: 6, fontSize: 10, fontWeight: 700, color: nivelAlerta === "over" ? C.danger : C.accent }}>
+                  {nivelAlerta === "over" ? "⚠️ Por encima del máximo recomendado" : "⚠️ Por debajo del mínimo recomendado"}
+                </div>
+              )}
+            </div>
+
+            {/* Campo litros reales (EcoMilk / medición) */}
+            <div style={{ marginBottom: 10 }}>
+              <label style={{ ...lbl, color: "#60a5fa" }}>Litros reales (EcoMilk / medición)</label>
+              <input
+                style={{ ...inp, padding: "9px 12px", fontSize: 14, borderColor: sd.litrosReal ? "#3b82f6" : C.border }}
+                type="number" inputMode="decimal"
+                value={sd.litrosReal || ""}
+                onChange={e => updateSilo(turno, silo, "litrosReal", e.target.value)}
+                placeholder="Ingresá los litros reales del instrumento"
+              />
+              {sd.litrosReal && litrosAuto > 0 && (
+                <div style={{ fontSize: 10, color: Math.abs(parseFloat(sd.litrosReal) - litrosAuto) > 500 ? C.accent : C.success, marginTop: 4 }}>
+                  Diferencia con acumulado: {(parseFloat(sd.litrosReal) - litrosAuto).toLocaleString("es-AR", { signDisplay: "always" })} L
+                </div>
+              )}
             </div>
 
             {/* pH / Grasa / °D / °C */}
