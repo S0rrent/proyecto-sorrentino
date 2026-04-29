@@ -1206,6 +1206,10 @@ const SecStock = ({ date, syncKey = 0 }) => {
 
       if (changed) save(date, "stock", updated);
       if (vaciados.length > 0) setSilosVaciados(vaciados);
+      // Guardar snapshot del día actual para carry-over automático al día siguiente
+      if (date === getToday() && Object.values(autoTotals).some(v => v > 0)) {
+        saveSaldo(autoTotals, date);
+      }
       setData(updated);
       setLoading(false);
     });
@@ -2288,15 +2292,25 @@ export default function App() {
     });
   }, []);
 
-  // Sync cada 30s: refresca datos de todas las secciones + registra presencia de usuario
+  // Sync cada 10s: refresca datos en tiempo real + heartbeat cada 30s + detección de cambio de día
   useEffect(() => {
     const rol = perfil ? PERFILES[perfil].label : "Operario";
     const nombre = initNombre || "Operario";
     updateHeartbeat(nombre, rol);
+    let hbTick = 0;
+    let lastDate = getToday();
     const interval = setInterval(() => {
       setSyncKey(k => k + 1);
-      updateHeartbeat(nombre, rol);
-    }, 30000);
+      hbTick++;
+      if (hbTick % 3 === 0) updateHeartbeat(nombre, rol); // heartbeat cada 30 s
+      // Detectar cambio de día (app abierta al cruzar la medianoche)
+      const today = getToday();
+      if (today !== lastDate) {
+        const yesterday = getPreviousDate(today);
+        calcAutoLitros(yesterday).then(totals => saveSaldo(totals, yesterday));
+        lastDate = today;
+      }
+    }, 10000);
     return () => clearInterval(interval);
   }, [perfil, initNombre]);
 
