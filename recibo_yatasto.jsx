@@ -93,6 +93,7 @@ const PRODS_CONCENTRADOS = ["Lactosa", "Suero", "Concentrado"];
 
 // ─── UTILS ────────────────────────────────────────────────────
 const getToday = () => new Date().toISOString().split("T")[0];
+const getPreviousDate = (dateStr) => { const d = new Date(dateStr + "T00:00:00"); d.setDate(d.getDate() - 1); return d.toISOString().split("T")[0]; };
 const getNow = () => { const d = new Date(); return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
 const getCurrentTurno = () => { const h = new Date().getHours(); return h >= 7 && h < 14 ? "07:00" : h >= 14 && h < 21 ? "14:00" : "21:00"; };
 const fmtDate = (iso) => { const [y, m, d] = iso.split("-"); return `${d}/${m}/${y}`; };
@@ -468,13 +469,22 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
             <div style={secTitle}>📦 Destino & Litros</div>
             <F label="Destino — Silo"><Sel value={f.destino} onChange={set("destino")} options={SILOS} placeholder="Seleccionar silo..." /></F>
             <F label="Litros"><Inp type="number" value={f.litrosFca} onChange={set("litrosFca")} placeholder="0" /></F>
-            <F label="Temperatura llegada (°C)"><Inp type="number" value={f.tC} onChange={set("tC")} step="0.1" placeholder="°C" /></F>
+            <F label="Temperatura llegada (°C)">
+              <Inp type="number" value={f.tC} onChange={set("tC")} step="0.1" placeholder="°C" />
+              <div style={{ fontSize: 10, color: C.sub, marginTop: 3 }}>Ref: 3 – 8 °C</div>
+            </F>
           </div>
           <div style={panel}>
             <div style={secTitle}>🧪 Parámetros</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-              <F label="Acidez"><Inp type="number" value={f.acidezFca} onChange={set("acidezFca")} step="0.1" /></F>
-              <F label="pH"><Inp type="number" value={f.phFca} onChange={set("phFca")} step="0.01" /></F>
+              <F label="Acidez">
+                <Inp type="number" value={f.acidezFca} onChange={set("acidezFca")} step="0.1" />
+                <div style={{ fontSize: 10, color: C.sub, marginTop: 3 }}>Ref: 14 – 18 °D</div>
+              </F>
+              <F label="pH">
+                <Inp type="number" value={f.phFca} onChange={set("phFca")} step="0.01" />
+                <div style={{ fontSize: 10, color: C.sub, marginTop: 3 }}>Ref: 6.6 – 6.8</div>
+              </F>
             </div>
             <F label="°BRIX"><Inp type="number" value={f.brix || ""} onChange={set("brix")} step="0.1" placeholder="°Brix" /></F>
             <F label="Organoléptico">
@@ -492,24 +502,38 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
               <F label="Litros Tambo"><Inp type="number" value={f.litrosTbo} onChange={set("litrosTbo")} placeholder="0" /></F>
             </div>
             <F label="Destino — Silo"><Sel value={f.destino} onChange={set("destino")} options={SILOS} placeholder="Seleccionar silo..." /></F>
-            <F label="Temperatura llegada (°C)"><Inp type="number" value={f.tC} onChange={set("tC")} step="0.1" placeholder="°C" /></F>
+            <F label="Temperatura llegada (°C)">
+              <Inp type="number" value={f.tC} onChange={set("tC")} step="0.1" placeholder="°C" />
+              <div style={{ fontSize: 10, color: C.sub, marginTop: 3 }}>Ref: 3 – 8 °C</div>
+            </F>
           </div>
           <div style={panel}>
             <div style={secTitle}>🧪 Parámetros básicos</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-              <F label="Acidez Fca."><Inp type="number" value={f.acidezFca} onChange={set("acidezFca")} step="0.1" /></F>
-              <F label="pH Fca."><Inp type="number" value={f.phFca} onChange={set("phFca")} step="0.01" /></F>
+              <F label="Acidez Fca.">
+                <Inp type="number" value={f.acidezFca} onChange={set("acidezFca")} step="0.1" />
+                <div style={{ fontSize: 10, color: C.sub, marginTop: 3 }}>Ref: 14 – 18 °D</div>
+              </F>
+              <F label="pH Fca.">
+                <Inp type="number" value={f.phFca} onChange={set("phFca")} step="0.01" />
+                <div style={{ fontSize: 10, color: C.sub, marginTop: 3 }}>Ref: 6.6 – 6.8</div>
+              </F>
             </div>
             <Pair label="Prueba Alcohol" v1={f.alcFca} v2={f.alcTbo} on1={set("alcFca")} on2={set("alcTbo")} />
           </div>
           <div style={panel}>
             <div style={secTitle}>📊 Composición</div>
             <Pair label="Grasa Butirosa (GB)" v1={f.gbFca} v2={f.gbTbo} on1={set("gbFca")} on2={set("gbTbo")} />
+            <div style={{ fontSize: 10, color: C.sub, marginTop: -8, marginBottom: 12 }}>Ref: 3.0 – 4.0 %</div>
             <Pair label="Sólidos No Grasos (SNG)" v1={f.sngFca} v2={f.sngTbo} on1={set("sngFca")} on2={set("sngTbo")} />
+            <div style={{ fontSize: 10, color: C.sub, marginTop: -8, marginBottom: 12 }}>Ref: 8.0 – 8.7 %</div>
             <Pair label="Densidad" v1={f.densFca} v2={f.densTbo} on1={set("densFca")} on2={set("densTbo")} />
+            <div style={{ fontSize: 10, color: C.sub, marginTop: -8, marginBottom: 12 }}>Ref: 1.028 – 1.033 g/mL</div>
             <Pair label="Aguado" v1={f.aguadoFca} v2={f.aguadoTbo} on1={set("aguadoFca")} on2={set("aguadoTbo")} />
+            <div style={{ fontSize: 10, color: C.danger, marginTop: -8, marginBottom: 12 }}>⚠️ Debe ser exactamente 0 — indica adulteración</div>
             <Pair label="Leche de Descarte" v1={f.dcFca} v2={f.dcTbo} on1={set("dcFca")} on2={set("dcTbo")} />
             <Pair label="Proteína" v1={f.protFca} v2={f.protTbo} on1={set("protFca")} on2={set("protTbo")} />
+            <div style={{ fontSize: 10, color: C.sub, marginTop: -8, marginBottom: 12 }}>Ref: 2.9 – 3.5 %</div>
             <F label="ATM"><Sel value={f.atm || ""} onChange={set("atm")} options={["Sí", "No"]} placeholder="ATM..." /></F>
           </div>
         </>
@@ -1141,18 +1165,14 @@ const SecStock = ({ date, syncKey = 0 }) => {
   const [turno, setTurno] = useState(getCurrentTurno());
   const [autoLitros, setAutoLitros] = useState({});
   const [silosVaciados, setSilosVaciados] = useState([]);
-  const [saldo, setSaldo] = useState(null);   // { data: {}, fromDate: "YYYY-MM-DD" }
-  const [updatingSaldo, setUpdatingSaldo] = useState(false);
 
   useEffect(() => {
     Promise.all([
       load(date, "stock", {}),
       load(date, "ingresos", []),
       calcAutoLitros(date),
-      loadSaldo(),
-    ]).then(([d, ingresos, autoTotals, saldoData]) => {
+    ]).then(([d, ingresos, autoTotals]) => {
       setAutoLitros(autoTotals);
-      setSaldo(saldoData);
 
       // Inferir producto por silo desde ingresos del día
       const inferred = {};
@@ -1203,15 +1223,6 @@ const SecStock = ({ date, syncKey = 0 }) => {
     setData(u); await save(date, "stock", u);
   };
 
-  const actualizarSaldo = async () => {
-    setUpdatingSaldo(true);
-    const totals = await calcAutoLitros(date);
-    await saveSaldo(totals, date);
-    setSaldo({ data: totals, fromDate: date });
-    setUpdatingSaldo(false);
-    alert(`✅ Saldo guardado (${date}). Mañana los silos iniciarán con estas cantidades.`);
-  };
-
   if (loading) return <div style={{ padding: 40, textAlign: "center", color: C.sub }}>Cargando...</div>;
   const td = data[turno] || {};
 
@@ -1229,38 +1240,6 @@ const SecStock = ({ date, syncKey = 0 }) => {
           <button onClick={() => setSilosVaciados([])} style={{ background: "none", border: "none", color: C.sub, fontSize: 22, cursor: "pointer", padding: "0 4px" }}>×</button>
         </div>
       )}
-
-      {/* Banner saldo anterior */}
-      {saldo && saldo.fromDate && saldo.fromDate < date && (
-        <div style={{ ...card, borderColor: "#1d4ed844", background: "#0c1a35", marginBottom: 12 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-            <div>
-              <div style={{ fontSize: 11, color: "#60a5fa", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 3 }}>
-                📦 Saldo anterior incluido — {fmtDate(saldo.fromDate)}
-              </div>
-              <div style={{ fontSize: 12, color: C.sub, lineHeight: 1.5 }}>
-                Los litros que quedaron en silos el {fmtDate(saldo.fromDate)} están sumados al stock de hoy.
-              </div>
-            </div>
-          </div>
-          <div style={{ marginTop: 8, display: "flex", gap: 6, flexWrap: "wrap" }}>
-            {Object.entries(saldo.data || {}).filter(([, l]) => l > 0).map(([silo, litros]) => (
-              <span key={silo} style={{ fontSize: 10, background: "#1e3a5f", color: "#93c5fd", borderRadius: 6, padding: "3px 8px", border: "1px solid #3b82f633" }}>
-                {silo}: {Math.round(litros).toLocaleString("es-AR")} L
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Botón cerrar día / guardar saldo */}
-      <button
-        onClick={actualizarSaldo}
-        disabled={updatingSaldo}
-        style={{ ...btnSecondary, marginBottom: 14, borderColor: "#1d4ed844", color: "#60a5fa", fontSize: 13, opacity: updatingSaldo ? 0.6 : 1 }}
-      >
-        {updatingSaldo ? "⏳ Guardando..." : "💾 Cerrar día — guardar saldo para mañana"}
-      </button>
 
       {/* Selector de turno */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 14 }}>
@@ -1291,17 +1270,13 @@ const SecStock = ({ date, syncKey = 0 }) => {
         const sd = ((td.silos || {})[silo]) || {};
         const litrosAuto = Math.max(0, autoLitros[silo] || 0);
         const cap = SILO_CAP[silo] || 100000;
-        const siloMin = SILO_MIN[silo] || 0;
-        const siloMax = SILO_MAX[silo] || cap;
-        const espacio = Math.max(0, siloMax - litrosAuto);
         const fillPct = Math.min(1, litrosAuto / cap);
         const fillColor = PROD_COLOR[sd.producto] || (litrosAuto > 0 ? PROD_COLOR["Leche Cruda"] : null);
         const hasData = litrosAuto > 0 || sd.producto || sd.ph;
         const pct = (fillPct * 100).toFixed(1);
-        const nivelAlerta = litrosAuto > siloMax ? "over" : litrosAuto < siloMin && litrosAuto > 0 ? "low" : "ok";
 
         return (
-          <div key={silo} style={{ ...card, borderColor: nivelAlerta === "over" ? C.danger : nivelAlerta === "low" ? "#f59e0b" : hasData ? C.accentDark : C.border, padding: 12 }}>
+          <div key={silo} style={{ ...card, borderColor: hasData ? C.accentDark : C.border, padding: 12 }}>
             {/* Header: nombre + litros acumulados */}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
               <span style={{ fontWeight: 700, fontSize: 14, color: C.text, letterSpacing: "0.04em" }}>
@@ -1323,12 +1298,12 @@ const SecStock = ({ date, syncKey = 0 }) => {
                 <div style={{ marginBottom: 8 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: C.sub, marginBottom: 4 }}>
                     <span style={{ textTransform: "uppercase", letterSpacing: "0.08em" }}>Nivel</span>
-                    <span style={{ fontWeight: 700, color: nivelAlerta === "over" ? C.danger : nivelAlerta === "low" ? C.accent : litrosAuto > 0 ? C.text : C.sub }}>{pct}%</span>
+                    <span style={{ fontWeight: 700, color: litrosAuto > 0 ? C.text : C.sub }}>{pct}%</span>
                   </div>
                   <div style={{ background: C.muted, borderRadius: 4, height: 6, overflow: "hidden" }}>
                     <div style={{
                       height: "100%", borderRadius: 4,
-                      background: nivelAlerta === "over" ? C.danger : fillColor || "#3a4460",
+                      background: fillColor || "#3a4460",
                       width: `${fillPct * 100}%`,
                       transition: "width 1.2s ease, background 0.6s ease",
                       boxShadow: fillColor ? `0 0 6px ${fillColor}66` : "none",
@@ -1337,7 +1312,7 @@ const SecStock = ({ date, syncKey = 0 }) => {
                 </div>
 
                 {/* Litros en silo / capacidad */}
-                <div style={{ fontSize: 11, color: C.sub, marginBottom: 8 }}>
+                <div style={{ fontSize: 11, color: C.sub, marginBottom: 10 }}>
                   <span style={{ color: litrosAuto > 0 ? C.text : C.sub, fontFamily: "monospace", fontWeight: 600 }}>
                     {litrosAuto.toLocaleString("es-AR")}
                   </span>
@@ -1359,46 +1334,6 @@ const SecStock = ({ date, syncKey = 0 }) => {
                   ))}
                 </select>
               </div>
-            </div>
-
-            {/* ── Panel info operario ── */}
-            <div style={{ background: C.surface, borderRadius: 8, padding: "10px 12px", marginBottom: 10, border: `1px solid ${C.muted}` }}>
-              <div style={{ fontSize: 9, color: C.sub, textTransform: "uppercase", letterSpacing: "0.1em", fontWeight: 700, marginBottom: 6 }}>Parámetros del silo</div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 12px" }}>
-                {[
-                  ["Capacidad total",    `${cap.toLocaleString("es-AR")} L`,     C.muted],
-                  ["Mín. recomendado",   `${siloMin.toLocaleString("es-AR")} L`, "#22c55e"],
-                  ["Máx. recomendado",   `${siloMax.toLocaleString("es-AR")} L`, C.accent],
-                  ["Espacio disponible", `${espacio.toLocaleString("es-AR")} L`, "#60a5fa"],
-                ].map(([label, val, color]) => (
-                  <Fragment key={label}>
-                    <span style={{ fontSize: 10, color: C.sub }}>{label}</span>
-                    <span style={{ fontSize: 10, fontFamily: "monospace", fontWeight: 700, color }}>{val}</span>
-                  </Fragment>
-                ))}
-              </div>
-              {nivelAlerta !== "ok" && (
-                <div style={{ marginTop: 6, fontSize: 10, fontWeight: 700, color: nivelAlerta === "over" ? C.danger : C.accent }}>
-                  {nivelAlerta === "over" ? "⚠️ Por encima del máximo recomendado" : "⚠️ Por debajo del mínimo recomendado"}
-                </div>
-              )}
-            </div>
-
-            {/* Campo litros reales (EcoMilk / medición) */}
-            <div style={{ marginBottom: 10 }}>
-              <label style={{ ...lbl, color: "#60a5fa" }}>Litros reales (EcoMilk / medición)</label>
-              <input
-                style={{ ...inp, padding: "9px 12px", fontSize: 14, borderColor: sd.litrosReal ? "#3b82f6" : C.border }}
-                type="number" inputMode="decimal"
-                value={sd.litrosReal || ""}
-                onChange={e => updateSilo(turno, silo, "litrosReal", e.target.value)}
-                placeholder="Ingresá los litros reales del instrumento"
-              />
-              {sd.litrosReal && litrosAuto > 0 && (
-                <div style={{ fontSize: 10, color: Math.abs(parseFloat(sd.litrosReal) - litrosAuto) > 500 ? C.accent : C.success, marginTop: 4 }}>
-                  Diferencia con acumulado: {(parseFloat(sd.litrosReal) - litrosAuto).toLocaleString("es-AR", { signDisplay: "always" })} L
-                </div>
-              )}
             </div>
 
             {/* pH / Grasa / °D / °C */}
@@ -2332,6 +2267,17 @@ export default function App() {
   const navItems = perfil
     ? [...NAV, { id: "supervisor", label: "Superv.", icon: PERFILES[perfil]?.icon || "👔" }]
     : NAV;
+
+  // Carry-over automático: al abrir la app traspasa el saldo del día anterior
+  useEffect(() => {
+    const today = getToday();
+    const yesterday = getPreviousDate(today);
+    loadSaldo().then(async saldo => {
+      if (saldo && saldo.fromDate === yesterday) return; // ya está actualizado
+      const totals = await calcAutoLitros(yesterday);
+      await saveSaldo(totals, yesterday);
+    });
+  }, []);
 
   // Pedir identificación al inicio si el turno actual no tiene responsable
   useEffect(() => {
