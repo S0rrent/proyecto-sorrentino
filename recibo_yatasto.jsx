@@ -94,6 +94,8 @@ const PRODS_CONCENTRADOS = ["Lactosa", "Suero", "Concentrado"];
 // ─── UTILS ────────────────────────────────────────────────────
 const getToday = () => new Date().toISOString().split("T")[0];
 const getPreviousDate = (dateStr) => { const d = new Date(dateStr + "T00:00:00"); d.setDate(d.getDate() - 1); return d.toISOString().split("T")[0]; };
+const getLastNDays = (n) => { const days = []; for (let i = n - 1; i >= 0; i--) { const d = new Date(); d.setDate(d.getDate() - i); days.push(d.toISOString().split("T")[0]); } return days; };
+const DIAS_ES = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
 const getNow = () => { const d = new Date(); return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
 const getCurrentTurno = () => { const h = new Date().getHours(); return h >= 7 && h < 14 ? "07:00" : h >= 14 && h < 21 ? "14:00" : "21:00"; };
 const fmtDate = (iso) => { const [y, m, d] = iso.split("-"); return `${d}/${m}/${y}`; };
@@ -571,6 +573,7 @@ const SecIngresos = ({ date, syncKey = 0 }) => {
   const [tambos, setTambos] = useState(TAMBOS_BASE);
   const [tamboModal, setTamboModal] = useState(false);
   const [newTambo, setNewTambo] = useState({ nombre: "", num: "" });
+  const [filtro, setFiltro] = useState("");
 
   useEffect(() => {
     load(date, "ingresos", []).then(d => { setList(d); setLoading(false); });
@@ -618,28 +621,68 @@ const SecIngresos = ({ date, syncKey = 0 }) => {
           <div style={{ fontSize: 30, fontWeight: 700, color: C.text, lineHeight: 1 }}>{list.length}</div>
         </div>
       </div>
-      {list.length === 0 ? (
-        <div style={{ textAlign: "center", padding: "48px 24px", color: C.sub }}>
-          <div style={{ fontSize: 48, marginBottom: 12 }}>🚛</div>
-          <div style={{ fontSize: 15 }}>Sin ingresos registrados hoy</div>
-          <div style={{ fontSize: 13, marginTop: 6 }}>Tocá + para agregar</div>
+      {/* Buscador de tambo */}
+      {list.length > 0 && (
+        <div style={{ position: "relative", marginBottom: 10 }}>
+          <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", fontSize: 14, opacity: 0.45, pointerEvents: "none" }}>🔍</span>
+          <input
+            style={{ ...inp, paddingLeft: 36, paddingRight: filtro ? 36 : 12 }}
+            type="text"
+            placeholder="Buscar por tambo o N°…"
+            value={filtro}
+            onChange={e => setFiltro(e.target.value)}
+          />
+          {filtro && (
+            <button onClick={() => setFiltro("")} style={{
+              position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)",
+              background: C.muted, border: "none", color: C.sub, cursor: "pointer",
+              borderRadius: "50%", width: 20, height: 20, fontSize: 13,
+              display: "flex", alignItems: "center", justifyContent: "center", padding: 0,
+            }}>×</button>
+          )}
         </div>
-      ) : list.map(ing => (
-        <div key={ing.id} onClick={() => setModal(ing)} style={{ ...card, cursor: "pointer" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-            <span style={{ fontFamily: "'Courier New',monospace", fontWeight: 700, color: C.accent, fontSize: 17 }}>{ing.hora}</span>
-            <span style={{ background: C.accentDim, color: C.accent, borderRadius: 6, padding: "2px 10px", fontSize: 12, fontWeight: 700 }}>{ing.destino || "Sin destino"}</span>
+      )}
+      {(() => {
+        const q = filtro.trim().toLowerCase();
+        const vista = q
+          ? list.filter(ing =>
+              (ing.tambo || "").toLowerCase().includes(q) ||
+              String(ing.num || "").toLowerCase().includes(q)
+            )
+          : list;
+        if (list.length === 0) return (
+          <div style={{ textAlign: "center", padding: "48px 24px", color: C.sub }}>
+            <div style={{ fontSize: 48, marginBottom: 12 }}>🚛</div>
+            <div style={{ fontSize: 15 }}>Sin ingresos registrados hoy</div>
+            <div style={{ fontSize: 13, marginTop: 6 }}>Tocá + para agregar</div>
           </div>
-          <div style={{ fontWeight: 700, fontSize: 16, color: C.text, marginBottom: 4 }}>[{ing.num}] {ing.tambo || "—"}</div>
-          <div style={{ display: "flex", gap: 14, fontSize: 13, color: C.sub, flexWrap: "wrap" }}>
-            {ing.litrosFca && <span>🏭 {parseFloat(ing.litrosFca).toLocaleString("es-AR")} L Fca.</span>}
-            {ing.litrosTbo && <span>🚛 {parseFloat(ing.litrosTbo).toLocaleString("es-AR")} L Tbo.</span>}
-            {ing.tC && <span>🌡️ {ing.tC}°C</span>}
-            {ing.phFca && <span>pH {ing.phFca}</span>}
-            {ing.producto && <span style={{ color: C.accent }}>· {ing.producto}</span>}
+        );
+        if (vista.length === 0) return (
+          <div style={{ textAlign: "center", padding: "32px 24px", color: C.sub }}>
+            <div style={{ fontSize: 32, marginBottom: 8 }}>🔍</div>
+            <div style={{ fontSize: 14 }}>Sin resultados para "{filtro}"</div>
+            <button onClick={() => setFiltro("")} style={{ marginTop: 10, background: "none", border: `1px solid ${C.border}`, color: C.sub, borderRadius: 8, padding: "6px 14px", fontSize: 12, cursor: "pointer" }}>
+              Limpiar búsqueda
+            </button>
           </div>
-        </div>
-      ))}
+        );
+        return vista.map(ing => (
+          <div key={ing.id} onClick={() => setModal(ing)} style={{ ...card, cursor: "pointer" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+              <span style={{ fontFamily: "'Courier New',monospace", fontWeight: 700, color: C.accent, fontSize: 17 }}>{ing.hora}</span>
+              <span style={{ background: C.accentDim, color: C.accent, borderRadius: 6, padding: "2px 10px", fontSize: 12, fontWeight: 700 }}>{ing.destino || "Sin destino"}</span>
+            </div>
+            <div style={{ fontWeight: 700, fontSize: 16, color: C.text, marginBottom: 4 }}>[{ing.num}] {ing.tambo || "—"}</div>
+            <div style={{ display: "flex", gap: 14, fontSize: 13, color: C.sub, flexWrap: "wrap" }}>
+              {ing.litrosFca && <span>🏭 {parseFloat(ing.litrosFca).toLocaleString("es-AR")} L Fca.</span>}
+              {ing.litrosTbo && <span>🚛 {parseFloat(ing.litrosTbo).toLocaleString("es-AR")} L Tbo.</span>}
+              {ing.tC && <span>🌡️ {ing.tC}°C</span>}
+              {ing.phFca && <span>pH {ing.phFca}</span>}
+              {ing.producto && <span style={{ color: C.accent }}>· {ing.producto}</span>}
+            </div>
+          </div>
+        ));
+      })()}
       <FAB onClick={() => setModal("new")} />
       {modal && (
         <Modal title={modal === "new" ? "Nuevo Ingreso" : "Editar Ingreso"} onClose={() => setModal(null)}>
@@ -1726,12 +1769,35 @@ const InformeModal = ({ date, onClose }) => {
 };
 
 // ─── DASHBOARD SUPERVISOR / JEFE ─────────────────────────────
+// ── Mini sparkline SVG (analytics) ──────────────────────────
+const Sparkline = ({ values, color = "#f59e0b", w = 64, h = 24 }) => {
+  const clean = (values || []).filter(v => v != null && !isNaN(v) && v > 0);
+  if (clean.length < 2) return <span style={{ fontSize: 9, color: "#2d3a55" }}>—</span>;
+  const lo = Math.min(...clean), hi = Math.max(...clean), span = hi - lo || 0.001;
+  const pts = clean.map((v, i) => {
+    const x = 2 + (i / (clean.length - 1)) * (w - 4);
+    const y = h - 2 - ((v - lo) / span) * (h - 4);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  });
+  const [lx, ly] = pts[pts.length - 1].split(",");
+  return (
+    <svg width={w} height={h} style={{ display: "block", overflow: "visible" }}>
+      <polyline points={pts.join(" ")} fill="none" stroke={color} strokeWidth="1.6"
+        strokeLinecap="round" strokeLinejoin="round" opacity="0.9" />
+      <circle cx={lx} cy={ly} r="2.2" fill={color} />
+    </svg>
+  );
+};
+
 const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
   const [tab, setTab] = useState("resumen");
   const [d, setD] = useState(null);
   const [users, setUsers] = useState([]);
   const [exportDate, setExportDate] = useState(date);
   const [exporting, setExporting] = useState(false);
+  const [weekData, setWeekData] = useState(null);
+  const [loadingWeek, setLoadingWeek] = useState(false);
+  const [tamboSel, setTamboSel] = useState(null);
 
   useEffect(() => {
     setExportDate(date);
@@ -1750,6 +1816,35 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
       setUsers(activeUsers);
     });
   }, [date, syncKey]);
+
+  // Cargar 14 días al activar tab semana/tambos
+  useEffect(() => {
+    if (tab !== "semana" && tab !== "tambos") return;
+    setLoadingWeek(true);
+    setWeekData(null);
+    setTamboSel(null);
+    const days14 = getLastNDays(14);
+    const days7  = days14.slice(-7);
+    Promise.all([
+      ...days14.map(dy => load(dy, "ingresos", []).then(ing => ({ date: dy, ing }))),
+      ...days7.map(dy  => load(dy, "carga",    []).then(car => ({ date: dy, car }))),
+    ]).then(all => {
+      const byDate = {};
+      days14.forEach(dy => { byDate[dy] = { ingresados: 0, cargados: 0, camiones: 0, ingresos: [] }; });
+      all.forEach(r => {
+        if (r.ing !== undefined) {
+          byDate[r.date].ingresados = r.ing.reduce((s, i) => s + (parseFloat(i.litrosFca) || 0), 0);
+          byDate[r.date].camiones   = r.ing.length;
+          byDate[r.date].ingresos   = r.ing;
+        }
+        if (r.car !== undefined) {
+          byDate[r.date].cargados = r.car.reduce((s, c) => s + (parseFloat(c.litros) || 0), 0);
+        }
+      });
+      setWeekData(byDate);
+      setLoadingWeek(false);
+    });
+  }, [tab, date]);
 
   if (!d) return <div style={{ padding: 40, textAlign: "center", color: C.sub }}>Cargando dashboard...</div>;
 
@@ -1977,7 +2072,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
 
       {/* Tabs */}
       <div style={{ display: "flex", gap: 4, marginBottom: 14, overflowX: "auto", paddingBottom: 2 }}>
-        {[["resumen", "📊", "Resumen"], ["silos", "🏭", "Silos"], ["calidad", "📈", "Calidad"], ["difs", "🔍", "Difs."], ["historial", "📋", "Historial"], ["exportar", "📤", "Exportar"]].map(([t, ico, lbl]) => (
+        {[["resumen", "📊", "Resumen"], ["silos", "🏭", "Silos"], ["calidad", "📈", "Calidad"], ["difs", "🔍", "Difs."], ["semana", "📅", "Semana"], ["tambos", "🐄", "Tambos"], ["historial", "📋", "Historial"], ["exportar", "📤", "Exportar"]].map(([t, ico, lbl]) => (
           <button key={t} onClick={() => setTab(t)} style={{
             ...(tab === t ? btnPrimary : btnSecondary),
             padding: "8px 6px", fontSize: 11, whiteSpace: "nowrap", flex: 1, minWidth: 0,
@@ -2248,6 +2343,326 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
           {exporting && <div style={{ textAlign: "center", marginTop: 14, color: C.accent, fontSize: 13 }}>⏳ Preparando exportación...</div>}
         </div>
       )}
+
+      {/* ── SEMANA ── */}
+      {tab === "semana" && (() => {
+        const loadingPlaceholder = (
+          <div style={{ padding: "48px 0", textAlign: "center", color: C.sub }}>
+            <div style={{ fontSize: 36, marginBottom: 10 }}>📅</div>
+            <div style={{ fontSize: 13 }}>Cargando datos semanales...</div>
+          </div>
+        );
+        if (loadingWeek || !weekData) return loadingPlaceholder;
+
+        const last7  = getLastNDays(7);
+        const rows   = last7.map(dy => ({ date: dy, ...(weekData[dy] || { ingresados: 0, cargados: 0, camiones: 0 }) }));
+        const maxIng = Math.max(...rows.map(r => r.ingresados), 1);
+        const totalSem  = rows.reduce((s, r) => s + r.ingresados, 0);
+        const totalCam  = rows.reduce((s, r) => s + r.camiones, 0);
+        const totalCarg = rows.reduce((s, r) => s + (r.cargados || 0), 0);
+        const diasActivos = rows.filter(r => r.ingresados > 0).length;
+
+        return (
+          <div>
+            {/* KPI pills */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
+              <StatCard icon="📦" label="Total semana" value={totalSem} unit="L" color={C.accent} sub={`${diasActivos} días con entrega`} />
+              <StatCard icon="🚛" label="Camiones" value={totalCam} color={C.text} sub={`prom. ${diasActivos > 0 ? (totalCam / diasActivos).toFixed(1) : 0}/día`} />
+            </div>
+
+            {/* Bar chart card */}
+            <div style={{ ...card, padding: 16, marginBottom: 14 }}>
+              <div style={{ ...secTitle, marginBottom: 14 }}>Litros ingresados — últimos 7 días</div>
+              <div style={{ display: "flex", alignItems: "flex-end", gap: 5, height: 110, marginBottom: 10 }}>
+                {rows.map(({ date: dy, ingresados }) => {
+                  const pct    = (ingresados / maxIng) * 100;
+                  const isHoy  = dy === getToday();
+                  const barCol = isHoy ? C.accent : ingresados > 0 ? "#3b82f6" : C.muted;
+                  const dayDate = new Date(dy + "T00:00:00");
+                  return (
+                    <div key={dy} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", height: "100%" }}>
+                      <div style={{ fontSize: 8, color: ingresados > 0 ? (isHoy ? C.accent : C.sub) : "transparent", fontFamily: "monospace", marginBottom: 3 }}>
+                        {ingresados >= 1000 ? `${(ingresados / 1000).toFixed(1)}k` : ingresados || ""}
+                      </div>
+                      <div style={{ flex: 1, width: "100%", background: C.muted, borderRadius: "4px 4px 0 0", position: "relative", overflow: "hidden" }}>
+                        <div style={{
+                          position: "absolute", bottom: 0, left: 0, right: 0,
+                          height: `${Math.max(pct, ingresados > 0 ? 3 : 0)}%`,
+                          background: barCol,
+                          borderRadius: "3px 3px 0 0",
+                          transition: "height 0.9s cubic-bezier(0.34,1.1,0.64,1)",
+                          boxShadow: isHoy ? `0 0 12px ${C.accent}66` : "none",
+                        }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              {/* Day labels */}
+              <div style={{ display: "flex", gap: 5 }}>
+                {rows.map(({ date: dy }) => {
+                  const isHoy   = dy === getToday();
+                  const dayDate = new Date(dy + "T00:00:00");
+                  const [, , dd] = dy.split("-");
+                  return (
+                    <div key={dy} style={{ flex: 1, textAlign: "center" }}>
+                      <div style={{ fontSize: 9, fontWeight: isHoy ? 700 : 400, color: isHoy ? C.accent : C.sub }}>
+                        {DIAS_ES[dayDate.getDay()]}
+                      </div>
+                      <div style={{ fontSize: 8, color: isHoy ? C.accent : C.muted }}>{dd}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Daily table */}
+            <div style={{ ...card, padding: 0, overflow: "hidden", marginBottom: 8 }}>
+              <div style={{ padding: "10px 14px", borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div style={secTitle}>Detalle diario</div>
+              </div>
+              {rows.map(({ date: dy, ingresados, cargados, camiones }, i) => {
+                const bal     = ingresados - (cargados || 0);
+                const isHoy   = dy === getToday();
+                const sinData = ingresados === 0;
+                const dayDate = new Date(dy + "T00:00:00");
+                const [, mm, dd] = dy.split("-");
+                return (
+                  <div key={dy} style={{
+                    display: "grid", gridTemplateColumns: "56px 1fr 1fr 1fr",
+                    padding: "10px 14px", gap: 6, alignItems: "center",
+                    borderBottom: i < rows.length - 1 ? `1px solid ${C.border}` : "none",
+                    background: isHoy ? C.accentDim + "44" : "transparent",
+                  }}>
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: isHoy ? C.accent : C.text }}>
+                        {DIAS_ES[dayDate.getDay()]}
+                      </div>
+                      <div style={{ fontSize: 9, color: C.muted, fontFamily: "monospace" }}>{dd}/{mm}</div>
+                    </div>
+                    <div style={{ textAlign: "center" }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, fontFamily: "monospace", color: sinData ? C.muted : C.text }}>
+                        {sinData ? "—" : ingresados >= 1000 ? `${(ingresados / 1000).toFixed(1)}k` : ingresados}
+                      </div>
+                      <div style={{ fontSize: 9, color: C.sub }}>Ingresos L</div>
+                    </div>
+                    <div style={{ textAlign: "center" }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, fontFamily: "monospace", color: sinData ? C.muted : C.text }}>
+                        {sinData ? "—" : camiones}
+                      </div>
+                      <div style={{ fontSize: 9, color: C.sub }}>Camiones</div>
+                    </div>
+                    <div style={{ textAlign: "center" }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, fontFamily: "monospace", color: sinData ? C.muted : (bal >= 0 ? C.success : C.danger) }}>
+                        {sinData ? "—" : (bal >= 0 ? "+" : "") + (Math.abs(bal) >= 1000 ? `${(bal / 1000).toFixed(1)}k` : bal)}
+                      </div>
+                      <div style={{ fontSize: 9, color: C.sub }}>Balance L</div>
+                    </div>
+                  </div>
+                );
+              })}
+              {/* Total footer */}
+              <div style={{
+                display: "grid", gridTemplateColumns: "56px 1fr 1fr 1fr",
+                padding: "10px 14px", gap: 6, alignItems: "center",
+                background: C.muted, borderTop: `1px solid ${C.border}`,
+              }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: C.sub, textTransform: "uppercase" }}>Total</div>
+                <div style={{ textAlign: "center" }}>
+                  <div style={{ fontSize: 13, fontWeight: 800, fontFamily: "monospace", color: C.accent }}>
+                    {totalSem >= 1000 ? `${(totalSem / 1000).toFixed(1)}k` : totalSem}
+                  </div>
+                </div>
+                <div style={{ textAlign: "center" }}>
+                  <div style={{ fontSize: 13, fontWeight: 800, fontFamily: "monospace", color: C.text }}>{totalCam}</div>
+                </div>
+                <div style={{ textAlign: "center" }}>
+                  {(() => { const b = totalSem - totalCarg; return (
+                    <div style={{ fontSize: 13, fontWeight: 800, fontFamily: "monospace", color: b >= 0 ? C.success : C.danger }}>
+                      {(b >= 0 ? "+" : "") + (Math.abs(b) >= 1000 ? `${(b / 1000).toFixed(1)}k` : b)}
+                    </div>
+                  ); })()}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── TAMBOS / TENDENCIAS ── */}
+      {tab === "tambos" && (() => {
+        if (loadingWeek || !weekData) return (
+          <div style={{ padding: "48px 0", textAlign: "center", color: C.sub }}>
+            <div style={{ fontSize: 36, marginBottom: 10 }}>🐄</div>
+            <div style={{ fontSize: 13 }}>Cargando tendencias por tambo...</div>
+          </div>
+        );
+
+        const days14 = getLastNDays(14);
+        // Construir mapa por tambo con todas las entregas de los últimos 14 días
+        const tamboMap = {};
+        days14.forEach(dy => {
+          (weekData[dy]?.ingresos || []).forEach(ing => {
+            const nombre = ing.tambo || "Sin identificar";
+            if (!tamboMap[nombre]) tamboMap[nombre] = [];
+            tamboMap[nombre].push({
+              date:   dy,
+              litros: parseFloat(ing.litrosFca)  || 0,
+              acidez: parseFloat(ing.acidezFca),
+              ph:     parseFloat(ing.phFca),
+              gb:     parseFloat(ing.gbFca),
+              sng:    parseFloat(ing.sngFca),
+              dens:   parseFloat(ing.densFca),
+              prot:   parseFloat(ing.protFca),
+            });
+          });
+        });
+
+        const avg = (arr, key) => {
+          const vals = arr.filter(e => !isNaN(e[key]) && e[key] > 0);
+          return vals.length ? vals.reduce((s, e) => s + e[key], 0) / vals.length : 0;
+        };
+
+        const tambos = Object.entries(tamboMap)
+          .map(([nombre, entregas]) => ({
+            nombre, entregas,
+            totalLitros: entregas.reduce((s, e) => s + e.litros, 0),
+            avgAcidez: avg(entregas, "acidez"),
+            avgPh:     avg(entregas, "ph"),
+            avgGb:     avg(entregas, "gb"),
+            lastDate:  entregas[entregas.length - 1]?.date,
+          }))
+          .sort((a, b) => b.totalLitros - a.totalLitros);
+
+        if (tambos.length === 0) return (
+          <div style={{ textAlign: "center", padding: "48px 24px", color: C.sub }}>
+            <div style={{ fontSize: 40, marginBottom: 10 }}>🐄</div>
+            <div>Sin entregas en los últimos 14 días</div>
+          </div>
+        );
+
+        const PARAM_DEFS = [
+          { key: "acidez", label: "Acidez", ref: QUALITY_REFS["Acidez"],   col: "#f59e0b" },
+          { key: "ph",     label: "pH",     ref: QUALITY_REFS["pH"],       col: "#60a5fa" },
+          { key: "gb",     label: "GB %",   ref: QUALITY_REFS["GB"],       col: "#34d399" },
+        ];
+
+        return (
+          <div>
+            <div style={{ ...secTitle, marginBottom: 12 }}>
+              🐄 Proveedores activos — últimos 14 días · {tambos.length} tambos
+            </div>
+
+            {tambos.map(({ nombre, entregas, totalLitros, avgAcidez, avgPh, avgGb, lastDate }) => {
+              const isOpen = tamboSel === nombre;
+              const avgVals = { acidez: avgAcidez, ph: avgPh, gb: avgGb };
+              const anyAlert = PARAM_DEFS.some(({ key, ref }) => {
+                const v = avgVals[key];
+                return v > 0 && ref && (v < ref.min || v > ref.max);
+              });
+
+              return (
+                <div key={nombre} style={{
+                  ...card, marginBottom: 8, cursor: "pointer",
+                  borderColor: anyAlert ? C.accent + "77" : C.border,
+                  transition: "border-color 0.3s",
+                }} onClick={() => setTamboSel(isOpen ? null : nombre)}>
+
+                  {/* Cabecera */}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
+                    <div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontSize: 14, fontWeight: 700, color: C.text }}>{nombre}</span>
+                        {anyAlert && <span style={{ fontSize: 11, background: "#f59e0b22", color: C.accent, borderRadius: 6, padding: "1px 7px", fontWeight: 700 }}>⚠ Fuera de ref.</span>}
+                      </div>
+                      <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>
+                        {entregas.length} entrega{entregas.length !== 1 ? "s" : ""} ·{" "}
+                        <span style={{ fontFamily: "monospace", color: C.accent }}>
+                          {(totalLitros / 1000).toFixed(1)}k L
+                        </span>
+                        {lastDate && <span style={{ marginLeft: 6, color: C.muted }}>· último {fmtDate(lastDate)}</span>}
+                      </div>
+                    </div>
+                    <span style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>{isOpen ? "▲" : "▼"}</span>
+                  </div>
+
+                  {/* Chips de parámetros con sparklines */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
+                    {PARAM_DEFS.map(({ key, label, ref, col }) => {
+                      const v = avgVals[key];
+                      const ok = v <= 0 || !ref || (v >= ref.min && v <= ref.max);
+                      const chipBg  = !ok ? "#1a0808" : C.surface;
+                      const chipBdr = !ok ? C.danger + "55" : C.border;
+                      return (
+                        <div key={key} style={{ background: chipBg, border: `1px solid ${chipBdr}`, borderRadius: 8, padding: "7px 8px" }}>
+                          <div style={{ fontSize: 9, color: C.sub, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 2 }}>{label}</div>
+                          <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "monospace", color: v > 0 ? (ok ? col : C.danger) : C.muted, marginBottom: 4 }}>
+                            {v > 0 ? v.toFixed(2) : "—"}
+                          </div>
+                          <Sparkline values={entregas.map(e => e[key])} color={v > 0 ? (ok ? col : C.danger) : C.muted} w={54} h={20} />
+                          {ref && v > 0 && (
+                            <div style={{ fontSize: 8, color: ok ? C.muted : C.danger, marginTop: 3 }}>
+                              {ok ? `✓ ${ref.min}–${ref.max}` : `⚠ ref ${ref.min}–${ref.max}`}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Tabla expandida */}
+                  {isOpen && (
+                    <div style={{ marginTop: 14, borderTop: `1px solid ${C.border}`, paddingTop: 12 }}>
+                      <div style={{ fontSize: 10, color: C.sub, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700, marginBottom: 8 }}>
+                        Historial de entregas
+                      </div>
+                      {/* Header */}
+                      <div style={{ display: "grid", gridTemplateColumns: "74px 54px 46px 44px 44px 44px 56px", gap: 3, marginBottom: 5 }}>
+                        {["Fecha", "Litros", "Acidez", "pH", "GB", "SNG", "Densidad"].map(h => (
+                          <div key={h} style={{ fontSize: 8, color: C.muted, textTransform: "uppercase", letterSpacing: "0.04em", fontWeight: 700 }}>{h}</div>
+                        ))}
+                      </div>
+                      {/* Rows (newest first) */}
+                      {[...entregas].reverse().map((e, i) => {
+                        const fieldDefs = [
+                          { v: e.acidez, ref: QUALITY_REFS["Acidez"] },
+                          { v: e.ph,     ref: QUALITY_REFS["pH"] },
+                          { v: e.gb,     ref: QUALITY_REFS["GB"] },
+                          { v: e.sng,    ref: QUALITY_REFS["SNG"] },
+                          { v: e.dens,   ref: QUALITY_REFS["Densidad"] },
+                        ];
+                        return (
+                          <div key={i} style={{
+                            display: "grid", gridTemplateColumns: "74px 54px 46px 44px 44px 44px 56px",
+                            gap: 3, padding: "5px 0",
+                            borderBottom: i < entregas.length - 1 ? `1px solid ${C.border}22` : "none",
+                          }}>
+                            <div style={{ fontSize: 11, fontFamily: "monospace", color: e.date === getToday() ? C.accent : C.sub }}>
+                              {fmtDate(e.date)}
+                            </div>
+                            <div style={{ fontSize: 11, fontFamily: "monospace", fontWeight: 600, color: C.accent }}>
+                              {e.litros > 0 ? e.litros.toLocaleString("es-AR") : "—"}
+                            </div>
+                            {fieldDefs.map(({ v, ref: r }, j) => {
+                              const valid = !isNaN(v) && v > 0;
+                              const outRef = valid && r && (v < r.min || v > r.max);
+                              return (
+                                <div key={j} style={{ fontSize: 11, fontFamily: "monospace", color: outRef ? C.danger : valid ? C.text : C.muted }}>
+                                  {valid ? (j === 4 ? v.toFixed(3) : v.toFixed(2)) : "—"}{outRef ? " ⚠" : ""}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
     </div>
   );
 };
@@ -2265,12 +2680,22 @@ export default function App() {
   const [loginUser, setLoginUser] = useState("");
   const [loginPass, setLoginPass] = useState("");
   const [loginError, setLoginError] = useState("");
-  const [syncKey, setSyncKey] = useState(0); // incrementa cada 30s → refresca datos en todas las secciones
+  const [syncKey, setSyncKey] = useState(0); // incrementa cada 10s → refresca datos en todas las secciones
+  const [storageOk, setStorageOk] = useState(true);
   const isToday = date === getToday();
 
   const navItems = perfil
     ? [...NAV, { id: "supervisor", label: "Superv.", icon: PERFILES[perfil]?.icon || "👔" }]
     : NAV;
+
+  // Verificar disponibilidad del storage al iniciar
+  useEffect(() => {
+    const HC = "yatasto:_hc";
+    window.storage.set(HC, "1")
+      .then(() => window.storage.get(HC))
+      .then(r => setStorageOk(!!r))
+      .catch(() => setStorageOk(false));
+  }, []);
 
   // Carry-over automático: al abrir la app traspasa el saldo del día anterior
   useEffect(() => {
@@ -2348,6 +2773,29 @@ export default function App() {
 
   return (
     <div style={{ background: C.bg, minHeight: "100vh", color: C.text, fontFamily: "-apple-system,'Segoe UI',sans-serif", paddingBottom: 72 }}>
+
+      {/* Banner offline — almacenamiento no disponible */}
+      {!storageOk && (
+        <div style={{
+          background: "#450a0a", borderBottom: `2px solid ${C.danger}`,
+          padding: "10px 16px", display: "flex", alignItems: "center", gap: 10,
+          position: "sticky", top: 0, zIndex: 300,
+        }}>
+          <span style={{ fontSize: 20 }}>📵</span>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#fca5a5" }}>Sin acceso al almacenamiento</div>
+            <div style={{ fontSize: 11, color: "#f87171", marginTop: 1 }}>
+              Los datos no se guardarán. Verificá la conexión con el sistema Antigravity.
+            </div>
+          </div>
+          <button onClick={() => {
+            const HC = "yatasto:_hc";
+            window.storage.set(HC, "1").then(() => window.storage.get(HC)).then(r => setStorageOk(!!r)).catch(() => setStorageOk(false));
+          }} style={{ background: "#ef4444", border: "none", color: "#fff", borderRadius: 8, padding: "5px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
+            Reintentar
+          </button>
+        </div>
+      )}
 
       {/* Modal identificación de turno */}
       {initModal && (
