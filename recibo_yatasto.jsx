@@ -2089,405 +2089,531 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
       ]);
       const autoL = await calcAutoLitros(exportDate);
 
-      // ── Colores corporativos del reporte ──────────────────────
-      const NAVY    = "#0f2044";
-      const NAVY2   = "#1e3a6e";
-      const NAVY3   = "#2a4f8f";
-      const GOLD    = "#c8860a";
-      const GOLD_BG = "#fef9ec";
-      const RED_BG  = "#fff1f0";
-      const GRN_BG  = "#f0faf3";
-      const ROW_ALT = "#f4f7fb";
-      const BORDER  = "#d0d9e8";
-      const TXT_DK  = "#0f172a";
-      const TXT_SUB = "#64748b";
-
-      // ── Totales KPI ──────────────────────────────────────────
-      const totIng  = ing.reduce((s, i) => s + (parseFloat(i.litrosFca) || 0), 0);
-      const totCarg = cargas.reduce((s, c) => s + (parseFloat(c.litros) || 0), 0);
-      const balance = totIng - totCarg;
-      const totSilos = STOCK_SILOS.reduce((s, k) => s + (autoL[k] || 0), 0);
+      // ── KPIs ─────────────────────────────────────────────────
+      const totIng   = ing.reduce((s, i) => s + (parseFloat(i.litrosFca) || 0), 0);
+      const totCarg  = cargas.reduce((s, c) => s + (parseFloat(c.litros) || 0), 0);
+      const balance  = totIng - totCarg;
       const totCap   = STOCK_SILOS.reduce((s, k) => s + (SILO_CAP[k] || 0), 0);
-      const fillPct  = totCap > 0 ? ((totSilos / totCap) * 100).toFixed(1) : "0.0";
-      const fmtN = n => n.toLocaleString("es-AR");
+      const totSilos = STOCK_SILOS.reduce((s, k) => s + (autoL[k] || 0), 0);
+      const fillPct  = totCap > 0 ? (totSilos / totCap) * 100 : 0;
+      const fmtN = n => Math.round(n).toLocaleString("es-AR");
+      const fmtD = n => n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : `${Math.round(n)}`;
 
       // ── Calidad promedio ──────────────────────────────────────
-      const qAvg = (key) => {
+      const qAvg = key => {
         const vals = ing.map(i => parseFloat(i[key])).filter(v => !isNaN(v) && v > 0);
-        return vals.length ? (vals.reduce((s, v) => s + v, 0) / vals.length) : null;
+        return vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : null;
       };
-
-      // ── CSS global ──────────────────────────────────────────
-      const css = `
-        body { font-family: Arial, Helvetica, sans-serif; font-size: 11px; margin: 0; background: #fff; color: ${TXT_DK}; }
-        .page { max-width: 1100px; margin: 0 auto; padding: 24px 20px 40px; }
-
-        /* Header */
-        .hdr { background: linear-gradient(135deg, ${NAVY} 0%, ${NAVY2} 50%, ${NAVY3} 100%);
-               color: #fff; padding: 22px 28px 18px; border-radius: 12px 12px 0 0; }
-        .hdr-brand { font-size: 26px; font-weight: 900; letter-spacing: 0.14em;
-                     color: #f5c842; font-family: 'Arial Black', Arial, sans-serif; }
-        .hdr-sub { font-size: 10px; color: #a0bde0; letter-spacing: 0.18em;
-                   text-transform: lowercase; font-style: italic; margin-top: 2px; }
-        .hdr-meta { margin-top: 12px; display: flex; gap: 28px; font-size: 11px; color: #c8d8f0; }
-        .hdr-meta b { color: #fff; }
-
-        /* KPI strip */
-        .kpi-row { display: flex; gap: 0; border: 1px solid ${BORDER}; border-top: none;
-                   border-radius: 0 0 10px 10px; overflow: hidden; }
-        .kpi { flex: 1; padding: 16px 18px; background: #fff; border-right: 1px solid ${BORDER}; }
-        .kpi:last-child { border-right: none; }
-        .kpi-val { font-size: 22px; font-weight: 900; color: ${NAVY2}; font-family: 'Courier New', monospace; line-height: 1; }
-        .kpi-val.gold { color: ${GOLD}; }
-        .kpi-val.red  { color: #c0392b; }
-        .kpi-val.grn  { color: #16a34a; }
-        .kpi-lbl { font-size: 9px; color: ${TXT_SUB}; text-transform: uppercase;
-                   letter-spacing: 0.1em; margin-top: 5px; }
-        .kpi-unit { font-size: 10px; color: ${TXT_SUB}; font-weight: 400; margin-left: 2px; }
-
-        /* Section titles */
-        .sec-hdr { display: flex; align-items: center; gap: 10px; margin: 24px 0 8px;
-                   padding-bottom: 6px; border-bottom: 2px solid ${NAVY2}; }
-        .sec-hdr-line { flex: 1; height: 1px; background: ${BORDER}; }
-        .sec-title { font-size: 12px; font-weight: 800; color: ${NAVY2};
-                     text-transform: uppercase; letter-spacing: 0.08em; }
-        .sec-badge { background: ${NAVY2}; color: #fff; font-size: 9px; font-weight: 700;
-                     border-radius: 20px; padding: 2px 9px; }
-
-        /* Quality bar row */
-        .qual-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
-        .qual-cell { background: #f8fafd; border: 1px solid ${BORDER}; border-radius: 8px;
-                     padding: 8px 14px; min-width: 100px; }
-        .qual-val { font-size: 16px; font-weight: 900; color: ${NAVY2};
-                    font-family: 'Courier New', monospace; }
-        .qual-lbl { font-size: 8px; color: ${TXT_SUB}; text-transform: uppercase;
-                    letter-spacing: 0.1em; margin-top: 3px; }
-        .qual-range { font-size: 8px; color: #94a3b8; margin-top: 1px; }
-
-        /* Tables */
-        table { border-collapse: collapse; width: 100%; margin-bottom: 6px; }
-        th { background: ${NAVY2}; color: #fff; padding: 7px 10px; text-align: left;
-             font-size: 9px; font-weight: 700; text-transform: uppercase;
-             letter-spacing: 0.06em; border: 1px solid ${NAVY}; white-space: nowrap; }
-        td { border: 1px solid ${BORDER}; padding: 6px 10px; font-size: 10px;
-             vertical-align: middle; }
-        tr:nth-child(even) td { background: ${ROW_ALT}; }
-        tr:hover td { background: #eef3fa; }
-        .num { text-align: right; font-family: 'Courier New', monospace; }
-        .badge-ok  { background: #dcfce7; color: #166534; border-radius: 4px;
-                     padding: 1px 6px; font-size: 9px; font-weight: 700; }
-        .badge-warn { background: #fef9c3; color: #854d0e; border-radius: 4px;
-                      padding: 1px 6px; font-size: 9px; font-weight: 700; }
-        .badge-err { background: #fee2e2; color: #991b1b; border-radius: 4px;
-                     padding: 1px 6px; font-size: 9px; font-weight: 700; }
-
-        /* Silo table special cols */
-        .silo-bar-wrap { background: #e2e8f0; border-radius: 4px; height: 8px;
-                         overflow: hidden; min-width: 60px; }
-        .silo-bar { height: 100%; border-radius: 4px; }
-
-        /* Footer */
-        .footer { margin-top: 32px; padding-top: 12px; border-top: 1px solid ${BORDER};
-                  display: flex; justify-content: space-between; font-size: 9px; color: #94a3b8; }
-        .footer b { color: ${TXT_SUB}; }
-      `;
 
       // ── Timestamp ────────────────────────────────────────────
       const now = new Date();
-      const ts  = `${now.toLocaleDateString("es-AR")} ${now.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}`;
+      const ts  = now.toLocaleDateString("es-AR") + " " + now.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
 
-      // ── HEADER ───────────────────────────────────────────────
+      // ── Donut SVG (silo utilization) ─────────────────────────
+      const dpct  = Math.min(100, Math.max(0, fillPct));
+      const dR    = 44, dSW = 10, dCX = 54, dCY = 54;
+      const dCirc = 2 * Math.PI * dR;
+      const dDash = (dCirc * dpct / 100).toFixed(2);
+      const dColor = dpct > 88 ? "#ef4444" : dpct > 65 ? "#f59e0b" : "#10b981";
+      const donutSVG = `<svg width="108" height="108" viewBox="0 0 108 108" style="display:block">
+        <circle cx="${dCX}" cy="${dCY}" r="${dR}" fill="none" stroke="#e2e8f0" stroke-width="${dSW}"/>
+        ${dpct > 0 ? `<circle cx="${dCX}" cy="${dCY}" r="${dR}" fill="none" stroke="${dColor}" stroke-width="${dSW}"
+          stroke-dasharray="${dDash} ${dCirc.toFixed(2)}" stroke-linecap="round"
+          transform="rotate(-90 ${dCX} ${dCY})"/>` : ""}
+        <text x="${dCX}" y="${dCY - 2}" text-anchor="middle" font-size="17" font-weight="800"
+          fill="#0f172a" font-family="'Consolas','Courier New',monospace">${fillPct.toFixed(1)}%</text>
+        <text x="${dCX}" y="${dCY + 15}" text-anchor="middle" font-size="9" fill="#94a3b8"
+          font-family="'Segoe UI',Arial,sans-serif" letter-spacing="0.08em">SILOS</text>
+      </svg>`;
+
+      // ── CSS ───────────────────────────────────────────────────
+      const css = `
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+          font-family: 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+          background: #eef2f7; color: #0f172a; font-size: 12px;
+          -webkit-print-color-adjust: exact; print-color-adjust: exact;
+        }
+        .page { max-width: 980px; margin: 0 auto; padding: 28px 22px 52px; }
+
+        /* ── Cover ── */
+        .cover {
+          background: linear-gradient(135deg, #0c1a3a 0%, #1a3470 55%, #0d274f 100%);
+          border-radius: 18px; padding: 38px 44px 32px; margin-bottom: 22px;
+          position: relative; overflow: hidden;
+        }
+        .cover::after {
+          content: ""; position: absolute; right: -60px; top: -60px;
+          width: 260px; height: 260px; border-radius: 50%;
+          background: rgba(255,255,255,0.025); pointer-events: none;
+        }
+        .cover-inner { display: flex; justify-content: space-between; align-items: flex-start; position: relative; }
+        .brand { line-height: 1; }
+        .brand-name {
+          font-size: 46px; font-weight: 900; color: #f0a500;
+          letter-spacing: 0.14em; font-family: 'Arial Black', 'Segoe UI Black', Arial, sans-serif;
+        }
+        .brand-tagline { font-size: 9px; color: #5a7aaa; letter-spacing: 0.32em; font-style: italic; margin-top: 7px; }
+        .cover-right { text-align: right; }
+        .cover-date { font-size: 24px; font-weight: 700; color: #fff; letter-spacing: 0.02em; }
+        .cover-doc  { font-size: 11px; color: #7a9acc; margin-top: 6px; letter-spacing: 0.06em; text-transform: uppercase; }
+        .cover-user { font-size: 11px; color: #5a7aaa; margin-top: 4px; }
+        .cover-sep  { height: 1px; background: rgba(255,255,255,0.1); margin: 26px 0 18px; position: relative; }
+        .cover-meta { display: flex; gap: 28px; font-size: 10px; color: #4a6a8a; }
+        .cover-meta span b { color: #7a9acc; }
+
+        /* ── KPI Grid ── */
+        .kpi-grid { display: flex; gap: 14px; margin-bottom: 22px; flex-wrap: wrap; }
+        .kpi-card {
+          flex: 1; min-width: 130px; background: #fff; border-radius: 14px;
+          padding: 22px 20px 18px; position: relative; overflow: hidden;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.07), 0 0 0 1px rgba(0,0,0,0.05);
+        }
+        .kpi-card::before {
+          content: ""; position: absolute; top: 0; left: 0; right: 0; height: 4px;
+          background: var(--kpi-color, #3b82f6); border-radius: 14px 14px 0 0;
+        }
+        .kpi-label {
+          font-size: 9px; font-weight: 700; color: #94a3b8;
+          text-transform: uppercase; letter-spacing: 0.14em; margin-bottom: 12px;
+        }
+        .kpi-number {
+          font-size: 32px; font-weight: 800; line-height: 1; color: #0f172a;
+          font-family: 'Cascadia Code','Fira Code','Consolas','Courier New',monospace;
+        }
+        .kpi-number.accent { color: var(--kpi-color, #3b82f6); }
+        .kpi-unit  { font-size: 14px; font-weight: 500; color: #94a3b8; margin-left: 3px; }
+        .kpi-sub   { font-size: 11px; color: #64748b; margin-top: 9px; }
+
+        /* ── Section header ── */
+        .sec-head {
+          display: flex; align-items: center; gap: 12px; margin: 30px 0 14px;
+        }
+        .sec-head-title {
+          font-size: 11px; font-weight: 800; color: #0c1a3a;
+          text-transform: uppercase; letter-spacing: 0.1em; white-space: nowrap;
+        }
+        .sec-head-line { flex: 1; height: 1px; background: #e2e8f0; }
+        .sec-head-pill {
+          font-size: 9px; font-weight: 700; color: #3b82f6;
+          background: #eff6ff; border-radius: 20px; padding: 3px 11px; white-space: nowrap;
+        }
+
+        /* ── Quality strip ── */
+        .qual-strip { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 22px; }
+        .qual-card {
+          flex: 1; min-width: 105px; background: #fff; border-radius: 12px;
+          padding: 16px 16px 13px;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.04);
+        }
+        .qual-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 9px; }
+        .qual-name { font-size: 9px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.12em; }
+        .qual-dot  { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+        .qual-val  {
+          font-size: 24px; font-weight: 800; color: #0f172a; line-height: 1;
+          font-family: 'Cascadia Code','Consolas','Courier New',monospace;
+        }
+        .qual-unit { font-size: 12px; font-weight: 400; color: #94a3b8; }
+        .qual-ref  { font-size: 8px; color: #cbd5e1; margin-top: 6px; }
+
+        /* ── Silo chart card ── */
+        .silo-card {
+          background: #fff; border-radius: 14px; padding: 22px 26px;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.07), 0 0 0 1px rgba(0,0,0,0.05);
+          margin-bottom: 22px;
+        }
+        .silo-card-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 22px; }
+        .silo-card-title { font-size: 13px; font-weight: 800; color: #0c1a3a; }
+        .silo-card-sub   { font-size: 10px; color: #94a3b8; margin-top: 4px; }
+        .silo-list { display: flex; flex-direction: column; gap: 14px; }
+        .silo-item { }
+        .silo-item-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 7px; }
+        .silo-item-left { display: flex; align-items: center; gap: 9px; }
+        .silo-item-name { font-size: 12px; font-weight: 700; color: #0f172a; }
+        .silo-item-prod { font-size: 9px; background: #f1f5f9; color: #64748b; border-radius: 5px; padding: 2px 8px; }
+        .silo-item-stat {
+          font-size: 12px; font-weight: 700; color: #0f172a;
+          font-family: 'Cascadia Code','Consolas','Courier New',monospace;
+        }
+        .bar-track { background: #f1f5f9; border-radius: 100px; height: 9px; overflow: hidden; }
+        .bar-fill  { height: 100%; border-radius: 100px; transition: width 0.4s; }
+
+        /* ── Tables ── */
+        .table-card {
+          background: #fff; border-radius: 14px; overflow: hidden; margin-bottom: 22px;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.07), 0 0 0 1px rgba(0,0,0,0.05);
+        }
+        .table-card-head {
+          padding: 18px 22px 14px; border-bottom: 1px solid #f1f5f9;
+          display: flex; justify-content: space-between; align-items: center;
+        }
+        .table-card-title { font-size: 13px; font-weight: 700; color: #0c1a3a; }
+        .table-card-badge {
+          font-size: 9px; font-weight: 700; color: #3b82f6;
+          background: #eff6ff; border-radius: 20px; padding: 3px 11px;
+        }
+        table { width: 100%; border-collapse: collapse; }
+        thead tr { border-bottom: 1.5px solid #e2e8f0; }
+        th {
+          padding: 11px 16px; font-size: 9px; font-weight: 700;
+          color: #64748b; text-transform: uppercase; letter-spacing: 0.1em;
+          text-align: left; background: transparent; white-space: nowrap;
+        }
+        th.r { text-align: right; }
+        td {
+          padding: 12px 16px; font-size: 11px; color: #0f172a;
+          border-bottom: 1px solid #f8fafc; vertical-align: middle;
+        }
+        td.r { text-align: right; font-family: 'Cascadia Code','Consolas','Courier New',monospace; font-size: 12px; }
+        tbody tr:last-child td { border-bottom: none; }
+        .td-muted { color: #94a3b8; }
+        .td-mono  { font-family: 'Cascadia Code','Consolas','Courier New',monospace; }
+        .td-bold  { font-weight: 700; }
+
+        /* Total row */
+        .total-row td { background: #fafbff; border-top: 1.5px solid #e2e8f0; font-weight: 700; border-bottom: none; }
+        .total-row .r { color: #1e40af; font-size: 13px; }
+
+        /* Badges */
+        .badge {
+          display: inline-block; border-radius: 6px; padding: 2px 8px;
+          font-size: 9px; font-weight: 700; white-space: nowrap;
+        }
+        .ok   { background: #dcfce7; color: #15803d; }
+        .warn { background: #fef9c3; color: #92400e; }
+        .err  { background: #fee2e2; color: #b91c1c; }
+        .neu  { background: #f1f5f9; color: #475569; }
+
+        /* ── Footer ── */
+        .footer {
+          display: flex; justify-content: space-between; align-items: center;
+          padding-top: 18px; border-top: 1px solid #e2e8f0; margin-top: 10px;
+          font-size: 9px; color: #94a3b8;
+        }
+        .footer-brand { font-weight: 700; color: #64748b; font-size: 10px; }
+      `;
+
+      // ── COVER ─────────────────────────────────────────────────
       let H = `
-        <div class="hdr">
-          <div class="hdr-brand">YATASTO</div>
-          <div class="hdr-sub">lácteos · buena leche</div>
-          <div class="hdr-meta">
-            <span>📅 Fecha: <b>${fmtDate(exportDate)}</b></span>
-            <span>🕐 Generado: <b>${ts}</b></span>
-            ${perfilLabel ? `<span>👤 Operador: <b>${perfilLabel}</b></span>` : ""}
-            <span>📋 INFORME DIARIO DE PRODUCCIÓN</span>
+        <div class="cover">
+          <div class="cover-inner">
+            <div class="brand">
+              <div class="brand-name">YATASTO</div>
+              <div class="brand-tagline">lácteos · buena leche</div>
+            </div>
+            <div class="cover-right">
+              <div class="cover-date">${fmtDate(exportDate)}</div>
+              <div class="cover-doc">Informe Ejecutivo de Producción</div>
+              ${perfilLabel ? `<div class="cover-user">Operador: ${perfilLabel}</div>` : ""}
+            </div>
           </div>
-        </div>
-        <div class="kpi-row">
-          <div class="kpi">
-            <div class="kpi-val gold">${fmtN(totIng)}<span class="kpi-unit">L</span></div>
-            <div class="kpi-lbl">Litros Ingresados</div>
-          </div>
-          <div class="kpi">
-            <div class="kpi-val">${fmtN(totCarg)}<span class="kpi-unit">L</span></div>
-            <div class="kpi-lbl">Litros Cargados</div>
-          </div>
-          <div class="kpi">
-            <div class="kpi-val ${balance >= 0 ? "grn" : "red"}">${balance >= 0 ? "+" : ""}${fmtN(balance)}<span class="kpi-unit">L</span></div>
-            <div class="kpi-lbl">Balance del día</div>
-          </div>
-          <div class="kpi">
-            <div class="kpi-val">${ing.length}</div>
-            <div class="kpi-lbl">Camiones ingresados</div>
-          </div>
-          <div class="kpi">
-            <div class="kpi-val">${cargas.length}</div>
-            <div class="kpi-lbl">Cargas despachadas</div>
-          </div>
-          <div class="kpi">
-            <div class="kpi-val ${parseFloat(fillPct) > 88 ? "red" : parseFloat(fillPct) > 65 ? "gold" : "grn"}">${fillPct}<span class="kpi-unit">%</span></div>
-            <div class="kpi-lbl">Ocupación silos</div>
+          <div class="cover-sep"></div>
+          <div class="cover-meta">
+            <span><b>${ing.length}</b> camiones ingresados</span>
+            <span><b>${cargas.length}</b> cargas despachadas</span>
+            <span><b>${STOCK_SILOS.length}</b> silos monitoreados</span>
+            <span>Generado: <b>${ts}</b></span>
           </div>
         </div>
       `;
 
-      // ── CALIDAD PROMEDIO ──────────────────────────────────────
+      // ── KPI CARDS ─────────────────────────────────────────────
+      const balColor = balance >= 0 ? "#10b981" : "#ef4444";
+      const ocpColor = fillPct > 88 ? "#ef4444" : fillPct > 65 ? "#f59e0b" : "#10b981";
+      H += `
+        <div class="kpi-grid">
+          <div class="kpi-card" style="--kpi-color:#f59e0b">
+            <div class="kpi-label">Litros Ingresados</div>
+            <div class="kpi-number accent">${fmtD(totIng)}<span class="kpi-unit">L</span></div>
+            <div class="kpi-sub">${fmtN(totIng)} litros totales</div>
+          </div>
+          <div class="kpi-card" style="--kpi-color:#3b82f6">
+            <div class="kpi-label">Litros Despachados</div>
+            <div class="kpi-number accent">${fmtD(totCarg)}<span class="kpi-unit">L</span></div>
+            <div class="kpi-sub">${cargas.length} carga${cargas.length !== 1 ? "s" : ""}</div>
+          </div>
+          <div class="kpi-card" style="--kpi-color:${balColor}">
+            <div class="kpi-label">Balance del Día</div>
+            <div class="kpi-number accent">${balance >= 0 ? "+" : ""}${fmtD(balance)}<span class="kpi-unit">L</span></div>
+            <div class="kpi-sub">${balance >= 0 ? "Superávit operativo" : "Déficit operativo"}</div>
+          </div>
+          <div class="kpi-card" style="--kpi-color:#6366f1">
+            <div class="kpi-label">Camiones</div>
+            <div class="kpi-number accent">${ing.length}</div>
+            <div class="kpi-sub">${new Set(ing.map(i => i.tambo).filter(Boolean)).size} tambos distintos</div>
+          </div>
+          <div class="kpi-card" style="--kpi-color:#8b5cf6">
+            <div class="kpi-label">Calidad — pH Promedio</div>
+            <div class="kpi-number accent">${qAvg("phFca") != null ? qAvg("phFca").toFixed(2) : "—"}</div>
+            <div class="kpi-sub">Acidez: ${qAvg("acidezFca") != null ? qAvg("acidezFca").toFixed(1) + " °D" : "—"}</div>
+          </div>
+          <div class="kpi-card" style="--kpi-color:${ocpColor}">
+            <div class="kpi-label">Ocupación Silos</div>
+            <div class="kpi-number accent">${fillPct.toFixed(1)}<span class="kpi-unit">%</span></div>
+            <div class="kpi-sub">${fmtD(totSilos)} L de ${fmtD(totCap)} L cap.</div>
+          </div>
+        </div>
+      `;
+
+      // ── CALIDAD DEL DÍA ───────────────────────────────────────
       const qualDefs = [
-        { key: "acidezFca", label: "Acidez", unit: "°D", range: "14–18" },
-        { key: "phFca",     label: "pH",     unit: "",   range: "6.6–6.8" },
-        { key: "gbFca",     label: "Grasa",  unit: "%",  range: "≥ 3.0" },
-        { key: "sngFca",    label: "SNG",    unit: "%",  range: "≥ 8.2" },
-        { key: "densFca",   label: "Dens.",  unit: "",   range: "1.028–1.034" },
-        { key: "protFca",   label: "Prot.",  unit: "%",  range: "≥ 2.9" },
-        { key: "tC",        label: "Temp",   unit: "°C", range: "≤ 6" },
+        { key: "phFca",     label: "pH",          unit: "",    dec: 2, min: 6.6,  max: 6.8 },
+        { key: "acidezFca", label: "Acidez",       unit: "°D",  dec: 1, min: 14,   max: 18 },
+        { key: "gbFca",     label: "Grasa",        unit: "%",   dec: 2, min: 3.0,  max: null },
+        { key: "sngFca",    label: "SNG",          unit: "%",   dec: 2, min: 8.2,  max: null },
+        { key: "densFca",   label: "Densidad",     unit: "",    dec: 3, min: 1.028, max: 1.034 },
+        { key: "protFca",   label: "Proteína",     unit: "%",   dec: 2, min: 2.9,  max: null },
+        { key: "tC",        label: "Temperatura",  unit: "°C",  dec: 1, min: null, max: 6 },
+        { key: "aguadoFca", label: "Aguado",       unit: "",    dec: 3, min: null, max: 0 },
       ];
       if (ing.length > 0) {
         H += `
-          <div class="sec-hdr">
-            <span class="sec-title">Calidad Promedio del Día</span>
-            <div class="sec-hdr-line"></div>
-            <span class="sec-badge">${ing.length} camiones</span>
+          <div class="sec-head">
+            <span class="sec-head-title">Calidad Promedio</span>
+            <div class="sec-head-line"></div>
+            <span class="sec-head-pill">${ing.length} muestras</span>
           </div>
-          <div class="qual-grid">
+          <div class="qual-strip">
         `;
-        qualDefs.forEach(({ key, label, unit, range }) => {
+        qualDefs.forEach(({ key, label, unit, dec, min, max }) => {
           const v = qAvg(key);
           if (v == null) return;
-          H += `<div class="qual-cell">
-            <div class="qual-val">${v.toFixed(key === "densFca" ? 3 : 2)}${unit ? `<span style="font-size:11px;font-weight:400;color:${TXT_SUB}"> ${unit}</span>` : ""}</div>
-            <div class="qual-lbl">${label}</div>
-            <div class="qual-range">ref: ${range}</div>
+          const inRange = (min == null || v >= min) && (max == null || v <= max);
+          const dotColor = inRange ? "#10b981" : (key === "aguadoFca" ? "#ef4444" : "#f59e0b");
+          const rangeStr = min != null && max != null ? `${min} – ${max}${unit}`
+            : min != null ? `≥ ${min}${unit}`
+            : max != null ? `≤ ${max}${unit}` : "";
+          H += `<div class="qual-card">
+            <div class="qual-top">
+              <span class="qual-name">${label}</span>
+              <span class="qual-dot" style="background:${dotColor}"></span>
+            </div>
+            <div class="qual-val">${v.toFixed(dec)}<span class="qual-unit">${unit ? " " + unit : ""}</span></div>
+            ${rangeStr ? `<div class="qual-ref">ref ${rangeStr}</div>` : ""}
           </div>`;
         });
         H += `</div>`;
       }
 
-      // ── INGRESOS TABLE ────────────────────────────────────────
+      // ── ESTADO DE SILOS (visual, no tabla) ───────────────────
       H += `
-        <div class="sec-hdr">
-          <span class="sec-title">Ingresos de Leche</span>
-          <div class="sec-hdr-line"></div>
-          <span class="sec-badge">${ing.length} registros</span>
+        <div class="sec-head">
+          <span class="sec-head-title">Estado de Silos</span>
+          <div class="sec-head-line"></div>
+          <span class="sec-head-pill">${fillPct.toFixed(1)}% ocupado</span>
         </div>
-        <table>
-          <thead><tr>
-            <th>Hora</th><th>Nº</th><th>Tambo</th>
-            <th class="num">Litros Fca</th><th class="num">Litros Tbo</th>
-            <th>Destino</th><th class="num">pH</th><th class="num">Acidez</th>
-            <th class="num">GB%</th><th class="num">SNG%</th>
-            <th class="num">Densidad</th><th class="num">Proteína</th>
-            <th class="num">Temp°C</th><th class="num">Aguado</th>
-            <th>Producto</th><th>Responsable</th>
-          </tr></thead><tbody>
+        <div class="silo-card">
+          <div class="silo-card-head">
+            <div>
+              <div class="silo-card-title">Distribución de Volumen</div>
+              <div class="silo-card-sub">${fmtN(totSilos)} L en ${STOCK_SILOS.length} silos · cap. total ${fmtN(totCap)} L</div>
+            </div>
+            ${donutSVG}
+          </div>
+          <div class="silo-list">
       `;
-      if (ing.length === 0) {
-        H += `<tr><td colspan="16" style="text-align:center;color:${TXT_SUB};padding:14px">Sin ingresos registrados</td></tr>`;
-      } else {
-        const aguadoFlag = v => {
-          const n = parseFloat(v);
-          if (isNaN(n) || n === 0) return `<span class="badge-ok">0.000</span>`;
-          return `<span class="badge-err">${n.toFixed(3)} ⚠</span>`;
-        };
-        ing.forEach(i => {
-          const lFca = parseFloat(i.litrosFca) || 0;
-          const lTbo = parseFloat(i.litrosTbo) || 0;
-          const difL = Math.abs(lFca - lTbo);
-          const difBadge = difL > 150
-            ? `<span class="badge-warn">Δ${fmtN(Math.round(difL))}L</span>`
-            : "";
-          H += `<tr>
-            <td style="font-family:monospace">${i.hora || "—"}</td>
-            <td>${i.num || ""}</td>
-            <td><b>${i.tambo || "—"}</b></td>
-            <td class="num"><b>${lFca ? fmtN(lFca) : "—"}</b> ${difBadge}</td>
-            <td class="num">${lTbo ? fmtN(lTbo) : "—"}</td>
-            <td>${i.destino || "—"}</td>
-            <td class="num">${i.phFca || "—"}</td>
-            <td class="num">${i.acidezFca || "—"}</td>
-            <td class="num">${i.gbFca || "—"}</td>
-            <td class="num">${i.sngFca || "—"}</td>
-            <td class="num">${i.densFca || "—"}</td>
-            <td class="num">${i.protFca || "—"}</td>
-            <td class="num">${i.tC || "—"}</td>
-            <td class="num">${aguadoFlag(i.aguadoFca)}</td>
-            <td>${i.producto || "—"}</td>
-            <td style="color:${TXT_SUB}">${i.responsable || "—"}</td>
-          </tr>`;
-        });
-      }
-      H += `</tbody></table>`;
-
-      // ── TOTALES INGRESOS ──────────────────────────────────────
-      if (ing.length > 0) {
-        const tFca = ing.reduce((s, i) => s + (parseFloat(i.litrosFca) || 0), 0);
-        const tTbo = ing.reduce((s, i) => s + (parseFloat(i.litrosTbo) || 0), 0);
-        H += `<table style="margin-top:-6px"><tr>
-          <td colspan="3" style="text-align:right;font-weight:700;background:#f8fafd;color:${NAVY2}">TOTAL INGRESOS:</td>
-          <td class="num" style="background:${GOLD_BG};font-weight:900;color:${NAVY2}">${fmtN(tFca)} L</td>
-          <td class="num" style="background:#f8fafd;font-weight:700">${fmtN(tTbo)} L</td>
-          <td colspan="11" style="background:#f8fafd"></td>
-        </tr></table>`;
-      }
-
-      // ── CARGAS TABLE ──────────────────────────────────────────
-      H += `
-        <div class="sec-hdr" style="margin-top:20px">
-          <span class="sec-title">Cargas Despachadas</span>
-          <div class="sec-hdr-line"></div>
-          <span class="sec-badge">${cargas.length} registros</span>
-        </div>
-        <table>
-          <thead><tr>
-            <th>Hora</th><th>Denominación</th><th>Destino</th><th>Transportista</th>
-            <th>Silo Origen</th><th class="num">Litros</th>
-            <th class="num">pH</th><th class="num">Temp°C</th><th>Producto</th><th>Responsable</th>
-          </tr></thead><tbody>
-      `;
-      if (cargas.length === 0) {
-        H += `<tr><td colspan="10" style="text-align:center;color:${TXT_SUB};padding:14px">Sin cargas registradas</td></tr>`;
-      } else {
-        cargas.forEach(c => {
-          H += `<tr>
-            <td style="font-family:monospace">${c.hora || "—"}</td>
-            <td><b>${c.label || "—"}</b></td>
-            <td>${c.destino || "—"}</td>
-            <td>${c.transportista || "—"}</td>
-            <td>${c.siloProveniente || "—"}</td>
-            <td class="num"><b>${c.litros ? fmtN(parseFloat(c.litros)) : "—"}</b></td>
-            <td class="num">${c.pH || "—"}</td>
-            <td class="num">${c.gC || "—"}</td>
-            <td>${c.producto || "—"}</td>
-            <td style="color:${TXT_SUB}">${c.responsable || "—"}</td>
-          </tr>`;
-        });
-        const tC = cargas.reduce((s, c) => s + (parseFloat(c.litros) || 0), 0);
-        H += `</tbody></table>
-          <table style="margin-top:-6px"><tr>
-            <td colspan="4" style="text-align:right;font-weight:700;background:#f8fafd;color:${NAVY2}">TOTAL CARGADO:</td>
-            <td class="num" style="background:${GOLD_BG};font-weight:900;color:${NAVY2}">${fmtN(tC)} L</td>
-            <td colspan="5" style="background:#f8fafd"></td>
-          </tr></table>`;
-      }
-      if (cargas.length === 0) H += `</tbody></table>`;
-
-      // ── ESTADO DE SILOS ───────────────────────────────────────
-      H += `
-        <div class="sec-hdr" style="margin-top:20px">
-          <span class="sec-title">Estado de Silos</span>
-          <div class="sec-hdr-line"></div>
-          <span class="sec-badge">${STOCK_SILOS.length} silos · ${fillPct}% ocupación</span>
-        </div>
-        <table>
-          <thead><tr>
-            <th>Silo</th><th class="num">Litros</th><th class="num">Capacidad</th>
-            <th class="num">% Lleno</th><th>Nivel visual</th><th>Producto</th><th>Estado</th>
-          </tr></thead><tbody>
-      `;
-      STOCK_SILOS.forEach((silo, idx) => {
+      STOCK_SILOS.forEach(silo => {
         const litros = autoL[silo] || 0;
         const cap    = SILO_CAP[silo] || 10000;
         const pct    = cap > 0 ? (litros / cap) * 100 : 0;
-        const pctS   = pct.toFixed(1);
         let prod = "";
         for (const t of TURNOS) { const p = (((stk[t] || {}).silos || {})[silo] || {}).producto; if (p) { prod = p; break; } }
-        const barColor = pct === 0 ? "#e2e8f0" : pct > 88 ? "#ef4444" : pct > 65 ? "#f59e0b" : "#22c55e";
-        const statusBadge = pct === 0
-          ? `<span class="badge-warn">Vacío</span>`
-          : pct > 90
-          ? `<span class="badge-err">Crítico</span>`
-          : pct > 88
-          ? `<span class="badge-warn">Casi lleno</span>`
-          : pct > 65
-          ? `<span class="badge-ok">Normal</span>`
-          : `<span class="badge-ok">OK</span>`;
-        const barW = Math.max(pct > 0 ? 2 : 0, Math.min(100, pct));
-        H += `<tr>
-          <td><b>${silo}</b></td>
-          <td class="num">${litros > 0 ? fmtN(litros) : "—"}</td>
-          <td class="num" style="color:${TXT_SUB}">${fmtN(cap)}</td>
-          <td class="num"><b style="color:${barColor}">${pctS}%</b></td>
-          <td><div class="silo-bar-wrap"><div class="silo-bar" style="width:${barW}%;background:${barColor}"></div></div></td>
-          <td>${prod || `<span style="color:${TXT_SUB}">—</span>`}</td>
-          <td>${statusBadge}</td>
-        </tr>`;
+        const barColor = pct === 0 ? "#e2e8f0" : pct > 88 ? "#ef4444" : pct > 65 ? "#f59e0b" : "#10b981";
+        const barGrad  = pct === 0 ? "#e2e8f0"
+          : pct > 88 ? "linear-gradient(90deg,#f87171,#ef4444)"
+          : pct > 65 ? "linear-gradient(90deg,#fbbf24,#f59e0b)"
+          : "linear-gradient(90deg,#34d399,#10b981)";
+        const statText = litros > 0 ? `${fmtN(litros)} L · ${pct.toFixed(1)}%` : "Vacío";
+        H += `<div class="silo-item">
+          <div class="silo-item-head">
+            <div class="silo-item-left">
+              <span class="silo-item-name">Silo ${silo}</span>
+              ${prod ? `<span class="silo-item-prod">${prod}</span>` : ""}
+            </div>
+            <span class="silo-item-stat" style="color:${barColor}">${statText}</span>
+          </div>
+          <div class="bar-track">
+            <div class="bar-fill" style="width:${Math.min(100, Math.max(litros > 0 ? 1 : 0, pct))}%;background:${barGrad}"></div>
+          </div>
+        </div>`;
       });
-      H += `</tbody></table>`;
+      H += `</div></div>`;
 
-      // ── MOVIMIENTOS ───────────────────────────────────────────
-      const movs = (movData.movs || []);
+      // ── INGRESOS ──────────────────────────────────────────────
+      H += `
+        <div class="sec-head">
+          <span class="sec-head-title">Ingresos de Leche</span>
+          <div class="sec-head-line"></div>
+          <span class="sec-head-pill">${ing.length} registros</span>
+        </div>
+        <div class="table-card">
+          <div class="table-card-head">
+            <span class="table-card-title">Detalle por Camión</span>
+            <span class="table-card-badge">Total: ${fmtN(totIng)} L</span>
+          </div>
+          <table><thead><tr>
+            <th>Hora</th><th>Tambo</th><th class="r">Litros Fca</th><th class="r">Litros Tbo</th>
+            <th>Destino</th><th class="r">pH</th><th class="r">Acidez</th>
+            <th class="r">GB%</th><th class="r">SNG%</th><th class="r">Densidad</th>
+            <th class="r">Aguado</th><th>Responsable</th>
+          </tr></thead><tbody>
+      `;
+      if (ing.length === 0) {
+        H += `<tr><td colspan="12" style="text-align:center;color:#94a3b8;padding:24px">Sin ingresos registrados para esta fecha</td></tr>`;
+      } else {
+        ing.forEach(i => {
+          const lFca  = parseFloat(i.litrosFca) || 0;
+          const lTbo  = parseFloat(i.litrosTbo) || 0;
+          const difL  = Math.abs(lFca - lTbo);
+          const agu   = parseFloat(i.aguadoFca);
+          const aguHTML = isNaN(agu) || agu === 0
+            ? `<span class="badge ok">0.000</span>`
+            : `<span class="badge err">${agu.toFixed(3)} ⚠</span>`;
+          const difHTML = difL > 150
+            ? ` <span class="badge warn">Δ${fmtN(Math.round(difL))}L</span>` : "";
+          H += `<tr>
+            <td class="td-mono">${i.hora || "—"}</td>
+            <td class="td-bold">${i.tambo || "—"}</td>
+            <td class="r td-bold">${lFca ? fmtN(lFca) : "—"}${difHTML}</td>
+            <td class="r td-muted">${lTbo ? fmtN(lTbo) : "—"}</td>
+            <td>${i.destino || "—"}</td>
+            <td class="r">${i.phFca || "—"}</td>
+            <td class="r">${i.acidezFca || "—"}</td>
+            <td class="r">${i.gbFca || "—"}</td>
+            <td class="r">${i.sngFca || "—"}</td>
+            <td class="r">${i.densFca || "—"}</td>
+            <td class="r">${aguHTML}</td>
+            <td class="td-muted">${i.responsable || "—"}</td>
+          </tr>`;
+        });
+        const tFca = ing.reduce((s, i) => s + (parseFloat(i.litrosFca) || 0), 0);
+        const tTbo = ing.reduce((s, i) => s + (parseFloat(i.litrosTbo) || 0), 0);
+        H += `<tr class="total-row">
+          <td></td><td class="td-bold">TOTAL</td>
+          <td class="r">${fmtN(tFca)} L</td>
+          <td class="r">${fmtN(tTbo)} L</td>
+          <td colspan="8"></td>
+        </tr>`;
+      }
+      H += `</tbody></table></div>`;
+
+      // ── CARGAS ────────────────────────────────────────────────
+      H += `
+        <div class="sec-head">
+          <span class="sec-head-title">Cargas Despachadas</span>
+          <div class="sec-head-line"></div>
+          <span class="sec-head-pill">${cargas.length} registros</span>
+        </div>
+        <div class="table-card">
+          <div class="table-card-head">
+            <span class="table-card-title">Detalle de Despachos</span>
+            <span class="table-card-badge">Total: ${fmtN(totCarg)} L</span>
+          </div>
+          <table><thead><tr>
+            <th>Hora</th><th>Denominación</th><th>Destino</th><th>Transportista</th>
+            <th>Silo Origen</th><th class="r">Litros</th><th class="r">pH</th><th class="r">Temp°C</th><th>Responsable</th>
+          </tr></thead><tbody>
+      `;
+      if (cargas.length === 0) {
+        H += `<tr><td colspan="9" style="text-align:center;color:#94a3b8;padding:24px">Sin cargas registradas para esta fecha</td></tr>`;
+      } else {
+        cargas.forEach(c => {
+          H += `<tr>
+            <td class="td-mono">${c.hora || "—"}</td>
+            <td class="td-bold">${c.label || "—"}</td>
+            <td>${c.destino || "—"}</td>
+            <td>${c.transportista || "—"}</td>
+            <td>${c.siloProveniente || "—"}</td>
+            <td class="r td-bold">${c.litros ? fmtN(parseFloat(c.litros)) : "—"}</td>
+            <td class="r">${c.pH || "—"}</td>
+            <td class="r">${c.gC || "—"}</td>
+            <td class="td-muted">${c.responsable || "—"}</td>
+          </tr>`;
+        });
+        const tC = cargas.reduce((s, c) => s + (parseFloat(c.litros) || 0), 0);
+        H += `<tr class="total-row">
+          <td></td><td class="td-bold">TOTAL</td><td></td><td></td><td></td>
+          <td class="r">${fmtN(tC)} L</td><td colspan="3"></td>
+        </tr>`;
+      }
+      H += `</tbody></table></div>`;
+
+      // ── MOVIMIENTOS (si hay) ──────────────────────────────────
+      const movs = movData.movs || [];
       if (movs.length > 0) {
         H += `
-          <div class="sec-hdr" style="margin-top:20px">
-            <span class="sec-title">Movimientos entre Silos</span>
-            <div class="sec-hdr-line"></div>
-            <span class="sec-badge">${movs.length} registros</span>
+          <div class="sec-head">
+            <span class="sec-head-title">Movimientos entre Silos</span>
+            <div class="sec-head-line"></div>
+            <span class="sec-head-pill">${movs.length} registros</span>
           </div>
-          <table>
-            <thead><tr>
-              <th>Hora</th><th>Desde</th><th>Hasta</th><th class="num">Litros</th><th>Motivo</th><th>Responsable</th>
+          <div class="table-card">
+            <div class="table-card-head">
+              <span class="table-card-title">Transferencias internas</span>
+            </div>
+            <table><thead><tr>
+              <th>Hora</th><th>Desde</th><th>Hasta</th><th class="r">Litros</th><th>Motivo</th><th>Responsable</th>
             </tr></thead><tbody>
         `;
         movs.forEach(m => {
           H += `<tr>
-            <td style="font-family:monospace">${m.hora || "—"}</td>
+            <td class="td-mono">${m.hora || "—"}</td>
             <td>${m.desde || "—"}</td><td>${m.hasta || "—"}</td>
-            <td class="num"><b>${m.litros ? fmtN(parseFloat(m.litros)) : "—"}</b></td>
+            <td class="r td-bold">${m.litros ? fmtN(parseFloat(m.litros)) : "—"}</td>
             <td>${m.motivo || "—"}</td>
-            <td style="color:${TXT_SUB}">${m.resp || "—"}</td>
+            <td class="td-muted">${m.resp || "—"}</td>
           </tr>`;
         });
-        H += `</tbody></table>`;
+        H += `</tbody></table></div>`;
       }
 
-      // ── FORTIFICADOS ──────────────────────────────────────────
+      // ── FORTIFICADOS (si hay) ─────────────────────────────────
       if (forts.length > 0) {
         H += `
-          <div class="sec-hdr" style="margin-top:20px">
-            <span class="sec-title">Lotes Fortificados</span>
-            <div class="sec-hdr-line"></div>
-            <span class="sec-badge">${forts.length} lotes</span>
+          <div class="sec-head">
+            <span class="sec-head-title">Lotes Fortificados</span>
+            <div class="sec-head-line"></div>
+            <span class="sec-head-pill">${forts.length} lotes</span>
           </div>
-          <table>
-            <thead><tr>
-              <th>Hora</th><th>Lote</th><th>Producto</th><th class="num">Litros</th>
+          <div class="table-card">
+            <div class="table-card-head">
+              <span class="table-card-title">Producción Especial</span>
+            </div>
+            <table><thead><tr>
+              <th>Hora</th><th>Lote</th><th>Producto</th><th class="r">Litros</th>
               <th>Tanque</th><th>Adiciones</th><th>Responsable</th>
             </tr></thead><tbody>
         `;
         forts.forEach(f => {
-          const adic = (f.adiciones || []).map(a => `${a.producto} ${a.cantidad}${a.unidad}`).join(", ") || "—";
+          const adic = (f.adiciones || []).map(a => `${a.producto} ${a.cantidad}${a.unidad}`).join(" · ") || "—";
           H += `<tr>
-            <td style="font-family:monospace">${f.hora || "—"}</td>
-            <td><b>${f.lote || "—"}</b></td>
+            <td class="td-mono">${f.hora || "—"}</td>
+            <td class="td-bold">${f.lote || "—"}</td>
             <td>${f.producto || "—"}</td>
-            <td class="num">${f.litros ? fmtN(parseFloat(f.litros)) : "—"}</td>
+            <td class="r">${f.litros ? fmtN(parseFloat(f.litros)) : "—"}</td>
             <td>${f.tanque || "—"}</td>
-            <td style="font-size:9px;color:${TXT_SUB}">${adic}</td>
-            <td style="color:${TXT_SUB}">${f.responsable || "—"}</td>
+            <td style="font-size:10px;color:#64748b">${adic}</td>
+            <td class="td-muted">${f.responsable || "—"}</td>
           </tr>`;
         });
-        H += `</tbody></table>`;
+        H += `</tbody></table></div>`;
       }
 
       // ── FOOTER ────────────────────────────────────────────────
       H += `
         <div class="footer">
-          <span>Lacteos Yatasto SA · Sistema de Gestión Diaria v2.0</span>
-          <span><b>Generado:</b> ${ts} · <b>Fecha informe:</b> ${fmtDate(exportDate)}</span>
+          <span class="footer-brand">Lacteos Yatasto SA · Sistema de Gestión v2.0</span>
+          <span>Generado: ${ts} &nbsp;·&nbsp; Fecha informe: ${fmtDate(exportDate)}</span>
         </div>
       `;
 
-      // ── Armar blob y descargar ────────────────────────────────
+      // ── Ensamblar y descargar ─────────────────────────────────
       const full = `<html xmlns:o="urn:schemas-microsoft-com:office:office"
         xmlns:x="urn:schemas-microsoft-com:office:excel"
         xmlns="http://www.w3.org/TR/REC-html40">
         <head><meta charset="utf-8">
         <xml><x:ExcelWorkbook><x:ExcelWorksheets>
-          <x:ExcelWorksheet><x:Name>Informe Diario</x:Name>
+          <x:ExcelWorksheet><x:Name>Informe Yatasto</x:Name>
           <x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions>
           </x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml>
         <style>${css}</style></head>
@@ -2502,6 +2628,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
       URL.revokeObjectURL(url);
     } finally { setExporting(false); }
   };
+
 
   const doExportPDF = async () => {
     setExporting(true);
