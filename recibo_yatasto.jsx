@@ -102,13 +102,21 @@ const fmtDate = (iso) => { const [y, m, d] = iso.split("-"); return `${d}/${m}/$
 const sKey = (date, sec) => `yatasto:${date}:${sec}`;
 const CFG_KEY = "yatasto:config";
 
-// ─── COLORS ──────────────────────────────────────────────────
-const C = {
+// ─── COLORS / THEME ──────────────────────────────────────────
+const _THEME = (() => { try { return localStorage.getItem("yatasto:theme") || "dark"; } catch { return "dark"; } })();
+const C_DARK = {
   bg: "#080c18", surface: "#0f1525", card: "#1a2035", border: "#2a3050",
   accent: "#f59e0b", accentDim: "#3d2e08", accentDark: "#92610a",
   text: "#e8edf5", sub: "#7a8aaa", muted: "#2d3a55",
   success: "#22c55e", danger: "#ef4444",
 };
+const C_LIGHT = {
+  bg: "#f1f5f9", surface: "#ffffff", card: "#ffffff", border: "#e2e8f0",
+  accent: "#dc2626", accentDim: "#fef2f2", accentDark: "#b91c1c",
+  text: "#0f172a", sub: "#64748b", muted: "#cbd5e1",
+  success: "#16a34a", danger: "#ef4444",
+};
+const C = _THEME === "light" ? C_LIGHT : C_DARK;
 
 // ─── SHARED STYLES ───────────────────────────────────────────
 const inp = {
@@ -118,7 +126,7 @@ const inp = {
 };
 const lbl = { fontSize: 10, color: C.sub, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 4, display: "block", fontWeight: 700 };
 const secTitle = { fontSize: 10, fontWeight: 700, color: C.accent, textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 10 };
-const btnPrimary = { background: C.accent, color: "#000", border: "none", borderRadius: 10, padding: "13px 20px", fontSize: 15, fontWeight: 700, cursor: "pointer", width: "100%" };
+const btnPrimary = { background: C.accent, color: _THEME === "light" ? "#fff" : "#000", border: "none", borderRadius: 10, padding: "13px 20px", fontSize: 15, fontWeight: 700, cursor: "pointer", width: "100%" };
 const btnSecondary = { background: C.card, color: C.text, border: `1px solid ${C.border}`, borderRadius: 10, padding: "13px 20px", fontSize: 15, fontWeight: 600, cursor: "pointer", width: "100%" };
 const card = { background: C.card, borderRadius: 12, padding: 14, marginBottom: 8, border: `1px solid ${C.border}` };
 const panel = { background: C.surface, borderRadius: 10, padding: 12, marginBottom: 12 };
@@ -1751,14 +1759,14 @@ const InformeModal = ({ date, onClose }) => {
 
       {/* Pendientes */}
       {(vacios.length > 0 || silosPend.length > 0 || camsPend.length > 0) ? (
-        <div style={{ ...card, borderColor: C.danger + "66", background: "#160808", marginBottom: 8 }}>
+        <div style={{ ...card, borderColor: C.danger + "66", background: _THEME === "light" ? "#fef2f2" : "#160808", marginBottom: 8 }}>
           <div style={{ ...secTitle, color: C.danger }}>⚠️ Pendientes</div>
           {vacios.length > 0 && <div style={{ fontSize: 12, color: C.danger, marginBottom: 6 }}>🔴 Silos vacíos (requieren CIP): {vacios.join(", ")}</div>}
           {silosPend.length > 0 && <div style={{ fontSize: 12, color: C.accent, marginBottom: 4 }}>🧼 CIP silos sin registrar: {silosPend.join(", ")}</div>}
           {camsPend.length > 0 && <div style={{ fontSize: 12, color: C.accent }}>🚛 CIP camiones sin registrar: {camsPend.join(", ")}</div>}
         </div>
       ) : d.ing.length > 0 && (
-        <div style={{ ...card, borderColor: C.success + "55", background: "#081608", textAlign: "center", padding: 16 }}>
+        <div style={{ ...card, borderColor: C.success + "55", background: _THEME === "light" ? "#f0fdf4" : "#081608", textAlign: "center", padding: 16 }}>
           <div style={{ fontSize: 22, marginBottom: 4 }}>✅</div>
           <div style={{ fontSize: 13, color: C.success, fontWeight: 700 }}>Todo en orden</div>
           <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>Sin pendientes registrados</div>
@@ -1770,6 +1778,81 @@ const InformeModal = ({ date, onClose }) => {
 
 // ─── DASHBOARD SUPERVISOR / JEFE ─────────────────────────────
 // ── Mini sparkline SVG (analytics) ──────────────────────────
+// ─── YATASTO LOGO ─────────────────────────────────────────────
+const YataLogo = ({ compact = false }) => {
+  const sz = compact ? 30 : 42;
+  const darkBg  = _THEME === "dark";
+  const faceBg  = darkBg ? C_DARK.surface : "#fef2f2";
+  const eyeCol  = darkBg ? "#080c18" : "#0f172a";
+  const earInner= darkBg ? C_DARK.bg   : "#fff";
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: compact ? 7 : 10, userSelect: "none" }}>
+      <svg width={sz} height={sz} viewBox="0 0 44 44" fill="none">
+        {/* Ears */}
+        <ellipse cx="9"  cy="12" rx="6" ry="7.5" fill={C.accent} />
+        <ellipse cx="35" cy="12" rx="6" ry="7.5" fill={C.accent} />
+        <ellipse cx="9"  cy="12" rx="3.2" ry="4.2" fill={earInner} opacity="0.7" />
+        <ellipse cx="35" cy="12" rx="3.2" ry="4.2" fill={earInner} opacity="0.7" />
+        {/* Head */}
+        <ellipse cx="22" cy="24" rx="16" ry="14" fill={C.accent} />
+        {/* Muzzle */}
+        <ellipse cx="22" cy="31" rx="10" ry="6.5" fill={faceBg} opacity="0.92" />
+        {/* Nostrils */}
+        <circle cx="18.5" cy="32" r="1.8" fill={C.accent} opacity="0.45" />
+        <circle cx="25.5" cy="32" r="1.8" fill={C.accent} opacity="0.45" />
+        {/* Eyes */}
+        <circle cx="16.5" cy="22" r="2.4" fill={eyeCol} />
+        <circle cx="27.5" cy="22" r="2.4" fill={eyeCol} />
+        <circle cx="17.3" cy="21.1" r="0.9" fill="#fff" />
+        <circle cx="28.3" cy="21.1" r="0.9" fill="#fff" />
+        {/* Spot */}
+        <ellipse cx="27" cy="15.5" rx="3.5" ry="2.5" fill={darkBg ? "#92610a" : "#b91c1c"} opacity="0.35" />
+      </svg>
+      <div>
+        <div style={{
+          fontSize: compact ? 15 : 21,
+          fontWeight: 900,
+          color: C.accent,
+          lineHeight: 1,
+          letterSpacing: compact ? "0.1em" : "0.08em",
+          fontFamily: "'Arial Black','Arial Bold',Arial,sans-serif",
+        }}>YATASTO</div>
+        {!compact && (
+          <div style={{ fontSize: 8, color: C.sub, fontStyle: "italic", letterSpacing: "0.18em", marginTop: 2 }}>
+            Buena Leche
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ─── DONUT CHART ──────────────────────────────────────────────
+const DonutChart = ({ pct = 0, color, size = 74, label }) => {
+  const sw = 10;
+  const r = (size - sw) / 2;
+  const circ = 2 * Math.PI * r;
+  const cx = size / 2, cy = size / 2;
+  const dash = circ * Math.min(1, Math.max(0, pct / 100));
+  return (
+    <svg width={size} height={size} style={{ display: "block", flexShrink: 0 }}>
+      <circle cx={cx} cy={cy} r={r} fill="none" stroke={C.muted} strokeWidth={sw} />
+      {pct > 0 && (
+        <circle cx={cx} cy={cy} r={r} fill="none"
+          stroke={color || C.accent} strokeWidth={sw}
+          strokeDasharray={`${dash} ${circ}`}
+          strokeLinecap="round"
+          style={{ transform: "rotate(-90deg)", transformOrigin: `${cx}px ${cy}px`, transition: "stroke-dasharray 1.2s cubic-bezier(0.34,1.1,0.64,1)" }}
+        />
+      )}
+      {label !== undefined && (
+        <text x={cx} y={cy + 5} textAnchor="middle" fontSize={13}
+          fontWeight="800" fill={C.text} fontFamily="monospace">{label}</text>
+      )}
+    </svg>
+  );
+};
+
 const Sparkline = ({ values, color = "#f59e0b", w = 64, h = 24 }) => {
   const clean = (values || []).filter(v => v != null && !isNaN(v) && v > 0);
   if (clean.length < 2) return <span style={{ fontSize: 9, color: "#2d3a55" }}>—</span>;
@@ -1871,17 +1954,37 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
   const TIPO_COL = { ingreso: C.accent, carga: "#60a5fa", movimiento: "#a78bfa", control: "#34d399", fortificado: "#27ae60" };
 
   // ── Componentes visuales ─────────────────────────────────────
-  const StatCard = ({ icon, label, value, unit, color, sub }) => (
-    <div style={{ background: C.card, borderRadius: 12, padding: "14px 10px", border: `1px solid ${C.border}`, textAlign: "center" }}>
-      <div style={{ fontSize: 22, marginBottom: 4 }}>{icon}</div>
-      <div style={{ fontSize: 21, fontWeight: 800, color: color || C.text, fontFamily: "monospace", lineHeight: 1 }}>
-        {typeof value === "number" ? value.toLocaleString("es-AR") : value}
-        {unit && <span style={{ fontSize: 11, fontWeight: 400, color: C.sub, marginLeft: 3 }}>{unit}</span>}
+  const StatCard = ({ icon, label, value, unit, color, sub, trend }) => {
+    const col = color || C.text;
+    return (
+      <div style={{
+        background: _THEME === "light"
+          ? `linear-gradient(145deg, #fff 0%, ${col}0d 100%)`
+          : `linear-gradient(145deg, ${C.card} 0%, ${col}10 100%)`,
+        borderRadius: 14, padding: "14px 10px",
+        border: `1px solid ${col}33`,
+        textAlign: "center", position: "relative", overflow: "hidden",
+        boxShadow: _THEME === "light" ? `0 2px 12px ${col}18` : "none",
+      }}>
+        <div style={{
+          position: "absolute", top: -12, right: -12, width: 50, height: 50,
+          borderRadius: "50%", background: col + "18",
+        }} />
+        <div style={{ fontSize: 20, marginBottom: 5, position: "relative" }}>{icon}</div>
+        <div style={{ fontSize: 22, fontWeight: 800, color: col, fontFamily: "monospace", lineHeight: 1, position: "relative" }}>
+          {typeof value === "number" ? value.toLocaleString("es-AR") : value}
+          {unit && <span style={{ fontSize: 10, fontWeight: 400, color: C.sub, marginLeft: 3 }}>{unit}</span>}
+        </div>
+        <div style={{ fontSize: 9, color: C.sub, textTransform: "uppercase", letterSpacing: "0.1em", marginTop: 5, fontWeight: 700 }}>{label}</div>
+        {sub && <div style={{ fontSize: 10, color: C.muted, marginTop: 2 }}>{sub}</div>}
+        {trend !== undefined && (
+          <div style={{ fontSize: 10, color: trend >= 0 ? C.success : C.danger, marginTop: 3, fontWeight: 700 }}>
+            {trend >= 0 ? "▲" : "▼"} {Math.abs(trend).toFixed(1)}%
+          </div>
+        )}
       </div>
-      <div style={{ fontSize: 10, color: C.sub, textTransform: "uppercase", letterSpacing: "0.08em", marginTop: 4 }}>{label}</div>
-      {sub && <div style={{ fontSize: 10, color: C.muted, marginTop: 2 }}>{sub}</div>}
-    </div>
-  );
+    );
+  };
 
   const SiloBar = ({ silo }) => {
     const litros = d.autoLitros[silo] || 0;
@@ -1891,20 +1994,44 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
     for (const t of TURNOS) { const p = ((((d.stock[t] || {}).silos || {})[silo]) || {}).producto; if (p) { prod = p; break; } }
     const fillColor = PROD_COLOR[prod] || C.accent;
     const isEmpty = litros <= 0;
+    const isAlert = litros > 0 && pct > 88;
+    const statusColor = isEmpty ? C.danger : isAlert ? C.accent : fillColor;
     return (
-      <div style={{ ...card, padding: "10px 14px", marginBottom: 6 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5, alignItems: "center" }}>
-          <span style={{ fontSize: 13, fontWeight: 700, color: C.text }}>Silo {silo}</span>
-          <span style={{ fontSize: 13, fontFamily: "monospace", fontWeight: 700, color: isEmpty ? C.danger : C.accent }}>
-            {litros.toLocaleString("es-AR")} L
+      <div style={{
+        background: _THEME === "light"
+          ? `linear-gradient(135deg, #fff 0%, ${statusColor}0a 100%)`
+          : `linear-gradient(135deg, ${C.card} 0%, ${statusColor}0d 100%)`,
+        borderRadius: 14, padding: "12px 14px", marginBottom: 8,
+        border: `1px solid ${isAlert ? C.accent + "55" : isEmpty ? C.danger + "33" : C.border}`,
+        boxShadow: isAlert ? `0 0 12px ${C.accent}20` : "none",
+      }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, alignItems: "center" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ width: 8, height: 8, borderRadius: "50%", background: statusColor, boxShadow: `0 0 6px ${statusColor}` }} />
+            <span style={{ fontSize: 13, fontWeight: 700, color: C.text }}>Silo {silo}</span>
+            {isAlert && <span style={{ fontSize: 9, background: C.accent + "22", color: C.accent, borderRadius: 5, padding: "1px 6px", fontWeight: 700, letterSpacing: "0.05em" }}>⚠ LLENO</span>}
+          </div>
+          <span style={{ fontSize: 15, fontFamily: "monospace", fontWeight: 800, color: isEmpty ? C.danger : C.accent }}>
+            {isEmpty ? "—" : litros >= 1000 ? `${(litros / 1000).toFixed(1)}k` : litros.toLocaleString("es-AR")}
+            {!isEmpty && <span style={{ fontSize: 9, fontWeight: 400, color: C.sub, marginLeft: 2 }}>L</span>}
           </span>
         </div>
-        <div style={{ background: C.muted, borderRadius: 6, height: 12, overflow: "hidden", marginBottom: 5 }}>
-          <div style={{ width: `${pct}%`, height: "100%", background: isEmpty ? C.danger : fillColor, borderRadius: 6, transition: "width 0.6s ease" }} />
+        {/* Bar */}
+        <div style={{ background: C.muted, borderRadius: 8, height: 10, overflow: "hidden", marginBottom: 7 }}>
+          <div style={{
+            width: `${Math.max(pct, isEmpty ? 0 : 1)}%`, height: "100%",
+            background: isEmpty ? C.danger + "44" : `linear-gradient(90deg, ${statusColor}aa, ${statusColor})`,
+            borderRadius: 8, transition: "width 0.8s cubic-bezier(0.34,1.1,0.64,1)",
+            boxShadow: pct > 5 ? `0 0 8px ${statusColor}44` : "none",
+          }} />
         </div>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span style={{ fontSize: 11, color: isEmpty ? C.danger : C.sub }}>{prod || "Sin producto"}</span>
-          <span style={{ fontSize: 10, color: C.muted }}>{pct.toFixed(1)}% · {(cap / 1000).toFixed(0)}k L cap.</span>
+          <span style={{ fontSize: 10, color: isEmpty ? C.danger : C.sub, fontWeight: isEmpty ? 700 : 400 }}>
+            {isEmpty ? "Sin contenido" : prod || "Sin producto"}
+          </span>
+          <span style={{ fontSize: 10, color: C.muted, fontFamily: "monospace" }}>
+            {pct.toFixed(1)}% <span style={{ color: C.border }}>·</span> {(cap / 1000).toFixed(0)}k cap.
+          </span>
         </div>
       </div>
     );
@@ -2047,22 +2174,62 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
 
   return (
     <div>
-      {/* Header de perfil */}
-      <div style={{ ...card, borderColor: "#5b21b644", background: "#0f0a1e", marginBottom: 14 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+      {/* ── HEADER PREMIUM ── */}
+      <div style={{
+        background: _THEME === "light"
+          ? `linear-gradient(135deg, #fff 0%, ${C.accent}08 100%)`
+          : `linear-gradient(135deg, #0a0e1f 0%, #1a0808 60%, #0a0f1e 100%)`,
+        borderRadius: 18, padding: "18px 18px 14px", marginBottom: 16,
+        border: `1px solid ${C.accent}33`,
+        position: "relative", overflow: "hidden",
+        boxShadow: _THEME === "light" ? `0 4px 24px ${C.accent}14` : `0 4px 24px #00000055`,
+      }}>
+        {/* Dot pattern */}
+        <div style={{
+          position: "absolute", inset: 0, opacity: _THEME === "light" ? 0.04 : 0.025,
+          backgroundImage: "radial-gradient(circle, #888 1px, transparent 1px)",
+          backgroundSize: "18px 18px", pointerEvents: "none",
+        }} />
+        {/* Glow strip */}
+        <div style={{
+          position: "absolute", top: 0, left: 0, right: 0, height: 3,
+          background: `linear-gradient(90deg, transparent, ${C.accent}, transparent)`,
+          opacity: 0.7,
+        }} />
+
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", position: "relative" }}>
           <div>
-            <div style={{ fontSize: 10, color: "#a78bfa", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 2 }}>Perfil activo · {fmtDate(date)}</div>
-            <div style={{ fontSize: 18, fontWeight: 700, color: C.text }}>{perfilLabel}</div>
-            {users.length > 0 && <div style={{ fontSize: 11, color: C.success, marginTop: 4 }}>● {users.length} usuario{users.length > 1 ? "s" : ""} activo{users.length > 1 ? "s" : ""}</div>}
+            <YataLogo compact />
+            <div style={{ marginTop: 10 }}>
+              <div style={{ fontSize: 9, color: C.sub, textTransform: "uppercase", letterSpacing: "0.12em", fontWeight: 700 }}>
+                Panel de Control · {fmtDate(date)}
+              </div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: C.text, marginTop: 3 }}>{perfilLabel}</div>
+            </div>
           </div>
-          <div style={{ textAlign: "right" }}>
-            <span style={{ fontSize: 32 }}>{PERFILES[perfil]?.icon || "👔"}</span>
+          <div style={{ textAlign: "right", position: "relative" }}>
+            <div style={{
+              width: 52, height: 52, borderRadius: 16, display: "flex", alignItems: "center",
+              justifyContent: "center", fontSize: 28,
+              background: _THEME === "light" ? C.accentDim : `${C.accent}15`,
+              border: `1px solid ${C.accent}33`,
+            }}>{PERFILES[perfil]?.icon || "👔"}</div>
+            {users.length > 0 && (
+              <div style={{ fontSize: 10, color: C.success, marginTop: 5, fontWeight: 700 }}>
+                ● {users.length} online
+              </div>
+            )}
           </div>
         </div>
+
         {users.length > 0 && (
-          <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 4 }}>
+          <div style={{ marginTop: 12, display: "flex", flexWrap: "wrap", gap: 4, position: "relative" }}>
             {users.map(u => (
-              <span key={u.id} style={{ fontSize: 10, background: C.muted, borderRadius: 4, padding: "2px 8px", color: C.text }}>
+              <span key={u.id} style={{
+                fontSize: 10, background: C.accent + "18",
+                border: `1px solid ${C.accent}30`, borderRadius: 20,
+                padding: "3px 10px", color: C.accent, fontWeight: 600,
+              }}>
                 {u.nombre} · {u.rol}
               </span>
             ))}
@@ -2070,48 +2237,121 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
         )}
       </div>
 
-      {/* Tabs */}
-      <div style={{ display: "flex", gap: 4, marginBottom: 14, overflowX: "auto", paddingBottom: 2 }}>
-        {[["resumen", "📊", "Resumen"], ["silos", "🏭", "Silos"], ["calidad", "📈", "Calidad"], ["difs", "🔍", "Difs."], ["semana", "📅", "Semana"], ["tambos", "🐄", "Tambos"], ["historial", "📋", "Historial"], ["exportar", "📤", "Exportar"]].map(([t, ico, lbl]) => (
-          <button key={t} onClick={() => setTab(t)} style={{
-            ...(tab === t ? btnPrimary : btnSecondary),
-            padding: "8px 6px", fontSize: 11, whiteSpace: "nowrap", flex: 1, minWidth: 0,
-          }}>{ico}<br />{lbl}</button>
-        ))}
+      {/* ── TABS PREMIUM ── */}
+      <div style={{ display: "flex", gap: 4, marginBottom: 16, overflowX: "auto", paddingBottom: 4, scrollbarWidth: "none", msOverflowStyle: "none" }}>
+        {[["resumen", "📊", "Resumen"], ["silos", "🏭", "Silos"], ["calidad", "📈", "Calidad"], ["difs", "🔍", "Difs."], ["semana", "📅", "Semana"], ["tambos", "🐄", "Tambos"], ["historial", "📋", "Historial"], ["exportar", "📤", "Exportar"]].map(([t, ico, lbl]) => {
+          const active = tab === t;
+          return (
+            <button key={t} onClick={() => setTab(t)} style={{
+              background: active
+                ? `linear-gradient(145deg, ${C.accent}, ${C.accent}cc)`
+                : (_THEME === "light" ? "#fff" : C.card),
+              border: active ? "none" : `1px solid ${C.border}`,
+              borderRadius: 12, padding: "9px 5px",
+              flex: 1, minWidth: 0, cursor: "pointer",
+              color: active ? (_THEME === "light" ? "#fff" : "#000") : C.sub,
+              fontWeight: active ? 800 : 500,
+              boxShadow: active ? `0 4px 14px ${C.accent}44` : "none",
+              transition: "all 0.18s",
+              whiteSpace: "nowrap",
+            }}>
+              <div style={{ fontSize: 15 }}>{ico}</div>
+              <div style={{ fontSize: 9, letterSpacing: "0.03em", marginTop: 3, textTransform: "uppercase" }}>{lbl}</div>
+            </button>
+          );
+        })}
       </div>
 
       {/* ── RESUMEN ── */}
-      {tab === "resumen" && (
-        <div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
-            <StatCard icon="🥛" label="Ingresados" value={totalIngresados} unit="L" color={C.accent} />
-            <StatCard icon="🚚" label="Cargados" value={totalCargados} unit="L" color="#60a5fa" />
-            <StatCard icon="⚖️" label="Balance" value={balance} unit="L" color={balance >= 0 ? C.success : C.danger} />
-            <StatCard icon="🚛" label="Camiones" value={d.ing.length} color={C.text} sub={`${tambosUnicos} tambos únicos`} />
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8, marginBottom: 12 }}>
-            <StatCard icon="📦" label="Cargas" value={d.cargas.length} color={C.text} />
-            <StatCard icon="⚗️" label="Fort." value={d.forts.length} color="#27ae60" />
-            <StatCard icon="🔄" label="Movim." value={(d.movData.movs || []).length} color="#a78bfa" />
-          </div>
-          {alertas.length === 0 ? (
-            <div style={{ ...card, borderColor: C.success + "55", background: "#081608", textAlign: "center", padding: 16 }}>
-              <div style={{ fontSize: 24, marginBottom: 4 }}>✅</div>
-              <div style={{ fontSize: 13, color: C.success, fontWeight: 700 }}>Sin alertas activas</div>
-              <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>Todo en orden</div>
-            </div>
-          ) : (
-            <div style={{ ...card, borderColor: C.danger + "44", background: "#160808" }}>
-              <div style={{ ...secTitle, color: C.danger }}>⚠️ Alertas ({alertas.length})</div>
-              {alertas.map((a, i) => (
-                <div key={i} style={{ fontSize: 12, color: a.tipo === "err" ? C.danger : C.accent, padding: "5px 0", borderBottom: `1px solid ${C.border}33` }}>
-                  {a.tipo === "err" ? "🔴" : "🟡"} {a.msg}
+      {tab === "resumen" && (() => {
+        const totalCap   = STOCK_SILOS.reduce((s, k) => s + (SILO_CAP[k] || 0), 0);
+        const totalStock = STOCK_SILOS.reduce((s, k) => s + Math.max(0, d.autoLitros[k] || 0), 0);
+        const capPct     = totalCap > 0 ? (totalStock / totalCap) * 100 : 0;
+        const capColor   = capPct > 88 ? C.danger : capPct > 65 ? C.accent : C.success;
+        const balColor   = balance >= 0 ? C.success : C.danger;
+        return (
+          <div>
+            {/* Capacity hero card */}
+            <div style={{
+              background: _THEME === "light"
+                ? `linear-gradient(135deg, #fff 0%, ${capColor}0a 100%)`
+                : `linear-gradient(135deg, ${C.card} 0%, ${capColor}12 100%)`,
+              borderRadius: 16, padding: 16, marginBottom: 14,
+              border: `1px solid ${capColor}44`,
+              boxShadow: `0 2px 16px ${capColor}18`,
+            }}>
+              <div style={{ fontSize: 9, color: C.sub, textTransform: "uppercase", letterSpacing: "0.12em", fontWeight: 700, marginBottom: 12 }}>
+                Capacidad total de silos · {fmtDate(date)}
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                <DonutChart pct={capPct} color={capColor} size={78} label={`${capPct.toFixed(0)}%`} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 26, fontWeight: 900, color: capColor, fontFamily: "monospace", lineHeight: 1 }}>
+                    {(totalStock / 1000).toFixed(1)}
+                    <span style={{ fontSize: 13, fontWeight: 400, color: C.sub, marginLeft: 4 }}>k L</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>
+                    de {(totalCap / 1000).toFixed(0)}k L capacidad
+                  </div>
+                  <div style={{ background: C.muted, borderRadius: 6, height: 5, marginTop: 10, overflow: "hidden" }}>
+                    <div style={{ width: `${Math.min(100, capPct)}%`, height: "100%", background: capColor, borderRadius: 6, transition: "width 1s" }} />
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
+                    <span style={{ fontSize: 9, color: C.muted }}>0%</span>
+                    <span style={{ fontSize: 9, color: capPct > 88 ? C.danger : C.muted }}>100%</span>
+                  </div>
                 </div>
-              ))}
+              </div>
             </div>
-          )}
-        </div>
-      )}
+
+            {/* KPI grid */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+              <StatCard icon="🥛" label="Ingresados" value={totalIngresados} unit="L" color={C.accent} />
+              <StatCard icon="🚚" label="Cargados"   value={totalCargados}   unit="L" color="#60a5fa" />
+              <StatCard icon="⚖️" label="Balance"    value={balance}         unit="L" color={balColor} />
+              <StatCard icon="🚛" label="Camiones"   value={d.ing.length}    color={C.text} sub={`${tambosUnicos} tambos`} />
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8, marginBottom: 14 }}>
+              <StatCard icon="📦" label="Cargas"  value={d.cargas.length}           color={C.text} />
+              <StatCard icon="⚗️" label="Fort."   value={d.forts.length}            color="#22c55e" />
+              <StatCard icon="🔄" label="Movim."  value={(d.movData.movs || []).length} color="#a78bfa" />
+            </div>
+
+            {/* Alerts */}
+            {alertas.length === 0 ? (
+              <div style={{
+                ...card,
+                borderColor: C.success + "44",
+                background: _THEME === "light" ? "#f0fdf4" : "#081608",
+                textAlign: "center", padding: 18,
+                boxShadow: `0 0 20px ${C.success}10`,
+              }}>
+                <div style={{ fontSize: 28, marginBottom: 6 }}>✅</div>
+                <div style={{ fontSize: 13, color: C.success, fontWeight: 700 }}>Sin alertas activas</div>
+                <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>Todo dentro de parámetros normales</div>
+              </div>
+            ) : (
+              <div style={{
+                ...card,
+                borderColor: C.danger + "44",
+                background: _THEME === "light" ? "#fef2f2" : "#160808",
+              }}>
+                <div style={{ ...secTitle, color: C.danger, marginBottom: 10 }}>⚠️ Alertas activas ({alertas.length})</div>
+                {alertas.map((a, i) => (
+                  <div key={i} style={{
+                    fontSize: 12, color: a.tipo === "err" ? C.danger : C.accent,
+                    padding: "7px 0", borderBottom: i < alertas.length - 1 ? `1px solid ${C.border}44` : "none",
+                    display: "flex", alignItems: "flex-start", gap: 6,
+                  }}>
+                    <span>{a.tipo === "err" ? "🔴" : "🟡"}</span>
+                    <span>{a.msg}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* ── SILOS ── */}
       {tab === "silos" && (
@@ -2131,27 +2371,46 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
             </div>
           ) : (
             <>
-              <div style={{ ...secTitle }}>Promedios del día · {d.ing.length} camiones · {fmtDate(date)}</div>
-              {Object.entries(quality).map(([label, v]) => (
-                <div key={label} style={{ ...card, padding: "10px 14px", marginBottom: 6 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                    <span style={{ fontSize: 12, color: C.sub, fontWeight: 700 }}>{label}</span>
-                    <span style={{ fontSize: 18, fontWeight: 800, color: C.accent, fontFamily: "monospace" }}>{v.avg.toFixed(3)}</span>
+              <div style={{ ...secTitle }}>Promedios del día · {d.ing.length} camión/es · {fmtDate(date)}</div>
+              {Object.entries(quality).map(([label, v]) => {
+                const ref = QUALITY_REFS[label];
+                const ok = !ref || (v.avg >= ref.min && v.avg <= ref.max);
+                const barColor = ok ? C.success : C.danger;
+                // Use ref range as scale if available, else fallback
+                const scale = ref ? (ref.max * 1.3) : 20;
+                const barW = Math.min(100, (v.avg / scale) * 100);
+                return (
+                  <div key={label} style={{
+                    background: _THEME === "light"
+                      ? `linear-gradient(135deg, #fff 0%, ${barColor}08 100%)`
+                      : `linear-gradient(135deg, ${C.card} 0%, ${barColor}10 100%)`,
+                    borderRadius: 14, padding: "12px 14px", marginBottom: 8,
+                    border: `1px solid ${ok ? C.border : barColor + "44"}`,
+                    boxShadow: ok ? "none" : `0 0 10px ${barColor}14`,
+                  }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                      <span style={{ fontSize: 12, color: C.sub, fontWeight: 700 }}>{label}</span>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        {ref && <span style={{ fontSize: 10, color: ok ? C.success : C.danger, fontWeight: 700 }}>{ok ? "✅ OK" : "⚠ Fuera"}</span>}
+                        <span style={{ fontSize: 20, fontWeight: 900, color: ok ? C.accent : C.danger, fontFamily: "monospace" }}>{v.avg.toFixed(3)}</span>
+                      </div>
+                    </div>
+                    <div style={{ background: C.muted, borderRadius: 6, height: 7, overflow: "hidden", marginBottom: 8 }}>
+                      <div style={{ width: `${barW}%`, height: "100%", background: `linear-gradient(90deg, ${barColor}88, ${barColor})`, transition: "width 0.7s", borderRadius: 6 }} />
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ fontSize: 10, color: C.muted }}>mín <b style={{ color: C.text }}>{v.min.toFixed(3)}</b></span>
+                      <span style={{ fontSize: 10, color: C.sub }}>n={v.n}</span>
+                      <span style={{ fontSize: 10, color: C.muted }}>máx <b style={{ color: C.text }}>{v.max.toFixed(3)}</b></span>
+                    </div>
+                    {ref && (
+                      <div style={{ marginTop: 6, fontSize: 9, color: ok ? C.muted : C.danger, borderTop: `1px solid ${C.border}44`, paddingTop: 5 }}>
+                        Referencia: {ref.min} – {ref.max}{ref.critical ? " · Debe ser exactamente 0" : ""}
+                      </div>
+                    )}
                   </div>
-                  <div style={{ background: C.muted, borderRadius: 4, height: 6, overflow: "hidden", marginBottom: 5 }}>
-                    <div style={{ width: `${Math.min(100, (v.avg / 20) * 100)}%`, height: "100%", background: C.accent, transition: "width 0.5s" }} />
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "space-between" }}>
-                    <span style={{ fontSize: 10, color: C.muted }}>mín <b style={{ color: C.text }}>{v.min.toFixed(3)}</b></span>
-                    <span style={{ fontSize: 10, color: C.muted }}>n={v.n}</span>
-                    <span style={{ fontSize: 10, color: C.muted }}>máx <b style={{ color: C.text }}>{v.max.toFixed(3)}</b></span>
-                  </div>
-                  {QUALITY_REFS[label] && (() => {
-                    const r = QUALITY_REFS[label]; const ok = v.avg >= r.min && v.avg <= r.max;
-                    return <div style={{ marginTop: 4, fontSize: 10, color: ok ? C.success : C.danger }}>{ok ? "✅" : "⚠️"} Ref: {r.min}–{r.max}</div>;
-                  })()}
-                </div>
-              ))}
+                );
+              })}
             </>
           )}
         </div>
@@ -2164,17 +2423,18 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
         const warnCount  = analisisDifs.filter(a => a.severity === "warn").length;
         const attnCount  = analisisDifs.filter(a => a.severity === "attn").length;
 
+        const lt = _THEME === "light";
         const SEV = {
-          crit: { label: "🚨 ADULTERACIÓN",  bg: "#450a0a", border: "#ef444466", text: "#fca5a5", badge: "#ef4444" },
-          warn: { label: "🔴 ALERTA",         bg: "#431407", border: "#f9731644", text: "#fdba74", badge: "#f97316" },
-          attn: { label: "🟡 DESVÍO",         bg: "#422006", border: "#d9770644", text: "#fde68a", badge: "#f59e0b" },
+          crit: { label: "🚨 ADULTERACIÓN",  bg: lt ? "#fef2f2" : "#450a0a", border: "#ef444466", text: lt ? "#b91c1c" : "#fca5a5", badge: "#ef4444" },
+          warn: { label: "🔴 ALERTA",         bg: lt ? "#fff7ed" : "#431407", border: "#f9731644", text: lt ? "#c2410c" : "#fdba74", badge: "#f97316" },
+          attn: { label: "🟡 DESVÍO",         bg: lt ? "#fffbeb" : "#422006", border: "#d9770644", text: lt ? "#92400e" : "#fde68a", badge: "#f59e0b" },
           ok:   { label: "✅ Normal",          bg: C.card,    border: C.border,    text: C.sub,    badge: "#22c55e" },
         };
 
         return (
           <div>
             {/* Banner resumen */}
-            <div style={{ ...panel, marginBottom: 14, borderColor: critCount > 0 ? "#ef444466" : warnCount > 0 ? "#f9731644" : "#f59e0b44" }}>
+            <div style={{ ...panel, marginBottom: 14, borderColor: critCount > 0 ? "#ef444466" : warnCount > 0 ? "#f9731644" : "#f59e0b44", background: _THEME === "light" ? "#fff" : C.surface }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 8 }}>
                 🔍 Auditoría Tambo vs Fábrica — {fmtDate(date)}
               </div>
@@ -2777,7 +3037,7 @@ export default function App() {
       {/* Banner offline — almacenamiento no disponible */}
       {!storageOk && (
         <div style={{
-          background: "#450a0a", borderBottom: `2px solid ${C.danger}`,
+          background: _THEME === "light" ? "#fef2f2" : "#450a0a", borderBottom: `2px solid ${C.danger}`,
           padding: "10px 16px", display: "flex", alignItems: "center", gap: 10,
           position: "sticky", top: 0, zIndex: 300,
         }}>
@@ -2818,24 +3078,41 @@ export default function App() {
 
       {/* Modal perfil / login */}
       {perfilModal && (
-        <Modal title="Acceso con perfil" onClose={closePerfilModal} zIndex={200}>
+        <Modal title={perfil ? "Perfil activo" : ""} onClose={closePerfilModal} zIndex={200}>
           {perfil ? (
             <div>
+              {/* Logged-in view */}
               <div style={{ textAlign: "center", marginBottom: 20 }}>
-                <div style={{ fontSize: 40, marginBottom: 8 }}>{PERFILES[perfil].icon}</div>
-                <div style={{ fontSize: 17, fontWeight: 700, color: C.text }}>{PERFILES[perfil].label}</div>
-                <div style={{ fontSize: 12, color: C.success, marginTop: 4, fontWeight: 600 }}>● Sesión activa</div>
+                <div style={{
+                  width: 72, height: 72, borderRadius: 24, margin: "0 auto 12px",
+                  background: _THEME === "light" ? C.accentDim : `${C.accent}18`,
+                  border: `2px solid ${C.accent}44`,
+                  display: "flex", alignItems: "center", justifyContent: "center", fontSize: 36,
+                }}>{PERFILES[perfil].icon}</div>
+                <div style={{ fontSize: 17, fontWeight: 800, color: C.text }}>{PERFILES[perfil].label}</div>
+                <div style={{ fontSize: 11, color: C.success, marginTop: 5, fontWeight: 700, letterSpacing: "0.05em" }}>
+                  ● SESIÓN ACTIVA
+                </div>
               </div>
-              <button
-                style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, width: "100%" }}
-                onClick={handleLogout}
-              >Cerrar sesión</button>
+              <button style={{ ...btnSecondary, color: C.danger, borderColor: C.danger + "55", width: "100%" }} onClick={handleLogout}>
+                Cerrar sesión
+              </button>
             </div>
           ) : (
             <div>
-              <div style={{ color: C.sub, fontSize: 13, marginBottom: 16, lineHeight: 1.5 }}>
-                Ingresá tus credenciales para acceder con un perfil especial.
+              {/* Logo header */}
+              <div style={{
+                textAlign: "center", paddingBottom: 20,
+                borderBottom: `1px solid ${C.border}`, marginBottom: 20,
+              }}>
+                <div style={{ display: "flex", justifyContent: "center", marginBottom: 10 }}>
+                  <YataLogo />
+                </div>
+                <div style={{ fontSize: 12, color: C.sub, letterSpacing: "0.06em" }}>
+                  Lacteos Yatasto SA · Panel de Acceso
+                </div>
               </div>
+
               <F label="Usuario">
                 <input style={inp} type="text" autoFocus value={loginUser}
                   onChange={e => { setLoginUser(e.target.value); setLoginError(""); }}
@@ -2849,7 +3126,7 @@ export default function App() {
                   placeholder="Contraseña" />
               </F>
               {loginError && (
-                <div style={{ color: C.danger, fontSize: 12, marginBottom: 10, padding: "6px 10px", background: "#ef444418", borderRadius: 6 }}>
+                <div style={{ color: C.danger, fontSize: 12, marginBottom: 12, padding: "8px 12px", background: _THEME === "light" ? "#fef2f2" : "#ef444418", borderRadius: 8, border: `1px solid ${C.danger}33` }}>
                   {loginError}
                 </div>
               )}
@@ -2866,38 +3143,68 @@ export default function App() {
       {informe && <InformeModal date={date} onClose={() => setInforme(false)} />}
 
       {/* Header */}
-      <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: "12px 16px", position: "sticky", top: 0, zIndex: 40, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div>
-          <div style={{ fontSize: 10, color: C.accent, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.15em" }}>🏭 Yatasto · Recibo</div>
-          <div style={{ fontSize: 20, fontWeight: 700, color: C.text, lineHeight: 1.1 }}>
-            {navItems.find(n => n.id === section)?.icon} {navItems.find(n => n.id === section)?.label}
+      <div style={{
+        background: C.surface, borderBottom: `1px solid ${C.border}`,
+        padding: "9px 14px", position: "sticky", top: 0, zIndex: 40,
+        display: "flex", justifyContent: "space-between", alignItems: "center",
+        boxShadow: _THEME === "light" ? "0 1px 8px rgba(0,0,0,0.07)" : "0 1px 8px rgba(0,0,0,0.4)",
+      }}>
+        {/* Left: Logo + section indicator */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <YataLogo compact />
+          <div style={{ width: 1, height: 26, background: C.border }} />
+          <div style={{ fontSize: 12, color: C.sub, fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}>
+            <span style={{ fontSize: 15 }}>{navItems.find(n => n.id === section)?.icon}</span>
+            <span>{navItems.find(n => n.id === section)?.label}</span>
           </div>
         </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+
+        {/* Right: action buttons */}
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          {/* Theme toggle */}
+          <button onClick={() => {
+            const next = _THEME === "dark" ? "light" : "dark";
+            try { localStorage.setItem("yatasto:theme", next); } catch {}
+            window.location.reload();
+          }} title={_THEME === "dark" ? "Modo Yatasto (claro)" : "Modo oscuro"} style={{
+            background: C.card, border: `1px solid ${C.border}`,
+            borderRadius: 9, color: C.sub, width: 34, height: 34,
+            cursor: "pointer", fontSize: 15,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            transition: "all 0.2s",
+          }}>{_THEME === "dark" ? "☀️" : "🌙"}</button>
+
           {/* Botón perfil */}
           <button onClick={() => setPerfilModal(true)} title={perfil ? PERFILES[perfil].label : "Acceder con perfil"} style={{
             background: perfil ? C.accentDim : C.card,
             border: `1px solid ${perfil ? C.accentDark : C.border}`,
-            borderRadius: 10, color: perfil ? C.accent : C.sub,
-            padding: "7px 11px", cursor: "pointer", fontSize: 16,
-            position: "relative", lineHeight: 1,
+            borderRadius: 9, color: perfil ? C.accent : C.sub,
+            width: 34, height: 34, cursor: "pointer", fontSize: 15,
+            position: "relative", display: "flex", alignItems: "center", justifyContent: "center",
           }}>
             👤
             {perfil && (
               <span style={{ position: "absolute", top: 4, right: 4, width: 7, height: 7, background: C.success, borderRadius: "50%", display: "block", border: `1.5px solid ${C.surface}` }} />
             )}
           </button>
-          <button onClick={() => setInforme(true)} style={{
+
+          <button onClick={() => setInforme(true)} title="Informe del día" style={{
             background: C.card, border: `1px solid ${C.border}`,
-            borderRadius: 10, color: C.text, padding: "8px 10px",
-            cursor: "pointer", fontSize: 12, fontWeight: 700,
-          }}>📄 Inf.</button>
+            borderRadius: 9, color: C.sub, width: 34, height: 34,
+            cursor: "pointer", fontSize: 15,
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>📄</button>
+
           <button onClick={() => setDatePicker(!datePicker)} style={{
-            background: isToday ? C.card : C.accentDim, border: `1px solid ${isToday ? C.border : C.accentDark}`,
-            borderRadius: 10, color: isToday ? C.text : C.accent, padding: "8px 12px",
-            cursor: "pointer", fontSize: 13, fontFamily: "'Courier New',monospace", fontWeight: 700,
+            background: isToday ? C.card : C.accentDim,
+            border: `1px solid ${isToday ? C.border : C.accentDark}`,
+            borderRadius: 9, color: isToday ? C.text : C.accent,
+            padding: "0 10px", height: 34, cursor: "pointer",
+            fontSize: 12, fontFamily: "'Courier New',monospace", fontWeight: 700,
+            display: "flex", alignItems: "center", gap: 4,
           }}>
-            📅 {isToday ? "Hoy" : fmtDate(date)}
+            <span style={{ fontSize: 13 }}>📅</span>
+            <span>{isToday ? "Hoy" : fmtDate(date)}</span>
           </button>
         </div>
       </div>
@@ -2922,17 +3229,36 @@ export default function App() {
       </div>
 
       {/* Bottom nav */}
-      <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: C.surface, borderTop: `1px solid ${C.border}`, display: "grid", gridTemplateColumns: `repeat(${navItems.length},1fr)`, zIndex: 40 }}>
-        {navItems.map(n => (
-          <button key={n.id} onClick={() => setSection(n.id)} style={{
-            background: "none", border: "none", cursor: "pointer", padding: "10px 0 13px",
-            display: "flex", flexDirection: "column", alignItems: "center", gap: 2,
-            borderTop: section === n.id ? `2px solid ${C.accent}` : "2px solid transparent",
-          }}>
-            <span style={{ fontSize: 20 }}>{n.icon}</span>
-            <span style={{ fontSize: 9, fontWeight: 700, color: section === n.id ? C.accent : C.sub, letterSpacing: "0.05em", textTransform: "uppercase" }}>{n.label}</span>
-          </button>
-        ))}
+      <div style={{
+        position: "fixed", bottom: 0, left: 0, right: 0,
+        background: C.surface, borderTop: `1px solid ${C.border}`,
+        display: "grid", gridTemplateColumns: `repeat(${navItems.length},1fr)`,
+        zIndex: 40,
+        boxShadow: _THEME === "light" ? "0 -2px 12px rgba(0,0,0,0.08)" : "0 -2px 12px rgba(0,0,0,0.4)",
+      }}>
+        {navItems.map(n => {
+          const active = section === n.id;
+          return (
+            <button key={n.id} onClick={() => setSection(n.id)} style={{
+              background: "none", border: "none", cursor: "pointer", padding: "10px 0 13px",
+              display: "flex", flexDirection: "column", alignItems: "center", gap: 2,
+              borderTop: active ? `2.5px solid ${C.accent}` : "2.5px solid transparent",
+              transition: "border-color 0.18s",
+            }}>
+              <span style={{
+                fontSize: 20,
+                filter: active ? `drop-shadow(0 0 6px ${C.accent}88)` : "none",
+                transition: "filter 0.18s",
+              }}>{n.icon}</span>
+              <span style={{
+                fontSize: 9, fontWeight: 700,
+                color: active ? C.accent : C.sub,
+                letterSpacing: "0.05em", textTransform: "uppercase",
+                transition: "color 0.18s",
+              }}>{n.label}</span>
+            </button>
+          );
+        })}
       </div>
     </div>
   );
