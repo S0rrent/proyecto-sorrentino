@@ -2633,35 +2633,582 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
   const doExportPDF = async () => {
     setExporting(true);
     try {
-      const [ing, cargas, stk] = await Promise.all([
+      const [ing, cargas, movData, stk, forts] = await Promise.all([
         load(exportDate, "ingresos", []),
         load(exportDate, "carga", []),
+        load(exportDate, "movimientos", { movs: [] }),
         load(exportDate, "stock", {}),
+        load(exportDate, "fortificados", []),
       ]);
       const autoL = await calcAutoLitros(exportDate);
-      let html = `<style>body{font-family:Arial,sans-serif;font-size:11px;margin:20px;color:#111}h1{font-size:16px;border-bottom:2px solid #f59e0b;padding-bottom:6px}h2{font-size:13px;color:#333;margin-top:16px}table{border-collapse:collapse;width:100%;margin-bottom:14px}th{background:#f59e0b;color:#000;padding:5px 8px;text-align:left;font-size:10px}td{border:1px solid #ccc;padding:4px 8px;font-size:10px}tr:nth-child(even){background:#f9f9f9}.stats{display:flex;flex-wrap:wrap;gap:10px;margin:10px 0}.stat{background:#f5f5f5;border:1px solid #ddd;border-radius:6px;padding:8px 14px;text-align:center}.stat .v{font-size:18px;font-weight:bold;color:#f59e0b}.stat .l{font-size:9px;color:#888;text-transform:uppercase}@media print{button{display:none}}</style>`;
-      html += `<h1>🏭 Yatasto — Informe Diario — ${fmtDate(exportDate)}</h1>`;
-      html += `<div class="stats">
-        <div class="stat"><div class="v">${ing.reduce((s, i) => s + (parseFloat(i.litrosFca) || 0), 0).toLocaleString("es-AR")} L</div><div class="l">Ingresados</div></div>
-        <div class="stat"><div class="v">${cargas.reduce((s, c) => s + (parseFloat(c.litros) || 0), 0).toLocaleString("es-AR")} L</div><div class="l">Cargados</div></div>
-        <div class="stat"><div class="v">${ing.length}</div><div class="l">Camiones</div></div>
-        <div class="stat"><div class="v">${cargas.length}</div><div class="l">Cargas</div></div>
-      </div>`;
-      html += `<h2>Ingresos (${ing.length})</h2><table><tr><th>Hora</th><th>Nº</th><th>Tambo</th><th>Litros</th><th>Dest.</th><th>pH</th><th>Acidez</th><th>GB</th><th>SNG</th><th>Dens.</th><th>Prot.</th><th>Resp.</th></tr>`;
-      ing.forEach(i => { html += `<tr><td>${i.hora || ""}</td><td>${i.num || ""}</td><td>${i.tambo || ""}</td><td>${i.litrosFca || ""}</td><td>${i.destino || ""}</td><td>${i.phFca || ""}</td><td>${i.acidezFca || ""}</td><td>${i.gbFca || ""}</td><td>${i.sngFca || ""}</td><td>${i.densFca || ""}</td><td>${i.protFca || ""}</td><td>${i.responsable || ""}</td></tr>`; });
-      html += `</table><h2>Cargas (${cargas.length})</h2><table><tr><th>Hora</th><th>Label</th><th>Destino</th><th>Transportista</th><th>Silo</th><th>Litros</th><th>pH</th><th>Temp</th><th>Resp.</th></tr>`;
-      cargas.forEach(c => { html += `<tr><td>${c.hora || ""}</td><td>${c.label || ""}</td><td>${c.destino || ""}</td><td>${c.transportista || ""}</td><td>${c.siloProveniente || ""}</td><td>${c.litros || ""}</td><td>${c.pH || ""}</td><td>${c.gC || ""}</td><td>${c.responsable || ""}</td></tr>`; });
-      html += `</table><h2>Estado de Silos</h2><table><tr><th>Silo</th><th>Litros</th><th>Capacidad</th><th>% Lleno</th><th>Producto</th></tr>`;
-      STOCK_SILOS.forEach(silo => {
-        const litros = autoL[silo] || 0; const cap = SILO_CAP[silo] || 10000;
-        const pct = cap > 0 ? ((litros / cap) * 100).toFixed(1) : "0.0";
-        let prod = ""; for (const t of TURNOS) { const p = ((((stk[t] || {}).silos || {})[silo]) || {}).producto; if (p) { prod = p; break; } }
-        html += `<tr><td>${silo}</td><td>${litros.toLocaleString("es-AR")}</td><td>${cap.toLocaleString("es-AR")}</td><td>${pct}%</td><td>${prod}</td></tr>`;
+
+      // ── KPIs ─────────────────────────────────────────────────
+      const totIng   = ing.reduce((s, i) => s + (parseFloat(i.litrosFca) || 0), 0);
+      const totCarg  = cargas.reduce((s, c) => s + (parseFloat(c.litros) || 0), 0);
+      const balance  = totIng - totCarg;
+      const totCap   = STOCK_SILOS.reduce((s, k) => s + (SILO_CAP[k] || 0), 0);
+      const totSilos = STOCK_SILOS.reduce((s, k) => s + (autoL[k] || 0), 0);
+      const fillPct  = totCap > 0 ? (totSilos / totCap) * 100 : 0;
+      const fmtN  = n => Math.round(n).toLocaleString("es-AR");
+      const fmtD  = n => n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : `${Math.round(n)}`;
+      const qAvg  = key => {
+        const vals = ing.map(i => parseFloat(i[key])).filter(v => !isNaN(v) && v > 0);
+        return vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : null;
+      };
+      const now = new Date();
+      const ts  = now.toLocaleDateString("es-AR") + " " + now.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
+
+      // ── Donut SVG ─────────────────────────────────────────────
+      const dpct  = Math.min(100, Math.max(0, fillPct));
+      const dR = 44, dSW = 10, dCX = 54, dCY = 54;
+      const dCirc = 2 * Math.PI * dR;
+      const dDash = (dCirc * dpct / 100).toFixed(2);
+      const dColor = dpct > 88 ? "#ef4444" : dpct > 65 ? "#f59e0b" : "#10b981";
+      const donutSVG = `<svg width="108" height="108" viewBox="0 0 108 108" style="display:block;flex-shrink:0">
+        <circle cx="${dCX}" cy="${dCY}" r="${dR}" fill="none" stroke="#e8ecf3" stroke-width="${dSW}"/>
+        ${dpct > 0 ? `<circle cx="${dCX}" cy="${dCY}" r="${dR}" fill="none" stroke="${dColor}" stroke-width="${dSW}"
+          stroke-dasharray="${dDash} ${dCirc.toFixed(2)}" stroke-linecap="round"
+          transform="rotate(-90 ${dCX} ${dCY})"/>` : ""}
+        <text x="${dCX}" y="${dCY - 2}" text-anchor="middle" font-size="17" font-weight="800"
+          fill="#0f172a" font-family="'Consolas','Courier New',monospace">${fillPct.toFixed(1)}%</text>
+        <text x="${dCX}" y="${dCY + 15}" text-anchor="middle" font-size="9" fill="#94a3b8"
+          font-family="'Segoe UI',Arial,sans-serif" letter-spacing="1">SILOS</text>
+      </svg>`;
+
+      // ── Alertas de calidad ────────────────────────────────────
+      const alertas = [];
+      STOCK_SILOS.forEach(s => {
+        const l = autoL[s] || 0, cap = SILO_CAP[s] || 10000;
+        if (l > 0 && (l / cap) * 100 > 90) alertas.push({ tipo: "warn", msg: `Silo ${s} al ${((l/cap)*100).toFixed(0)}% — casi lleno` });
+        if (l < 0) alertas.push({ tipo: "err", msg: `Silo ${s}: balance negativo (${fmtN(l)} L)` });
       });
-      html += `</table><br><button onclick="window.print()" style="background:#f59e0b;color:#000;border:none;padding:8px 18px;border-radius:6px;font-size:12px;cursor:pointer;font-weight:bold">🖨️ Imprimir / Guardar PDF</button>`;
+      ing.filter(i => parseFloat(i.aguadoFca) > 0).forEach(i =>
+        alertas.push({ tipo: "err", msg: `AGUADO — ${i.tambo || "?"}: ${parseFloat(i.aguadoFca).toFixed(3)}` })
+      );
+      ing.filter(i => Math.abs((parseFloat(i.litrosFca)||0)-(parseFloat(i.litrosTbo)||0)) > 150).forEach(i =>
+        alertas.push({ tipo: "warn", msg: `Diferencia Tbo/Fca > 150L — ${i.tambo || "?"}` })
+      );
+
+      // ── CSS ───────────────────────────────────────────────────
+      const css = `
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+          font-family: 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+          background: #eef2f7; color: #0f172a; font-size: 12px;
+          -webkit-print-color-adjust: exact; print-color-adjust: exact;
+        }
+
+        /* ── Print bar ── */
+        .print-bar {
+          position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+          background: rgba(12,26,58,0.97); backdrop-filter: blur(8px);
+          display: flex; justify-content: space-between; align-items: center;
+          padding: 10px 24px; box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+        }
+        .print-bar-brand { font-size: 14px; font-weight: 800; color: #f0a500; letter-spacing: 0.12em; }
+        .print-bar-sub   { font-size: 10px; color: #5a7aaa; margin-left: 10px; }
+        .print-btn {
+          background: #f0a500; color: #0c1a3a; border: none; border-radius: 8px;
+          padding: 9px 22px; font-size: 12px; font-weight: 800; cursor: pointer;
+          letter-spacing: 0.04em; transition: background 0.15s;
+        }
+        .print-btn:hover { background: #f5b830; }
+
+        /* ── Page ── */
+        .page { max-width: 980px; margin: 0 auto; padding: 80px 22px 52px; }
+
+        /* ── Cover ── */
+        .cover {
+          background: linear-gradient(135deg, #0c1a3a 0%, #1a3470 55%, #0d274f 100%);
+          border-radius: 18px; padding: 38px 44px 32px; margin-bottom: 22px;
+          position: relative; overflow: hidden;
+        }
+        .cover::after {
+          content: ""; position: absolute; right: -70px; top: -70px;
+          width: 280px; height: 280px; border-radius: 50%;
+          background: rgba(255,255,255,0.025); pointer-events: none;
+        }
+        .cover-inner { display: flex; justify-content: space-between; align-items: flex-start; position: relative; }
+        .brand-name {
+          font-size: 46px; font-weight: 900; color: #f0a500;
+          letter-spacing: 0.14em; font-family: 'Arial Black','Segoe UI Black',Arial,sans-serif; line-height: 1;
+        }
+        .brand-tagline { font-size: 9px; color: #4a6a8a; letter-spacing: 0.32em; font-style: italic; margin-top: 7px; }
+        .cover-right  { text-align: right; }
+        .cover-date   { font-size: 24px; font-weight: 700; color: #fff; }
+        .cover-doc    { font-size: 11px; color: #7a9acc; margin-top: 6px; letter-spacing: 0.06em; text-transform: uppercase; }
+        .cover-user   { font-size: 11px; color: #4a6a8a; margin-top: 4px; }
+        .cover-sep    { height: 1px; background: rgba(255,255,255,0.1); margin: 26px 0 18px; }
+        .cover-meta   { display: flex; gap: 28px; font-size: 10px; color: #4a6a8a; }
+        .cover-meta b { color: #7a9acc; }
+
+        /* ── Alerts ── */
+        .alerts { display: flex; flex-direction: column; gap: 7px; margin-bottom: 22px; }
+        .alert {
+          display: flex; align-items: center; gap: 11px;
+          border-radius: 10px; padding: 11px 16px; font-size: 11px; font-weight: 600;
+        }
+        .alert-err  { background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; }
+        .alert-warn { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; }
+        .alert-dot  { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+        /* ── KPI Grid ── */
+        .kpi-grid { display: flex; gap: 14px; margin-bottom: 22px; flex-wrap: wrap; }
+        .kpi-card {
+          flex: 1; min-width: 130px; background: #fff; border-radius: 14px;
+          padding: 22px 20px 18px; position: relative; overflow: hidden;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.07), 0 0 0 1px rgba(0,0,0,0.05);
+        }
+        .kpi-card::before {
+          content: ""; position: absolute; top: 0; left: 0; right: 0; height: 4px;
+          background: var(--kc, #3b82f6); border-radius: 14px 14px 0 0;
+        }
+        .kpi-label  { font-size: 9px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.14em; margin-bottom: 12px; }
+        .kpi-number { font-size: 32px; font-weight: 800; line-height: 1; color: var(--kc, #0f172a); font-family: 'Cascadia Code','Consolas','Courier New',monospace; }
+        .kpi-unit   { font-size: 14px; font-weight: 500; color: #94a3b8; margin-left: 3px; }
+        .kpi-sub    { font-size: 11px; color: #64748b; margin-top: 9px; }
+
+        /* ── Section header ── */
+        .sec-head { display: flex; align-items: center; gap: 12px; margin: 30px 0 14px; }
+        .sec-title { font-size: 11px; font-weight: 800; color: #0c1a3a; text-transform: uppercase; letter-spacing: 0.1em; white-space: nowrap; }
+        .sec-line  { flex: 1; height: 1px; background: #e2e8f0; }
+        .sec-pill  { font-size: 9px; font-weight: 700; color: #3b82f6; background: #eff6ff; border-radius: 20px; padding: 3px 11px; white-space: nowrap; }
+
+        /* ── Quality strip ── */
+        .qual-strip { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 22px; }
+        .qual-card  {
+          flex: 1; min-width: 105px; background: #fff; border-radius: 12px; padding: 16px 16px 13px;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.04);
+        }
+        .qual-top  { display: flex; justify-content: space-between; align-items: center; margin-bottom: 9px; }
+        .qual-name { font-size: 9px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.12em; }
+        .qual-dot  { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+        .qual-val  { font-size: 24px; font-weight: 800; color: #0f172a; line-height: 1; font-family: 'Cascadia Code','Consolas','Courier New',monospace; }
+        .qual-unit { font-size: 12px; font-weight: 400; color: #94a3b8; }
+        .qual-ref  { font-size: 8px; color: #cbd5e1; margin-top: 6px; }
+
+        /* ── Silo chart ── */
+        .silo-card {
+          background: #fff; border-radius: 14px; padding: 22px 26px;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.07), 0 0 0 1px rgba(0,0,0,0.05); margin-bottom: 22px;
+        }
+        .silo-card-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 22px; }
+        .silo-card-title { font-size: 13px; font-weight: 800; color: #0c1a3a; }
+        .silo-card-sub   { font-size: 10px; color: #94a3b8; margin-top: 4px; }
+        .silo-list { display: flex; flex-direction: column; gap: 14px; }
+        .silo-row  { }
+        .silo-meta { display: flex; justify-content: space-between; align-items: center; margin-bottom: 7px; }
+        .silo-left { display: flex; align-items: center; gap: 9px; }
+        .silo-name { font-size: 12px; font-weight: 700; color: #0f172a; }
+        .silo-prod { font-size: 9px; background: #f1f5f9; color: #64748b; border-radius: 5px; padding: 2px 8px; }
+        .silo-stat { font-size: 12px; font-weight: 700; font-family: 'Cascadia Code','Consolas','Courier New',monospace; }
+        .bar-track { background: #f1f5f9; border-radius: 100px; height: 9px; overflow: hidden; }
+        .bar-fill  { height: 100%; border-radius: 100px; }
+
+        /* ── Tables ── */
+        .table-card {
+          background: #fff; border-radius: 14px; overflow: hidden; margin-bottom: 22px;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.07), 0 0 0 1px rgba(0,0,0,0.05);
+        }
+        .table-head {
+          padding: 18px 22px 14px; border-bottom: 1px solid #f1f5f9;
+          display: flex; justify-content: space-between; align-items: center;
+        }
+        .table-title { font-size: 13px; font-weight: 700; color: #0c1a3a; }
+        .table-badge { font-size: 9px; font-weight: 700; color: #3b82f6; background: #eff6ff; border-radius: 20px; padding: 3px 11px; }
+        table { width: 100%; border-collapse: collapse; }
+        thead tr { border-bottom: 1.5px solid #e2e8f0; }
+        th {
+          padding: 11px 16px; font-size: 9px; font-weight: 700; color: #64748b;
+          text-transform: uppercase; letter-spacing: 0.1em; text-align: left; white-space: nowrap;
+        }
+        th.r { text-align: right; }
+        td { padding: 12px 16px; font-size: 11px; color: #0f172a; border-bottom: 1px solid #f8fafc; vertical-align: middle; }
+        td.r { text-align: right; font-family: 'Cascadia Code','Consolas','Courier New',monospace; font-size: 12px; }
+        tbody tr:last-child td { border-bottom: none; }
+        .mn { font-family: 'Cascadia Code','Consolas','Courier New',monospace; }
+        .mu { color: #94a3b8; }
+        .mb { font-weight: 700; }
+        .total-row td { background: #fafbff; border-top: 1.5px solid #e2e8f0; font-weight: 700; border-bottom: none; }
+        .total-row .r { color: #1e40af; font-size: 13px; }
+        .badge { display: inline-block; border-radius: 6px; padding: 2px 8px; font-size: 9px; font-weight: 700; white-space: nowrap; }
+        .ok   { background: #dcfce7; color: #15803d; }
+        .warn { background: #fef9c3; color: #92400e; }
+        .err  { background: #fee2e2; color: #b91c1c; }
+
+        /* ── Footer ── */
+        .footer { display: flex; justify-content: space-between; align-items: center; padding-top: 18px; border-top: 1px solid #e2e8f0; margin-top: 10px; font-size: 9px; color: #94a3b8; }
+        .footer-brand { font-weight: 700; color: #64748b; font-size: 10px; }
+
+        /* ── Print overrides ── */
+        @media print {
+          body { background: #fff !important; }
+          .print-bar { display: none !important; }
+          .page { padding-top: 24px !important; }
+          .cover { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          .kpi-card, .qual-card, .silo-card, .table-card { box-shadow: none !important; border: 1px solid #e2e8f0 !important; }
+          .kpi-card::before { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          .bar-fill { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          .sec-head { page-break-after: avoid; }
+          .table-card { page-break-inside: avoid; }
+          .silo-card  { page-break-inside: avoid; }
+        }
+        @page { margin: 15mm 12mm; }
+      `;
+
+      // ── COVER ─────────────────────────────────────────────────
+      let H = `
+        <div class="cover">
+          <div class="cover-inner">
+            <div>
+              <div class="brand-name">YATASTO</div>
+              <div class="brand-tagline">lácteos · buena leche</div>
+            </div>
+            <div class="cover-right">
+              <div class="cover-date">${fmtDate(exportDate)}</div>
+              <div class="cover-doc">Informe Ejecutivo de Producción</div>
+              ${perfilLabel ? `<div class="cover-user">Operador: ${perfilLabel}</div>` : ""}
+            </div>
+          </div>
+          <div class="cover-sep"></div>
+          <div class="cover-meta">
+            <span><b>${ing.length}</b> camiones ingresados</span>
+            <span><b>${cargas.length}</b> cargas despachadas</span>
+            <span><b>${STOCK_SILOS.length}</b> silos monitoreados</span>
+            <span>Generado: <b>${ts}</b></span>
+          </div>
+        </div>
+      `;
+
+      // ── ALERTAS ───────────────────────────────────────────────
+      if (alertas.length > 0) {
+        H += `<div class="alerts">`;
+        alertas.forEach(a => {
+          const isErr = a.tipo === "err";
+          H += `<div class="alert ${isErr ? "alert-err" : "alert-warn"}">
+            <span class="alert-dot" style="background:${isErr ? "#ef4444" : "#f59e0b"}"></span>
+            ${a.msg}
+          </div>`;
+        });
+        H += `</div>`;
+      }
+
+      // ── KPI CARDS ─────────────────────────────────────────────
+      const balColor = balance >= 0 ? "#10b981" : "#ef4444";
+      const ocpColor = fillPct > 88 ? "#ef4444" : fillPct > 65 ? "#f59e0b" : "#10b981";
+      H += `
+        <div class="kpi-grid">
+          <div class="kpi-card" style="--kc:#f59e0b">
+            <div class="kpi-label">Litros Ingresados</div>
+            <div class="kpi-number">${fmtD(totIng)}<span class="kpi-unit">L</span></div>
+            <div class="kpi-sub">${fmtN(totIng)} litros · ${ing.length} camiones</div>
+          </div>
+          <div class="kpi-card" style="--kc:#3b82f6">
+            <div class="kpi-label">Litros Despachados</div>
+            <div class="kpi-number">${fmtD(totCarg)}<span class="kpi-unit">L</span></div>
+            <div class="kpi-sub">${cargas.length} carga${cargas.length !== 1 ? "s" : ""} realizadas</div>
+          </div>
+          <div class="kpi-card" style="--kc:${balColor}">
+            <div class="kpi-label">Balance del Día</div>
+            <div class="kpi-number">${balance >= 0 ? "+" : ""}${fmtD(balance)}<span class="kpi-unit">L</span></div>
+            <div class="kpi-sub">${balance >= 0 ? "Superávit operativo" : "Déficit operativo"}</div>
+          </div>
+          <div class="kpi-card" style="--kc:#6366f1">
+            <div class="kpi-label">Tambos</div>
+            <div class="kpi-number">${new Set(ing.map(i => i.tambo).filter(Boolean)).size}</div>
+            <div class="kpi-sub">proveedores activos hoy</div>
+          </div>
+          <div class="kpi-card" style="--kc:#8b5cf6">
+            <div class="kpi-label">pH Promedio</div>
+            <div class="kpi-number">${qAvg("phFca") != null ? qAvg("phFca").toFixed(2) : "—"}</div>
+            <div class="kpi-sub">Acidez: ${qAvg("acidezFca") != null ? qAvg("acidezFca").toFixed(1) + " °D" : "—"}</div>
+          </div>
+          <div class="kpi-card" style="--kc:${ocpColor}">
+            <div class="kpi-label">Ocupación Silos</div>
+            <div class="kpi-number">${fillPct.toFixed(1)}<span class="kpi-unit">%</span></div>
+            <div class="kpi-sub">${fmtD(totSilos)} L de ${fmtD(totCap)} L cap.</div>
+          </div>
+        </div>
+      `;
+
+      // ── CALIDAD ───────────────────────────────────────────────
+      const qualDefs = [
+        { key: "phFca",     label: "pH",         unit: "",    dec: 2, min: 6.6,  max: 6.8   },
+        { key: "acidezFca", label: "Acidez",      unit: "°D",  dec: 1, min: 14,   max: 18    },
+        { key: "gbFca",     label: "Grasa",       unit: "%",   dec: 2, min: 3.0,  max: null  },
+        { key: "sngFca",    label: "SNG",         unit: "%",   dec: 2, min: 8.2,  max: null  },
+        { key: "densFca",   label: "Densidad",    unit: "",    dec: 3, min: 1.028, max: 1.034 },
+        { key: "protFca",   label: "Proteína",    unit: "%",   dec: 2, min: 2.9,  max: null  },
+        { key: "tC",        label: "Temperatura", unit: "°C",  dec: 1, min: null, max: 6     },
+        { key: "aguadoFca", label: "Aguado",      unit: "",    dec: 3, min: null, max: 0     },
+      ];
+      if (ing.length > 0) {
+        H += `
+          <div class="sec-head">
+            <span class="sec-title">Calidad Promedio</span>
+            <div class="sec-line"></div>
+            <span class="sec-pill">${ing.length} muestras</span>
+          </div>
+          <div class="qual-strip">
+        `;
+        qualDefs.forEach(({ key, label, unit, dec, min, max }) => {
+          const v = qAvg(key);
+          if (v == null) return;
+          const inRange  = (min == null || v >= min) && (max == null || v <= max);
+          const dotColor = inRange ? "#10b981" : (key === "aguadoFca" ? "#ef4444" : "#f59e0b");
+          const rangeStr = min != null && max != null ? `${min} – ${max}${unit}`
+            : min != null ? `≥ ${min}${unit}` : max != null ? `≤ ${max}${unit}` : "";
+          H += `<div class="qual-card">
+            <div class="qual-top">
+              <span class="qual-name">${label}</span>
+              <span class="qual-dot" style="background:${dotColor}"></span>
+            </div>
+            <div class="qual-val">${v.toFixed(dec)}<span class="qual-unit">${unit ? " " + unit : ""}</span></div>
+            ${rangeStr ? `<div class="qual-ref">ref ${rangeStr}</div>` : ""}
+          </div>`;
+        });
+        H += `</div>`;
+      }
+
+      // ── SILOS (visual) ────────────────────────────────────────
+      H += `
+        <div class="sec-head">
+          <span class="sec-title">Estado de Silos</span>
+          <div class="sec-line"></div>
+          <span class="sec-pill">${fillPct.toFixed(1)}% ocupado</span>
+        </div>
+        <div class="silo-card">
+          <div class="silo-card-head">
+            <div>
+              <div class="silo-card-title">Distribución de Volumen</div>
+              <div class="silo-card-sub">${fmtN(totSilos)} L en ${STOCK_SILOS.length} silos · cap. total ${fmtN(totCap)} L</div>
+            </div>
+            ${donutSVG}
+          </div>
+          <div class="silo-list">
+      `;
+      STOCK_SILOS.forEach(silo => {
+        const litros = autoL[silo] || 0;
+        const cap    = SILO_CAP[silo] || 10000;
+        const pct    = cap > 0 ? (litros / cap) * 100 : 0;
+        let prod = "";
+        for (const t of TURNOS) { const p = (((stk[t] || {}).silos || {})[silo] || {}).producto; if (p) { prod = p; break; } }
+        const barColor = pct === 0 ? "#e2e8f0" : pct > 88 ? "#ef4444" : pct > 65 ? "#f59e0b" : "#10b981";
+        const barGrad  = pct === 0 ? "#e2e8f0"
+          : pct > 88 ? "linear-gradient(90deg,#f87171,#ef4444)"
+          : pct > 65 ? "linear-gradient(90deg,#fbbf24,#f59e0b)"
+          : "linear-gradient(90deg,#34d399,#10b981)";
+        const statTxt = litros > 0 ? `${fmtN(litros)} L · ${pct.toFixed(1)}%` : "Vacío";
+        H += `<div class="silo-row">
+          <div class="silo-meta">
+            <div class="silo-left">
+              <span class="silo-name">Silo ${silo}</span>
+              ${prod ? `<span class="silo-prod">${prod}</span>` : ""}
+            </div>
+            <span class="silo-stat" style="color:${barColor}">${statTxt}</span>
+          </div>
+          <div class="bar-track">
+            <div class="bar-fill" style="width:${Math.min(100, Math.max(litros > 0 ? 1 : 0, pct))}%;background:${barGrad}"></div>
+          </div>
+        </div>`;
+      });
+      H += `</div></div>`;
+
+      // ── INGRESOS ──────────────────────────────────────────────
+      H += `
+        <div class="sec-head">
+          <span class="sec-title">Ingresos de Leche</span>
+          <div class="sec-line"></div>
+          <span class="sec-pill">${ing.length} registros</span>
+        </div>
+        <div class="table-card">
+          <div class="table-head">
+            <span class="table-title">Detalle por Camión</span>
+            <span class="table-badge">Total: ${fmtN(totIng)} L</span>
+          </div>
+          <table><thead><tr>
+            <th>Hora</th><th>Tambo</th>
+            <th class="r">Litros Fca</th><th class="r">Litros Tbo</th>
+            <th>Destino</th><th class="r">pH</th><th class="r">Acidez</th>
+            <th class="r">GB%</th><th class="r">SNG%</th><th class="r">Densidad</th>
+            <th class="r">Aguado</th><th>Responsable</th>
+          </tr></thead><tbody>
+      `;
+      if (ing.length === 0) {
+        H += `<tr><td colspan="12" style="text-align:center;color:#94a3b8;padding:24px">Sin ingresos registrados</td></tr>`;
+      } else {
+        ing.forEach(i => {
+          const lFca = parseFloat(i.litrosFca) || 0;
+          const lTbo = parseFloat(i.litrosTbo) || 0;
+          const difL = Math.abs(lFca - lTbo);
+          const agu  = parseFloat(i.aguadoFca);
+          const aguH = isNaN(agu) || agu === 0
+            ? `<span class="badge ok">0.000</span>`
+            : `<span class="badge err">${agu.toFixed(3)} ⚠</span>`;
+          const difH = difL > 150 ? ` <span class="badge warn">Δ${fmtN(Math.round(difL))}L</span>` : "";
+          H += `<tr>
+            <td class="mn">${i.hora || "—"}</td>
+            <td class="mb">${i.tambo || "—"}</td>
+            <td class="r mb">${lFca ? fmtN(lFca) : "—"}${difH}</td>
+            <td class="r mu">${lTbo ? fmtN(lTbo) : "—"}</td>
+            <td>${i.destino || "—"}</td>
+            <td class="r">${i.phFca || "—"}</td>
+            <td class="r">${i.acidezFca || "—"}</td>
+            <td class="r">${i.gbFca || "—"}</td>
+            <td class="r">${i.sngFca || "—"}</td>
+            <td class="r">${i.densFca || "—"}</td>
+            <td class="r">${aguH}</td>
+            <td class="mu">${i.responsable || "—"}</td>
+          </tr>`;
+        });
+        const tFca = ing.reduce((s, i) => s + (parseFloat(i.litrosFca) || 0), 0);
+        const tTbo = ing.reduce((s, i) => s + (parseFloat(i.litrosTbo) || 0), 0);
+        H += `<tr class="total-row">
+          <td></td><td class="mb">TOTAL</td>
+          <td class="r">${fmtN(tFca)} L</td><td class="r">${fmtN(tTbo)} L</td>
+          <td colspan="8"></td>
+        </tr>`;
+      }
+      H += `</tbody></table></div>`;
+
+      // ── CARGAS ────────────────────────────────────────────────
+      H += `
+        <div class="sec-head">
+          <span class="sec-title">Cargas Despachadas</span>
+          <div class="sec-line"></div>
+          <span class="sec-pill">${cargas.length} registros</span>
+        </div>
+        <div class="table-card">
+          <div class="table-head">
+            <span class="table-title">Detalle de Despachos</span>
+            <span class="table-badge">Total: ${fmtN(totCarg)} L</span>
+          </div>
+          <table><thead><tr>
+            <th>Hora</th><th>Denominación</th><th>Destino</th><th>Transportista</th>
+            <th>Silo Origen</th><th class="r">Litros</th><th class="r">pH</th><th class="r">Temp°C</th><th>Responsable</th>
+          </tr></thead><tbody>
+      `;
+      if (cargas.length === 0) {
+        H += `<tr><td colspan="9" style="text-align:center;color:#94a3b8;padding:24px">Sin cargas registradas</td></tr>`;
+      } else {
+        cargas.forEach(c => {
+          H += `<tr>
+            <td class="mn">${c.hora || "—"}</td>
+            <td class="mb">${c.label || "—"}</td>
+            <td>${c.destino || "—"}</td>
+            <td>${c.transportista || "—"}</td>
+            <td>${c.siloProveniente || "—"}</td>
+            <td class="r mb">${c.litros ? fmtN(parseFloat(c.litros)) : "—"}</td>
+            <td class="r">${c.pH || "—"}</td>
+            <td class="r">${c.gC || "—"}</td>
+            <td class="mu">${c.responsable || "—"}</td>
+          </tr>`;
+        });
+        const tC = cargas.reduce((s, c) => s + (parseFloat(c.litros) || 0), 0);
+        H += `<tr class="total-row">
+          <td></td><td class="mb">TOTAL</td><td></td><td></td><td></td>
+          <td class="r">${fmtN(tC)} L</td><td colspan="3"></td>
+        </tr>`;
+      }
+      H += `</tbody></table></div>`;
+
+      // ── MOVIMIENTOS (si hay) ──────────────────────────────────
+      const movs = movData.movs || [];
+      if (movs.length > 0) {
+        H += `
+          <div class="sec-head">
+            <span class="sec-title">Movimientos entre Silos</span>
+            <div class="sec-line"></div>
+            <span class="sec-pill">${movs.length} registros</span>
+          </div>
+          <div class="table-card">
+            <div class="table-head"><span class="table-title">Transferencias internas</span></div>
+            <table><thead><tr>
+              <th>Hora</th><th>Desde</th><th>Hasta</th><th class="r">Litros</th><th>Motivo</th><th>Responsable</th>
+            </tr></thead><tbody>
+        `;
+        movs.forEach(m => {
+          H += `<tr>
+            <td class="mn">${m.hora || "—"}</td>
+            <td>${m.desde || "—"}</td><td>${m.hasta || "—"}</td>
+            <td class="r mb">${m.litros ? fmtN(parseFloat(m.litros)) : "—"}</td>
+            <td>${m.motivo || "—"}</td>
+            <td class="mu">${m.resp || "—"}</td>
+          </tr>`;
+        });
+        H += `</tbody></table></div>`;
+      }
+
+      // ── FORTIFICADOS (si hay) ─────────────────────────────────
+      if (forts.length > 0) {
+        H += `
+          <div class="sec-head">
+            <span class="sec-title">Lotes Fortificados</span>
+            <div class="sec-line"></div>
+            <span class="sec-pill">${forts.length} lotes</span>
+          </div>
+          <div class="table-card">
+            <div class="table-head"><span class="table-title">Producción Especial</span></div>
+            <table><thead><tr>
+              <th>Hora</th><th>Lote</th><th>Producto</th><th class="r">Litros</th>
+              <th>Tanque</th><th>Adiciones</th><th>Responsable</th>
+            </tr></thead><tbody>
+        `;
+        forts.forEach(f => {
+          const adic = (f.adiciones || []).map(a => `${a.producto} ${a.cantidad}${a.unidad}`).join(" · ") || "—";
+          H += `<tr>
+            <td class="mn">${f.hora || "—"}</td>
+            <td class="mb">${f.lote || "—"}</td>
+            <td>${f.producto || "—"}</td>
+            <td class="r">${f.litros ? fmtN(parseFloat(f.litros)) : "—"}</td>
+            <td>${f.tanque || "—"}</td>
+            <td style="font-size:10px;color:#64748b">${adic}</td>
+            <td class="mu">${f.responsable || "—"}</td>
+          </tr>`;
+        });
+        H += `</tbody></table></div>`;
+      }
+
+      // ── FOOTER ────────────────────────────────────────────────
+      H += `
+        <div class="footer">
+          <span class="footer-brand">Lacteos Yatasto SA · Sistema de Gestión v2.0</span>
+          <span>Generado: ${ts} &nbsp;·&nbsp; Fecha informe: ${fmtDate(exportDate)}</span>
+        </div>
+      `;
+
+      // ── Abrir ventana ─────────────────────────────────────────
+      const printBar = `
+        <div class="print-bar">
+          <div>
+            <span class="print-bar-brand">YATASTO</span>
+            <span class="print-bar-sub">Informe Ejecutivo · ${fmtDate(exportDate)}</span>
+          </div>
+          <button class="print-btn" onclick="window.print()">🖨 Imprimir / Guardar PDF</button>
+        </div>
+      `;
+
+      const full = `<!DOCTYPE html>
+        <html lang="es">
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width,initial-scale=1">
+          <title>Yatasto — Informe ${exportDate}</title>
+          <style>${css}</style>
+        </head>
+        <body>
+          ${printBar}
+          <div class="page">${H}</div>
+        </body>
+        </html>`;
+
       const w = window.open("", "_blank");
-      if (w) { w.document.write(`<html><head><title>Yatasto ${exportDate}</title></head><body>${html}</body></html>`); w.document.close(); }
-      else { alert("Bloqueado por el navegador. Permitir popups para exportar a PDF."); }
+      if (w) {
+        w.document.write(full);
+        w.document.close();
+      } else {
+        alert("El navegador bloqueó la ventana emergente. Permitir popups para este sitio y volver a intentar.");
+      }
     } finally { setExporting(false); }
   };
 
