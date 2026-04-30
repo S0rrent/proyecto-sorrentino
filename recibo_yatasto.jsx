@@ -154,9 +154,24 @@ async function saveSaldo(data, fromDate) {
 async function saveCfg(data) {
   try { await window.storage.set(CFG_KEY, JSON.stringify(data)); } catch (e) { console.error(e); }
 }
-const ELIM_KEY = "yatasto:eliminados";
-const USERS_KEY = "yatasto:usuarios";
-const SALDO_KEY = "yatasto:saldo-silos";
+const ELIM_KEY   = "yatasto:eliminados";
+const USERS_KEY  = "yatasto:usuarios";
+const SALDO_KEY  = "yatasto:saldo-silos";
+const SR_KEY     = "yatasto:session-restore";  // sesión guardada antes de recargar tema
+
+function saveSessionForReload(state) {
+  try { localStorage.setItem(SR_KEY, JSON.stringify(state)); } catch {}
+}
+function popSavedSession() {
+  try {
+    const raw = localStorage.getItem(SR_KEY);
+    if (!raw) return null;
+    localStorage.removeItem(SR_KEY);
+    return JSON.parse(raw);
+  } catch { return null; }
+}
+// Lee una vez al cargar la página (antes del primer render de App)
+const _restoredSession = popSavedSession();
 const SESSION_ID = (() => {
   try {
     let id = sessionStorage.getItem("yatasto:sid");
@@ -1778,54 +1793,56 @@ const InformeModal = ({ date, onClose }) => {
 
 // ─── DASHBOARD SUPERVISOR / JEFE ─────────────────────────────
 // ── Mini sparkline SVG (analytics) ──────────────────────────
+// ─── YATASTO COW SILHOUETTE (logo real) ───────────────────────
+// Basado en la silueta oficial de la vaquita de Lacteos Yatasto SA
+// fillRule="evenodd" crea el hueco interior sin depender del color de fondo
+const COW_PATH =
+  "M50,6 C60,6 66,8 69,13 C72,18 75,24 78,29 C82,32 88,34 94,36 " +
+  "C99,38 101,44 99,50 C97,54 93,57 87,57 C84,56 81,54 79,52 " +
+  "C79,58 78,65 78,71 C77,78 69,82 50,82 C31,82 23,78 22,71 " +
+  "C22,65 21,58 21,52 C19,54 16,56 13,57 C7,57 3,54 1,50 " +
+  "C0,44 2,38 6,36 C12,34 18,32 22,29 C25,24 28,18 31,13 " +
+  "C34,8 40,6 50,6Z " +
+  "M41,14 C41,8 45,5 50,5 C55,5 59,8 59,14 C59,20 55,24 50,25 " +
+  "C45,24 41,20 41,14Z";
+
+// Colores de logo según tema: oscuro→rojo corporativo, claro→negro elegante
+const LOGO_COLOR = _THEME === "light" ? "#0f172a" : "#dc2626";
+
+const CowIcon = ({ size = 36 }) => (
+  <svg
+    width={size}
+    height={Math.round(size * 0.88)}
+    viewBox="0 0 100 88"
+    fill="none"
+    style={{ display: "block", flexShrink: 0 }}
+  >
+    <path fillRule="evenodd" fill={LOGO_COLOR} d={COW_PATH} />
+  </svg>
+);
+
 // ─── YATASTO LOGO ─────────────────────────────────────────────
-const YataLogo = ({ compact = false }) => {
-  const sz = compact ? 30 : 42;
-  const darkBg  = _THEME === "dark";
-  const faceBg  = darkBg ? C_DARK.surface : "#fef2f2";
-  const eyeCol  = darkBg ? "#080c18" : "#0f172a";
-  const earInner= darkBg ? C_DARK.bg   : "#fff";
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: compact ? 7 : 10, userSelect: "none" }}>
-      <svg width={sz} height={sz} viewBox="0 0 44 44" fill="none">
-        {/* Ears */}
-        <ellipse cx="9"  cy="12" rx="6" ry="7.5" fill={C.accent} />
-        <ellipse cx="35" cy="12" rx="6" ry="7.5" fill={C.accent} />
-        <ellipse cx="9"  cy="12" rx="3.2" ry="4.2" fill={earInner} opacity="0.7" />
-        <ellipse cx="35" cy="12" rx="3.2" ry="4.2" fill={earInner} opacity="0.7" />
-        {/* Head */}
-        <ellipse cx="22" cy="24" rx="16" ry="14" fill={C.accent} />
-        {/* Muzzle */}
-        <ellipse cx="22" cy="31" rx="10" ry="6.5" fill={faceBg} opacity="0.92" />
-        {/* Nostrils */}
-        <circle cx="18.5" cy="32" r="1.8" fill={C.accent} opacity="0.45" />
-        <circle cx="25.5" cy="32" r="1.8" fill={C.accent} opacity="0.45" />
-        {/* Eyes */}
-        <circle cx="16.5" cy="22" r="2.4" fill={eyeCol} />
-        <circle cx="27.5" cy="22" r="2.4" fill={eyeCol} />
-        <circle cx="17.3" cy="21.1" r="0.9" fill="#fff" />
-        <circle cx="28.3" cy="21.1" r="0.9" fill="#fff" />
-        {/* Spot */}
-        <ellipse cx="27" cy="15.5" rx="3.5" ry="2.5" fill={darkBg ? "#92610a" : "#b91c1c"} opacity="0.35" />
-      </svg>
-      <div>
+const YataLogo = ({ compact = false }) => (
+  <div style={{ display: "flex", alignItems: "center", gap: compact ? 7 : 10, userSelect: "none" }}>
+    <CowIcon size={compact ? 28 : 40} />
+    <div>
+      <div style={{
+        fontSize: compact ? 14 : 20,
+        fontWeight: 900,
+        color: LOGO_COLOR,
+        lineHeight: 1,
+        letterSpacing: compact ? "0.12em" : "0.1em",
+        fontFamily: "'Arial Black','Arial Bold',Arial,sans-serif",
+      }}>YATASTO</div>
+      {!compact && (
         <div style={{
-          fontSize: compact ? 15 : 21,
-          fontWeight: 900,
-          color: C.accent,
-          lineHeight: 1,
-          letterSpacing: compact ? "0.1em" : "0.08em",
-          fontFamily: "'Arial Black','Arial Bold',Arial,sans-serif",
-        }}>YATASTO</div>
-        {!compact && (
-          <div style={{ fontSize: 8, color: C.sub, fontStyle: "italic", letterSpacing: "0.18em", marginTop: 2 }}>
-            Buena Leche
-          </div>
-        )}
-      </div>
+          fontSize: 8, color: C.sub, fontStyle: "italic",
+          letterSpacing: "0.16em", marginTop: 2, textTransform: "lowercase",
+        }}>Buena Leche</div>
+      )}
     </div>
-  );
-};
+  </div>
+);
 
 // ─── DONUT CHART ──────────────────────────────────────────────
 const DonutChart = ({ pct = 0, color, size = 74, label }) => {
@@ -2063,21 +2080,425 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
   const doExportXLS = async () => {
     setExporting(true);
     try {
-      const [ing, cargas] = await Promise.all([
+      const [ing, cargas, movData, stk, forts] = await Promise.all([
         load(exportDate, "ingresos", []),
         load(exportDate, "carga", []),
+        load(exportDate, "movimientos", { movs: [] }),
+        load(exportDate, "stock", {}),
+        load(exportDate, "fortificados", []),
       ]);
-      let html = `<h2 style="color:#f59e0b">Yatasto · Informe Diario · ${fmtDate(exportDate)}</h2>`;
-      const th = s => `<th style="background:#1a2035;color:#f59e0b;padding:6px 10px;border:1px solid #2a3050">${s}</th>`;
-      const td = s => `<td style="padding:5px 10px;border:1px solid #2a3050">${s || ""}</td>`;
-      html += `<h3>Ingresos (${ing.length})</h3><table style="border-collapse:collapse;width:100%"><tr>${["Hora", "Tambo", "Litros", "Destino", "pH", "Acidez", "GB", "SNG", "Dens.", "Prot.", "Resp."].map(th).join("")}</tr>`;
-      ing.forEach(i => { html += `<tr>${[i.hora, i.tambo, i.litrosFca, i.destino, i.phFca, i.acidezFca, i.gbFca, i.sngFca, i.densFca, i.protFca, i.responsable].map(td).join("")}</tr>`; });
-      html += `</table><h3>Cargas (${cargas.length})</h3><table style="border-collapse:collapse;width:100%"><tr>${["Hora", "Label", "Destino", "Transportista", "Silo", "Litros", "pH", "Temp", "Resp."].map(th).join("")}</tr>`;
-      cargas.forEach(c => { html += `<tr>${[c.hora, c.label, c.destino, c.transportista, c.siloProveniente, c.litros, c.pH, c.gC, c.responsable].map(td).join("")}</tr>`; });
-      html += `</table>`;
-      const blob = new Blob([`<html><head><meta charset="utf-8"></head><body style="background:#080c18;color:#e8edf5;font-family:Arial">${html}</body></html>`], { type: "application/vnd.ms-excel;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a"); a.href = url; a.download = `yatasto_${exportDate}.xls`; a.click();
+      const autoL = await calcAutoLitros(exportDate);
+
+      // ── Colores corporativos del reporte ──────────────────────
+      const NAVY    = "#0f2044";
+      const NAVY2   = "#1e3a6e";
+      const NAVY3   = "#2a4f8f";
+      const GOLD    = "#c8860a";
+      const GOLD_BG = "#fef9ec";
+      const RED_BG  = "#fff1f0";
+      const GRN_BG  = "#f0faf3";
+      const ROW_ALT = "#f4f7fb";
+      const BORDER  = "#d0d9e8";
+      const TXT_DK  = "#0f172a";
+      const TXT_SUB = "#64748b";
+
+      // ── Totales KPI ──────────────────────────────────────────
+      const totIng  = ing.reduce((s, i) => s + (parseFloat(i.litrosFca) || 0), 0);
+      const totCarg = cargas.reduce((s, c) => s + (parseFloat(c.litros) || 0), 0);
+      const balance = totIng - totCarg;
+      const totSilos = STOCK_SILOS.reduce((s, k) => s + (autoL[k] || 0), 0);
+      const totCap   = STOCK_SILOS.reduce((s, k) => s + (SILO_CAP[k] || 0), 0);
+      const fillPct  = totCap > 0 ? ((totSilos / totCap) * 100).toFixed(1) : "0.0";
+      const fmtN = n => n.toLocaleString("es-AR");
+
+      // ── Calidad promedio ──────────────────────────────────────
+      const qAvg = (key) => {
+        const vals = ing.map(i => parseFloat(i[key])).filter(v => !isNaN(v) && v > 0);
+        return vals.length ? (vals.reduce((s, v) => s + v, 0) / vals.length) : null;
+      };
+
+      // ── CSS global ──────────────────────────────────────────
+      const css = `
+        body { font-family: Arial, Helvetica, sans-serif; font-size: 11px; margin: 0; background: #fff; color: ${TXT_DK}; }
+        .page { max-width: 1100px; margin: 0 auto; padding: 24px 20px 40px; }
+
+        /* Header */
+        .hdr { background: linear-gradient(135deg, ${NAVY} 0%, ${NAVY2} 50%, ${NAVY3} 100%);
+               color: #fff; padding: 22px 28px 18px; border-radius: 12px 12px 0 0; }
+        .hdr-brand { font-size: 26px; font-weight: 900; letter-spacing: 0.14em;
+                     color: #f5c842; font-family: 'Arial Black', Arial, sans-serif; }
+        .hdr-sub { font-size: 10px; color: #a0bde0; letter-spacing: 0.18em;
+                   text-transform: lowercase; font-style: italic; margin-top: 2px; }
+        .hdr-meta { margin-top: 12px; display: flex; gap: 28px; font-size: 11px; color: #c8d8f0; }
+        .hdr-meta b { color: #fff; }
+
+        /* KPI strip */
+        .kpi-row { display: flex; gap: 0; border: 1px solid ${BORDER}; border-top: none;
+                   border-radius: 0 0 10px 10px; overflow: hidden; }
+        .kpi { flex: 1; padding: 16px 18px; background: #fff; border-right: 1px solid ${BORDER}; }
+        .kpi:last-child { border-right: none; }
+        .kpi-val { font-size: 22px; font-weight: 900; color: ${NAVY2}; font-family: 'Courier New', monospace; line-height: 1; }
+        .kpi-val.gold { color: ${GOLD}; }
+        .kpi-val.red  { color: #c0392b; }
+        .kpi-val.grn  { color: #16a34a; }
+        .kpi-lbl { font-size: 9px; color: ${TXT_SUB}; text-transform: uppercase;
+                   letter-spacing: 0.1em; margin-top: 5px; }
+        .kpi-unit { font-size: 10px; color: ${TXT_SUB}; font-weight: 400; margin-left: 2px; }
+
+        /* Section titles */
+        .sec-hdr { display: flex; align-items: center; gap: 10px; margin: 24px 0 8px;
+                   padding-bottom: 6px; border-bottom: 2px solid ${NAVY2}; }
+        .sec-hdr-line { flex: 1; height: 1px; background: ${BORDER}; }
+        .sec-title { font-size: 12px; font-weight: 800; color: ${NAVY2};
+                     text-transform: uppercase; letter-spacing: 0.08em; }
+        .sec-badge { background: ${NAVY2}; color: #fff; font-size: 9px; font-weight: 700;
+                     border-radius: 20px; padding: 2px 9px; }
+
+        /* Quality bar row */
+        .qual-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+        .qual-cell { background: #f8fafd; border: 1px solid ${BORDER}; border-radius: 8px;
+                     padding: 8px 14px; min-width: 100px; }
+        .qual-val { font-size: 16px; font-weight: 900; color: ${NAVY2};
+                    font-family: 'Courier New', monospace; }
+        .qual-lbl { font-size: 8px; color: ${TXT_SUB}; text-transform: uppercase;
+                    letter-spacing: 0.1em; margin-top: 3px; }
+        .qual-range { font-size: 8px; color: #94a3b8; margin-top: 1px; }
+
+        /* Tables */
+        table { border-collapse: collapse; width: 100%; margin-bottom: 6px; }
+        th { background: ${NAVY2}; color: #fff; padding: 7px 10px; text-align: left;
+             font-size: 9px; font-weight: 700; text-transform: uppercase;
+             letter-spacing: 0.06em; border: 1px solid ${NAVY}; white-space: nowrap; }
+        td { border: 1px solid ${BORDER}; padding: 6px 10px; font-size: 10px;
+             vertical-align: middle; }
+        tr:nth-child(even) td { background: ${ROW_ALT}; }
+        tr:hover td { background: #eef3fa; }
+        .num { text-align: right; font-family: 'Courier New', monospace; }
+        .badge-ok  { background: #dcfce7; color: #166534; border-radius: 4px;
+                     padding: 1px 6px; font-size: 9px; font-weight: 700; }
+        .badge-warn { background: #fef9c3; color: #854d0e; border-radius: 4px;
+                      padding: 1px 6px; font-size: 9px; font-weight: 700; }
+        .badge-err { background: #fee2e2; color: #991b1b; border-radius: 4px;
+                     padding: 1px 6px; font-size: 9px; font-weight: 700; }
+
+        /* Silo table special cols */
+        .silo-bar-wrap { background: #e2e8f0; border-radius: 4px; height: 8px;
+                         overflow: hidden; min-width: 60px; }
+        .silo-bar { height: 100%; border-radius: 4px; }
+
+        /* Footer */
+        .footer { margin-top: 32px; padding-top: 12px; border-top: 1px solid ${BORDER};
+                  display: flex; justify-content: space-between; font-size: 9px; color: #94a3b8; }
+        .footer b { color: ${TXT_SUB}; }
+      `;
+
+      // ── Timestamp ────────────────────────────────────────────
+      const now = new Date();
+      const ts  = `${now.toLocaleDateString("es-AR")} ${now.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}`;
+
+      // ── HEADER ───────────────────────────────────────────────
+      let H = `
+        <div class="hdr">
+          <div class="hdr-brand">YATASTO</div>
+          <div class="hdr-sub">lácteos · buena leche</div>
+          <div class="hdr-meta">
+            <span>📅 Fecha: <b>${fmtDate(exportDate)}</b></span>
+            <span>🕐 Generado: <b>${ts}</b></span>
+            ${perfilLabel ? `<span>👤 Operador: <b>${perfilLabel}</b></span>` : ""}
+            <span>📋 INFORME DIARIO DE PRODUCCIÓN</span>
+          </div>
+        </div>
+        <div class="kpi-row">
+          <div class="kpi">
+            <div class="kpi-val gold">${fmtN(totIng)}<span class="kpi-unit">L</span></div>
+            <div class="kpi-lbl">Litros Ingresados</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-val">${fmtN(totCarg)}<span class="kpi-unit">L</span></div>
+            <div class="kpi-lbl">Litros Cargados</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-val ${balance >= 0 ? "grn" : "red"}">${balance >= 0 ? "+" : ""}${fmtN(balance)}<span class="kpi-unit">L</span></div>
+            <div class="kpi-lbl">Balance del día</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-val">${ing.length}</div>
+            <div class="kpi-lbl">Camiones ingresados</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-val">${cargas.length}</div>
+            <div class="kpi-lbl">Cargas despachadas</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-val ${parseFloat(fillPct) > 88 ? "red" : parseFloat(fillPct) > 65 ? "gold" : "grn"}">${fillPct}<span class="kpi-unit">%</span></div>
+            <div class="kpi-lbl">Ocupación silos</div>
+          </div>
+        </div>
+      `;
+
+      // ── CALIDAD PROMEDIO ──────────────────────────────────────
+      const qualDefs = [
+        { key: "acidezFca", label: "Acidez", unit: "°D", range: "14–18" },
+        { key: "phFca",     label: "pH",     unit: "",   range: "6.6–6.8" },
+        { key: "gbFca",     label: "Grasa",  unit: "%",  range: "≥ 3.0" },
+        { key: "sngFca",    label: "SNG",    unit: "%",  range: "≥ 8.2" },
+        { key: "densFca",   label: "Dens.",  unit: "",   range: "1.028–1.034" },
+        { key: "protFca",   label: "Prot.",  unit: "%",  range: "≥ 2.9" },
+        { key: "tC",        label: "Temp",   unit: "°C", range: "≤ 6" },
+      ];
+      if (ing.length > 0) {
+        H += `
+          <div class="sec-hdr">
+            <span class="sec-title">Calidad Promedio del Día</span>
+            <div class="sec-hdr-line"></div>
+            <span class="sec-badge">${ing.length} camiones</span>
+          </div>
+          <div class="qual-grid">
+        `;
+        qualDefs.forEach(({ key, label, unit, range }) => {
+          const v = qAvg(key);
+          if (v == null) return;
+          H += `<div class="qual-cell">
+            <div class="qual-val">${v.toFixed(key === "densFca" ? 3 : 2)}${unit ? `<span style="font-size:11px;font-weight:400;color:${TXT_SUB}"> ${unit}</span>` : ""}</div>
+            <div class="qual-lbl">${label}</div>
+            <div class="qual-range">ref: ${range}</div>
+          </div>`;
+        });
+        H += `</div>`;
+      }
+
+      // ── INGRESOS TABLE ────────────────────────────────────────
+      H += `
+        <div class="sec-hdr">
+          <span class="sec-title">Ingresos de Leche</span>
+          <div class="sec-hdr-line"></div>
+          <span class="sec-badge">${ing.length} registros</span>
+        </div>
+        <table>
+          <thead><tr>
+            <th>Hora</th><th>Nº</th><th>Tambo</th>
+            <th class="num">Litros Fca</th><th class="num">Litros Tbo</th>
+            <th>Destino</th><th class="num">pH</th><th class="num">Acidez</th>
+            <th class="num">GB%</th><th class="num">SNG%</th>
+            <th class="num">Densidad</th><th class="num">Proteína</th>
+            <th class="num">Temp°C</th><th class="num">Aguado</th>
+            <th>Producto</th><th>Responsable</th>
+          </tr></thead><tbody>
+      `;
+      if (ing.length === 0) {
+        H += `<tr><td colspan="16" style="text-align:center;color:${TXT_SUB};padding:14px">Sin ingresos registrados</td></tr>`;
+      } else {
+        const aguadoFlag = v => {
+          const n = parseFloat(v);
+          if (isNaN(n) || n === 0) return `<span class="badge-ok">0.000</span>`;
+          return `<span class="badge-err">${n.toFixed(3)} ⚠</span>`;
+        };
+        ing.forEach(i => {
+          const lFca = parseFloat(i.litrosFca) || 0;
+          const lTbo = parseFloat(i.litrosTbo) || 0;
+          const difL = Math.abs(lFca - lTbo);
+          const difBadge = difL > 150
+            ? `<span class="badge-warn">Δ${fmtN(Math.round(difL))}L</span>`
+            : "";
+          H += `<tr>
+            <td style="font-family:monospace">${i.hora || "—"}</td>
+            <td>${i.num || ""}</td>
+            <td><b>${i.tambo || "—"}</b></td>
+            <td class="num"><b>${lFca ? fmtN(lFca) : "—"}</b> ${difBadge}</td>
+            <td class="num">${lTbo ? fmtN(lTbo) : "—"}</td>
+            <td>${i.destino || "—"}</td>
+            <td class="num">${i.phFca || "—"}</td>
+            <td class="num">${i.acidezFca || "—"}</td>
+            <td class="num">${i.gbFca || "—"}</td>
+            <td class="num">${i.sngFca || "—"}</td>
+            <td class="num">${i.densFca || "—"}</td>
+            <td class="num">${i.protFca || "—"}</td>
+            <td class="num">${i.tC || "—"}</td>
+            <td class="num">${aguadoFlag(i.aguadoFca)}</td>
+            <td>${i.producto || "—"}</td>
+            <td style="color:${TXT_SUB}">${i.responsable || "—"}</td>
+          </tr>`;
+        });
+      }
+      H += `</tbody></table>`;
+
+      // ── TOTALES INGRESOS ──────────────────────────────────────
+      if (ing.length > 0) {
+        const tFca = ing.reduce((s, i) => s + (parseFloat(i.litrosFca) || 0), 0);
+        const tTbo = ing.reduce((s, i) => s + (parseFloat(i.litrosTbo) || 0), 0);
+        H += `<table style="margin-top:-6px"><tr>
+          <td colspan="3" style="text-align:right;font-weight:700;background:#f8fafd;color:${NAVY2}">TOTAL INGRESOS:</td>
+          <td class="num" style="background:${GOLD_BG};font-weight:900;color:${NAVY2}">${fmtN(tFca)} L</td>
+          <td class="num" style="background:#f8fafd;font-weight:700">${fmtN(tTbo)} L</td>
+          <td colspan="11" style="background:#f8fafd"></td>
+        </tr></table>`;
+      }
+
+      // ── CARGAS TABLE ──────────────────────────────────────────
+      H += `
+        <div class="sec-hdr" style="margin-top:20px">
+          <span class="sec-title">Cargas Despachadas</span>
+          <div class="sec-hdr-line"></div>
+          <span class="sec-badge">${cargas.length} registros</span>
+        </div>
+        <table>
+          <thead><tr>
+            <th>Hora</th><th>Denominación</th><th>Destino</th><th>Transportista</th>
+            <th>Silo Origen</th><th class="num">Litros</th>
+            <th class="num">pH</th><th class="num">Temp°C</th><th>Producto</th><th>Responsable</th>
+          </tr></thead><tbody>
+      `;
+      if (cargas.length === 0) {
+        H += `<tr><td colspan="10" style="text-align:center;color:${TXT_SUB};padding:14px">Sin cargas registradas</td></tr>`;
+      } else {
+        cargas.forEach(c => {
+          H += `<tr>
+            <td style="font-family:monospace">${c.hora || "—"}</td>
+            <td><b>${c.label || "—"}</b></td>
+            <td>${c.destino || "—"}</td>
+            <td>${c.transportista || "—"}</td>
+            <td>${c.siloProveniente || "—"}</td>
+            <td class="num"><b>${c.litros ? fmtN(parseFloat(c.litros)) : "—"}</b></td>
+            <td class="num">${c.pH || "—"}</td>
+            <td class="num">${c.gC || "—"}</td>
+            <td>${c.producto || "—"}</td>
+            <td style="color:${TXT_SUB}">${c.responsable || "—"}</td>
+          </tr>`;
+        });
+        const tC = cargas.reduce((s, c) => s + (parseFloat(c.litros) || 0), 0);
+        H += `</tbody></table>
+          <table style="margin-top:-6px"><tr>
+            <td colspan="4" style="text-align:right;font-weight:700;background:#f8fafd;color:${NAVY2}">TOTAL CARGADO:</td>
+            <td class="num" style="background:${GOLD_BG};font-weight:900;color:${NAVY2}">${fmtN(tC)} L</td>
+            <td colspan="5" style="background:#f8fafd"></td>
+          </tr></table>`;
+      }
+      if (cargas.length === 0) H += `</tbody></table>`;
+
+      // ── ESTADO DE SILOS ───────────────────────────────────────
+      H += `
+        <div class="sec-hdr" style="margin-top:20px">
+          <span class="sec-title">Estado de Silos</span>
+          <div class="sec-hdr-line"></div>
+          <span class="sec-badge">${STOCK_SILOS.length} silos · ${fillPct}% ocupación</span>
+        </div>
+        <table>
+          <thead><tr>
+            <th>Silo</th><th class="num">Litros</th><th class="num">Capacidad</th>
+            <th class="num">% Lleno</th><th>Nivel visual</th><th>Producto</th><th>Estado</th>
+          </tr></thead><tbody>
+      `;
+      STOCK_SILOS.forEach((silo, idx) => {
+        const litros = autoL[silo] || 0;
+        const cap    = SILO_CAP[silo] || 10000;
+        const pct    = cap > 0 ? (litros / cap) * 100 : 0;
+        const pctS   = pct.toFixed(1);
+        let prod = "";
+        for (const t of TURNOS) { const p = (((stk[t] || {}).silos || {})[silo] || {}).producto; if (p) { prod = p; break; } }
+        const barColor = pct === 0 ? "#e2e8f0" : pct > 88 ? "#ef4444" : pct > 65 ? "#f59e0b" : "#22c55e";
+        const statusBadge = pct === 0
+          ? `<span class="badge-warn">Vacío</span>`
+          : pct > 90
+          ? `<span class="badge-err">Crítico</span>`
+          : pct > 88
+          ? `<span class="badge-warn">Casi lleno</span>`
+          : pct > 65
+          ? `<span class="badge-ok">Normal</span>`
+          : `<span class="badge-ok">OK</span>`;
+        const barW = Math.max(pct > 0 ? 2 : 0, Math.min(100, pct));
+        H += `<tr>
+          <td><b>${silo}</b></td>
+          <td class="num">${litros > 0 ? fmtN(litros) : "—"}</td>
+          <td class="num" style="color:${TXT_SUB}">${fmtN(cap)}</td>
+          <td class="num"><b style="color:${barColor}">${pctS}%</b></td>
+          <td><div class="silo-bar-wrap"><div class="silo-bar" style="width:${barW}%;background:${barColor}"></div></div></td>
+          <td>${prod || `<span style="color:${TXT_SUB}">—</span>`}</td>
+          <td>${statusBadge}</td>
+        </tr>`;
+      });
+      H += `</tbody></table>`;
+
+      // ── MOVIMIENTOS ───────────────────────────────────────────
+      const movs = (movData.movs || []);
+      if (movs.length > 0) {
+        H += `
+          <div class="sec-hdr" style="margin-top:20px">
+            <span class="sec-title">Movimientos entre Silos</span>
+            <div class="sec-hdr-line"></div>
+            <span class="sec-badge">${movs.length} registros</span>
+          </div>
+          <table>
+            <thead><tr>
+              <th>Hora</th><th>Desde</th><th>Hasta</th><th class="num">Litros</th><th>Motivo</th><th>Responsable</th>
+            </tr></thead><tbody>
+        `;
+        movs.forEach(m => {
+          H += `<tr>
+            <td style="font-family:monospace">${m.hora || "—"}</td>
+            <td>${m.desde || "—"}</td><td>${m.hasta || "—"}</td>
+            <td class="num"><b>${m.litros ? fmtN(parseFloat(m.litros)) : "—"}</b></td>
+            <td>${m.motivo || "—"}</td>
+            <td style="color:${TXT_SUB}">${m.resp || "—"}</td>
+          </tr>`;
+        });
+        H += `</tbody></table>`;
+      }
+
+      // ── FORTIFICADOS ──────────────────────────────────────────
+      if (forts.length > 0) {
+        H += `
+          <div class="sec-hdr" style="margin-top:20px">
+            <span class="sec-title">Lotes Fortificados</span>
+            <div class="sec-hdr-line"></div>
+            <span class="sec-badge">${forts.length} lotes</span>
+          </div>
+          <table>
+            <thead><tr>
+              <th>Hora</th><th>Lote</th><th>Producto</th><th class="num">Litros</th>
+              <th>Tanque</th><th>Adiciones</th><th>Responsable</th>
+            </tr></thead><tbody>
+        `;
+        forts.forEach(f => {
+          const adic = (f.adiciones || []).map(a => `${a.producto} ${a.cantidad}${a.unidad}`).join(", ") || "—";
+          H += `<tr>
+            <td style="font-family:monospace">${f.hora || "—"}</td>
+            <td><b>${f.lote || "—"}</b></td>
+            <td>${f.producto || "—"}</td>
+            <td class="num">${f.litros ? fmtN(parseFloat(f.litros)) : "—"}</td>
+            <td>${f.tanque || "—"}</td>
+            <td style="font-size:9px;color:${TXT_SUB}">${adic}</td>
+            <td style="color:${TXT_SUB}">${f.responsable || "—"}</td>
+          </tr>`;
+        });
+        H += `</tbody></table>`;
+      }
+
+      // ── FOOTER ────────────────────────────────────────────────
+      H += `
+        <div class="footer">
+          <span>Lacteos Yatasto SA · Sistema de Gestión Diaria v2.0</span>
+          <span><b>Generado:</b> ${ts} · <b>Fecha informe:</b> ${fmtDate(exportDate)}</span>
+        </div>
+      `;
+
+      // ── Armar blob y descargar ────────────────────────────────
+      const full = `<html xmlns:o="urn:schemas-microsoft-com:office:office"
+        xmlns:x="urn:schemas-microsoft-com:office:excel"
+        xmlns="http://www.w3.org/TR/REC-html40">
+        <head><meta charset="utf-8">
+        <xml><x:ExcelWorkbook><x:ExcelWorksheets>
+          <x:ExcelWorksheet><x:Name>Informe Diario</x:Name>
+          <x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions>
+          </x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml>
+        <style>${css}</style></head>
+        <body><div class="page">${H}</div></body></html>`;
+
+      const blob = new Blob([full], { type: "application/vnd.ms-excel;charset=utf-8" });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement("a");
+      a.href     = url;
+      a.download = `yatasto_informe_${exportDate}.xls`;
+      a.click();
       URL.revokeObjectURL(url);
     } finally { setExporting(false); }
   };
@@ -2210,10 +2631,10 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
           <div style={{ textAlign: "right", position: "relative" }}>
             <div style={{
               width: 52, height: 52, borderRadius: 16, display: "flex", alignItems: "center",
-              justifyContent: "center", fontSize: 28,
+              justifyContent: "center",
               background: _THEME === "light" ? C.accentDim : `${C.accent}15`,
               border: `1px solid ${C.accent}33`,
-            }}>{PERFILES[perfil]?.icon || "👔"}</div>
+            }}><CowIcon size={30} /></div>
             {users.length > 0 && (
               <div style={{ fontSize: 10, color: C.success, marginTop: 5, fontWeight: 700 }}>
                 ● {users.length} online
@@ -2929,13 +3350,14 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
 
 // ─── APP PRINCIPAL ────────────────────────────────────────────
 export default function App() {
-  const [section, setSection] = useState("ingresos");
-  const [date, setDate] = useState(getToday());
+  // Restaura sección/fecha/perfil guardados justo antes de recargar para cambio de tema
+  const [section, setSection] = useState(_restoredSession?.section || "ingresos");
+  const [date, setDate]       = useState(_restoredSession?.date    || getToday());
   const [datePicker, setDatePicker] = useState(false);
   const [informe, setInforme] = useState(false);
   const [initModal, setInitModal] = useState(false);
-  const [initNombre, setInitNombre] = useState("");
-  const [perfil, setPerfil] = useState(null); // null | "supervisor" | "jefe"
+  const [initNombre, setInitNombre] = useState(_restoredSession?.nombre || "");
+  const [perfil, setPerfil] = useState(_restoredSession?.perfil || null); // null | "supervisor" | "jefe"
   const [perfilModal, setPerfilModal] = useState(false);
   const [loginUser, setLoginUser] = useState("");
   const [loginPass, setLoginPass] = useState("");
@@ -3087,8 +3509,8 @@ export default function App() {
                   width: 72, height: 72, borderRadius: 24, margin: "0 auto 12px",
                   background: _THEME === "light" ? C.accentDim : `${C.accent}18`,
                   border: `2px solid ${C.accent}44`,
-                  display: "flex", alignItems: "center", justifyContent: "center", fontSize: 36,
-                }}>{PERFILES[perfil].icon}</div>
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                }}><CowIcon size={40} /></div>
                 <div style={{ fontSize: 17, fontWeight: 800, color: C.text }}>{PERFILES[perfil].label}</div>
                 <div style={{ fontSize: 11, color: C.success, marginTop: 5, fontWeight: 700, letterSpacing: "0.05em" }}>
                   ● SESIÓN ACTIVA
@@ -3164,6 +3586,7 @@ export default function App() {
           {/* Theme toggle */}
           <button onClick={() => {
             const next = _THEME === "dark" ? "light" : "dark";
+            saveSessionForReload({ section, date, perfil, nombre: initNombre });
             try { localStorage.setItem("yatasto:theme", next); } catch {}
             window.location.reload();
           }} title={_THEME === "dark" ? "Modo Yatasto (claro)" : "Modo oscuro"} style={{
@@ -3178,11 +3601,11 @@ export default function App() {
           <button onClick={() => setPerfilModal(true)} title={perfil ? PERFILES[perfil].label : "Acceder con perfil"} style={{
             background: perfil ? C.accentDim : C.card,
             border: `1px solid ${perfil ? C.accentDark : C.border}`,
-            borderRadius: 9, color: perfil ? C.accent : C.sub,
-            width: 34, height: 34, cursor: "pointer", fontSize: 15,
+            borderRadius: 9,
+            width: 34, height: 34, cursor: "pointer",
             position: "relative", display: "flex", alignItems: "center", justifyContent: "center",
           }}>
-            👤
+            <CowIcon size={20} />
             {perfil && (
               <span style={{ position: "absolute", top: 4, right: 4, width: 7, height: 7, background: C.success, borderRadius: "50%", display: "block", border: `1.5px solid ${C.surface}` }} />
             )}
