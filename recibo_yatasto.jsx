@@ -1,4 +1,5 @@
 import { useState, useEffect, Fragment } from "react";
+import { DARK, LIGHT, FONT_SANS, FONT_MONO, EASE_OUT, DUR } from "./tokens.js";
 
 // ─── CONSTANTES ───────────────────────────────────────────────
 const TAMBOS_BASE = [
@@ -104,28 +105,18 @@ const CFG_KEY = "yatasto:config";
 
 // ─── COLORS / THEME ──────────────────────────────────────────
 const _THEME = (() => { try { return localStorage.getItem("yatasto:theme") || "dark"; } catch { return "dark"; } })();
-const C_DARK = {
-  bg: "#080c18", surface: "#0f1525", card: "#1a2035", border: "#2a3050",
-  accent: "#f59e0b", accentDim: "#3d2e08", accentDark: "#92610a",
-  text: "#e8edf5", sub: "#7a8aaa", muted: "#2d3a55",
-  success: "#22c55e", danger: "#ef4444",
-};
-const C_LIGHT = {
-  bg: "#f1f5f9", surface: "#ffffff", card: "#ffffff", border: "#e2e8f0",
-  accent: "#dc2626", accentDim: "#fef2f2", accentDark: "#b91c1c",
-  text: "#0f172a", sub: "#64748b", muted: "#cbd5e1",
-  success: "#16a34a", danger: "#ef4444",
-};
+const C_DARK  = DARK;
+const C_LIGHT = LIGHT;
 const C = _THEME === "light" ? C_LIGHT : C_DARK;
 
 // ─── SHARED STYLES ───────────────────────────────────────────
 const inp = {
   background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8,
   color: C.text, padding: "11px 12px", fontSize: 16, width: "100%",
-  outline: "none", fontFamily: "'Courier New', monospace", boxSizing: "border-box",
+  outline: "none", fontFamily: FONT_MONO, boxSizing: "border-box",
 };
-const lbl = { fontSize: 10, color: C.sub, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 4, display: "block", fontWeight: 700 };
-const secTitle = { fontSize: 10, fontWeight: 700, color: C.accent, textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 10 };
+const lbl = { fontSize: 12, color: C.sub, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4, display: "block", fontWeight: 600 };
+const secTitle = { fontSize: 12, fontWeight: 700, color: C.accent, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 };
 const btnPrimary = { background: C.accent, color: _THEME === "light" ? "#fff" : "#000", border: "none", borderRadius: 10, padding: "13px 20px", fontSize: 15, fontWeight: 700, cursor: "pointer", width: "100%" };
 const btnSecondary = { background: C.card, color: C.text, border: `1px solid ${C.border}`, borderRadius: 10, padding: "13px 20px", fontSize: 15, fontWeight: 600, cursor: "pointer", width: "100%" };
 const card = { background: C.card, borderRadius: 12, padding: 14, marginBottom: 8, border: `1px solid ${C.border}` };
@@ -299,6 +290,9 @@ const SILO_PATH = "M50,2 L57,10 L77,53 L77,148 L63,168 L37,168 L23,148 L23,53 L4
 const RINGS_Y = [72, 92, 112, 132];
 
 const SiloSVG = ({ siloKey, litros, producto }) => {
+  const prefersReduced = typeof window !== "undefined" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const siloTransition = prefersReduced ? "none" : `y ${DUR.silo} ${EASE_OUT}`;
   const cap = SILO_CAP[siloKey] || 100000;
   const isSucio = producto === "Sucio (vacío)";
   const rawPct = Math.min(1, Math.max(0, (litros || 0) / cap));
@@ -336,7 +330,7 @@ const SiloSVG = ({ siloKey, litros, producto }) => {
           x="-8" y={rectY} width="116" height="200"
           fill={`url(#gf-${uid})`}
           clipPath={`url(#${uid})`}
-          style={{ transition: "y 1.4s cubic-bezier(0.34,1.08,0.64,1)" }}
+          style={{ transition: siloTransition }}
         />
       )}
 
@@ -346,7 +340,7 @@ const SiloSVG = ({ siloKey, litros, producto }) => {
           x="24" y={rectY} width="6" height="200"
           fill="white" fillOpacity="0.07"
           clipPath={`url(#${uid})`}
-          style={{ transition: "y 1.4s cubic-bezier(0.34,1.08,0.64,1)" }}
+          style={{ transition: siloTransition }}
         />
       )}
 
@@ -4128,7 +4122,7 @@ export default function App() {
   };
 
   return (
-    <div style={{ background: C.bg, minHeight: "100vh", color: C.text, fontFamily: "-apple-system,'Segoe UI',sans-serif", paddingBottom: 72 }}>
+    <div style={{ background: C.bg, minHeight: "100vh", color: C.text, fontFamily: FONT_SANS, paddingBottom: 72 }}>
 
       {/* Banner offline — almacenamiento no disponible */}
       {!storageOk && (
