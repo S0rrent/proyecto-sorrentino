@@ -1,5 +1,18 @@
 import { useState, useEffect, Fragment } from "react";
 import { DARK, LIGHT, FONT_SANS, FONT_MONO, EASE_OUT, DUR } from "./tokens.js";
+import {
+  Ingresos as IcoIngresos, Movimientos as IcoMovimientos, Carga as IcoCarga,
+  Fortificados as IcoFortificados, CIP as IcoCIP, Stock as IcoStock,
+  Supervisor as IcoSupervisor, Jefe as IcoJefe,
+  ThemeLight, ThemeDark, DatePicker as IcoDate, Informe as IcoInforme, Offline as IcoOffline,
+  Destino as IcoDestino, Concentrado as IcoConcentrado, Calidad as IcoCalidad,
+  Temperatura as IcoTemp, Buscar as IcoBuscar, Instalacion as IcoInstalacion,
+  Mantenimiento as IcoMant, ControlSilo as IcoCtrl, LecheIcon as IcoLeche,
+  Balance as IcoBalance, AlertaError, AlertaWarn, AlertaOk, CheckMark,
+  Eliminar as IcoEliminar, TabResumen, TabSilos, TabCalidad, TabDifs,
+  TabSemana, TabHistorial, TabExportar, CamionIcon, UsuariosOnline,
+  SW,
+} from "./icons.js";
 
 // ─── CONSTANTES ───────────────────────────────────────────────
 const TAMBOS_BASE = [
@@ -21,8 +34,8 @@ const TAMBOS_BASE = [
 const CAMIONES_BASE = ["GRISARO", "CUARELA", "BARTOLINI", "LLANO 1", "LLANO 2", "GALVAN", "ANGRIGIANI"];
 const FORT_DESTINOS = ["Tetra", "Ultra", "Yogur", "Postre", "Acción Correctiva"];
 const PERFILES = {
-  supervisor: { usuario: "Supervisor", clave: "Yatasto2026$", label: "Supervisor", icon: "👔" },
-  jefe: { usuario: "Jefe", clave: "BuenaLeche123$", label: "Jefe de Planta", icon: "👑" },
+  supervisor: { usuario: "Supervisor", clave: "Yatasto2026$", label: "Supervisor", Icon: IcoSupervisor },
+  jefe: { usuario: "Jefe", clave: "BuenaLeche123$", label: "Jefe de Planta", Icon: IcoJefe },
 };
 const SILOS = ["100 NUEVO", "100 VIEJO", "80", "60", "42", "40F", "20", "15"];
 const SILOS_TODOS = [...SILOS, "TQ1", "TQ2", "TQ3", "TQ6", "TQ7", "TQ8", "TQ9", "POSTRE", "TINA", "DULCE"];
@@ -37,12 +50,12 @@ const PRODS_STOCK = [
   "Lactosa", "Suero", "Yogurt", "Sucio (vacío)",
 ];
 const NAV = [
-  { id: "ingresos", label: "Ingr.", icon: "🚛" },
-  { id: "movimientos", label: "Movim.", icon: "🔄" },
-  { id: "carga", label: "Carga", icon: "🚚" },
-  { id: "fortificados", label: "Fort.", icon: "⚗️" },
-  { id: "cip", label: "CIP", icon: "🧼" },
-  { id: "stock", label: "Stock", icon: "📊" },
+  { id: "ingresos",    label: "Ingr.",  Icon: IcoIngresos },
+  { id: "movimientos", label: "Movim.", Icon: IcoMovimientos },
+  { id: "carga",       label: "Carga",  Icon: IcoCarga },
+  { id: "fortificados",label: "Fort.",  Icon: IcoFortificados },
+  { id: "cip",         label: "CIP",    Icon: IcoCIP },
+  { id: "stock",       label: "Stock",  Icon: IcoStock },
 ];
 
 // Capacidades reales de cada silo (litros)
@@ -473,7 +486,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
       {/* Badge que distingue el formulario */}
       {isConcentrado && (
         <div style={{ background: "#1e3a5f", border: "1px solid #3b82f644", borderRadius: 10, padding: "8px 12px", marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 16 }}>🧪</span>
+          <IcoCalidad size={16} strokeWidth={SW} color="#60a5fa" />
           <div>
             <div style={{ fontSize: 11, fontWeight: 700, color: "#60a5fa" }}>Formulario simplificado — Producto concentrado</div>
             <div style={{ fontSize: 10, color: C.sub }}>Solo se requieren los parámetros esenciales para este tipo de producto.</div>
@@ -485,7 +498,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
       {isConcentrado ? (
         <>
           <div style={panel}>
-            <div style={secTitle}>📦 Destino & Litros</div>
+            <div style={secTitle}>Destino & Litros</div>
             <F label="Destino — Silo"><Sel value={f.destino} onChange={set("destino")} options={SILOS} placeholder="Seleccionar silo..." /></F>
             <F label="Litros"><Inp type="number" value={f.litrosFca} onChange={set("litrosFca")} placeholder="0" /></F>
             <F label="Temperatura llegada (°C)">
@@ -494,7 +507,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
             </F>
           </div>
           <div style={panel}>
-            <div style={secTitle}>🧪 Parámetros</div>
+            <div style={secTitle}>Parámetros</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
               <F label="Acidez">
                 <Inp type="number" value={f.acidezFca} onChange={set("acidezFca")} step="0.1" />
@@ -515,7 +528,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
         /* ── Formulario LECHE NORMAL ── */
         <>
           <div style={panel}>
-            <div style={secTitle}>📦 Litros & Destino</div>
+            <div style={secTitle}>Litros & Destino</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
               <F label="Litros Fábrica"><Inp type="number" value={f.litrosFca} onChange={set("litrosFca")} placeholder="0" /></F>
               <F label="Litros Tambo"><Inp type="number" value={f.litrosTbo} onChange={set("litrosTbo")} placeholder="0" /></F>
@@ -527,7 +540,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
             </F>
           </div>
           <div style={panel}>
-            <div style={secTitle}>🧪 Parámetros básicos</div>
+            <div style={secTitle}>Parámetros básicos</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
               <F label="Acidez Fca.">
                 <Inp type="number" value={f.acidezFca} onChange={set("acidezFca")} step="0.1" />
@@ -541,7 +554,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
             <Pair label="Prueba Alcohol" v1={f.alcFca} v2={f.alcTbo} on1={set("alcFca")} on2={set("alcTbo")} />
           </div>
           <div style={panel}>
-            <div style={secTitle}>📊 Composición</div>
+            <div style={secTitle}>Composición</div>
             <Pair label="Grasa Butirosa (GB)" v1={f.gbFca} v2={f.gbTbo} on1={set("gbFca")} on2={set("gbTbo")} />
             <div style={{ fontSize: 10, color: C.sub, marginTop: -8, marginBottom: 12 }}>Ref: 3.0 – 4.0 %</div>
             <Pair label="Sólidos No Grasos (SNG)" v1={f.sngFca} v2={f.sngTbo} on1={set("sngFca")} on2={set("sngTbo")} />
@@ -549,7 +562,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
             <Pair label="Densidad" v1={f.densFca} v2={f.densTbo} on1={set("densFca")} on2={set("densTbo")} />
             <div style={{ fontSize: 10, color: C.sub, marginTop: -8, marginBottom: 12 }}>Ref: 1.028 – 1.033 g/mL</div>
             <Pair label="Aguado" v1={f.aguadoFca} v2={f.aguadoTbo} on1={set("aguadoFca")} on2={set("aguadoTbo")} />
-            <div style={{ fontSize: 10, color: C.danger, marginTop: -8, marginBottom: 12 }}>⚠️ Debe ser exactamente 0 — indica adulteración</div>
+            <div style={{ fontSize: 10, color: C.danger, marginTop: -8, marginBottom: 12 }}>Debe ser exactamente 0 — indica adulteración</div>
             <Pair label="Leche de Descarte" v1={f.dcFca} v2={f.dcTbo} on1={set("dcFca")} on2={set("dcTbo")} />
             <Pair label="Proteína" v1={f.protFca} v2={f.protTbo} on1={set("protFca")} on2={set("protTbo")} />
             <div style={{ fontSize: 10, color: C.sub, marginTop: -8, marginBottom: 12 }}>Ref: 2.9 – 3.5 %</div>
@@ -641,7 +654,7 @@ const SecIngresos = ({ date, syncKey = 0 }) => {
       {/* Buscador de tambo */}
       {list.length > 0 && (
         <div style={{ position: "relative", marginBottom: 10 }}>
-          <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", fontSize: 14, opacity: 0.45, pointerEvents: "none" }}>🔍</span>
+          <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", opacity: 0.45, pointerEvents: "none", display: "flex" }}><IcoBuscar size={14} strokeWidth={SW} /></span>
           <input
             style={{ ...inp, paddingLeft: 36, paddingRight: filtro ? 36 : 12 }}
             type="text"
@@ -669,14 +682,14 @@ const SecIngresos = ({ date, syncKey = 0 }) => {
           : list;
         if (list.length === 0) return (
           <div style={{ textAlign: "center", padding: "48px 24px", color: C.sub }}>
-            <div style={{ fontSize: 48, marginBottom: 12 }}>🚛</div>
+            <div style={{ marginBottom: 12, display: "flex", justifyContent: "center", opacity: 0.35 }}><IcoIngresos size={48} strokeWidth={1} /></div>
             <div style={{ fontSize: 15 }}>Sin ingresos registrados hoy</div>
             <div style={{ fontSize: 13, marginTop: 6 }}>Tocá + para agregar</div>
           </div>
         );
         if (vista.length === 0) return (
           <div style={{ textAlign: "center", padding: "32px 24px", color: C.sub }}>
-            <div style={{ fontSize: 32, marginBottom: 8 }}>🔍</div>
+            <div style={{ marginBottom: 8, display: "flex", justifyContent: "center", opacity: 0.35 }}><IcoBuscar size={32} strokeWidth={1} /></div>
             <div style={{ fontSize: 14 }}>Sin resultados para "{filtro}"</div>
             <button onClick={() => setFiltro("")} style={{ marginTop: 10, background: "none", border: `1px solid ${C.border}`, color: C.sub, borderRadius: 8, padding: "6px 14px", fontSize: 12, cursor: "pointer" }}>
               Limpiar búsqueda
@@ -691,9 +704,9 @@ const SecIngresos = ({ date, syncKey = 0 }) => {
             </div>
             <div style={{ fontWeight: 700, fontSize: 16, color: C.text, marginBottom: 4 }}>[{ing.num}] {ing.tambo || "—"}</div>
             <div style={{ display: "flex", gap: 14, fontSize: 13, color: C.sub, flexWrap: "wrap" }}>
-              {ing.litrosFca && <span>🏭 {parseFloat(ing.litrosFca).toLocaleString("es-AR")} L Fca.</span>}
-              {ing.litrosTbo && <span>🚛 {parseFloat(ing.litrosTbo).toLocaleString("es-AR")} L Tbo.</span>}
-              {ing.tC && <span>🌡️ {ing.tC}°C</span>}
+              {ing.litrosFca && <span>{parseFloat(ing.litrosFca).toLocaleString("es-AR")} L Fca.</span>}
+              {ing.litrosTbo && <span>{parseFloat(ing.litrosTbo).toLocaleString("es-AR")} L Tbo.</span>}
+              {ing.tC && <span>{ing.tC}°C</span>}
               {ing.phFca && <span>pH {ing.phFca}</span>}
               {ing.producto && <span style={{ color: C.accent }}>· {ing.producto}</span>}
             </div>
@@ -831,7 +844,7 @@ const SecCIP = ({ date, syncKey = 0 }) => {
   return (
     <div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
-        {[["silos", "🏗️ Silos / Líneas"], ["camiones", "🚛 Camiones"]].map(([t, l]) => (
+        {[["silos", "Silos / Líneas"], ["camiones", "Camiones"]].map(([t, l]) => (
           <button key={t} onClick={() => setTab(t)} style={{ ...(tab === t ? btnPrimary : btnSecondary), padding: "10px 6px" }}>{l}</button>
         ))}
       </div>
@@ -839,7 +852,7 @@ const SecCIP = ({ date, syncKey = 0 }) => {
         <>
           {CIP_SILOS.map(s => <CIPRow key={s} nombre={s} tipo="SILO" data={(data.silos || {})[s] || {}} onChange={v => updateSilo(s, v)} />)}
           <div style={{ ...panel, marginTop: 8 }}>
-            <div style={secTitle}>🔧 Desarme Filtro — Limpieza Manual</div>
+            <div style={secTitle}>Desarme Filtro — Limpieza Manual</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
               <F label="Hora"><input style={inp} type="time" value={data.filtroHora || ""} onChange={e => setFiltro("filtroHora", e.target.value)} /></F>
               <F label="Responsable"><Inp value={data.filtroResp || ""} onChange={v => setFiltro("filtroResp", v)} /></F>
@@ -1033,7 +1046,7 @@ const SecCarga = ({ date, syncKey = 0 }) => {
   return (
     <div>
       {list.length === 0 ? (
-        <div style={{ textAlign: "center", padding: "48px 24px", color: C.sub }}><div style={{ fontSize: 48, marginBottom: 12 }}>🚚</div><div>Sin cargas registradas</div><div style={{ fontSize: 13, marginTop: 6 }}>Tocá + para agregar</div></div>
+        <div style={{ textAlign: "center", padding: "48px 24px", color: C.sub }}><div style={{ marginBottom: 12, display: "flex", justifyContent: "center", opacity: 0.35 }}><IcoCarga size={48} strokeWidth={1} /></div><div>Sin cargas registradas</div><div style={{ fontSize: 13, marginTop: 6 }}>Tocá + para agregar</div></div>
       ) : list.map(c => (
         <div key={c.id} onClick={() => setModal(c)} style={{ ...card, cursor: "pointer" }}>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
@@ -1045,7 +1058,7 @@ const SecCarga = ({ date, syncKey = 0 }) => {
             {c.producto && <span style={{ fontSize: 11, background: "#1e3a5f", color: "#60a5fa", borderRadius: 6, padding: "2px 8px", fontWeight: 700, border: "1px solid #3b82f644" }}>{c.producto}</span>}
           </div>
           {c.transportista && (
-            <div style={{ fontSize: 12, color: "#60a5fa", marginBottom: 2 }}>🚛 {c.transportista}</div>
+            <div style={{ fontSize: 12, color: "#60a5fa", marginBottom: 2, display: "flex", alignItems: "center", gap: 4 }}><CamionIcon size={12} strokeWidth={SW} />{c.transportista}</div>
           )}
           <div style={{ fontSize: 13, color: C.sub }}>
             {c.siloProveniente && <span>Desde {c.siloProveniente} </span>}
@@ -1154,14 +1167,14 @@ const SecMovimientos = ({ date, syncKey = 0 }) => {
   return (
     <div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
-        {[["movs", "🔄 Movimientos"], ["ctrls", "🔬 Control Silos"]].map(([t, l]) => (
+        {[["movs", "Movimientos"], ["ctrls", "Control Silos"]].map(([t, l]) => (
           <button key={t} onClick={() => setTab(t)} style={{ ...(tab === t ? btnPrimary : btnSecondary), padding: "10px 6px" }}>{l}</button>
         ))}
       </div>
       {tab === "movs" && (
         <>
           {data.movs.length === 0 ? (
-            <div style={{ textAlign: "center", padding: "48px 24px", color: C.sub }}><div style={{ fontSize: 48 }}>🔄</div><div>Sin movimientos</div><div style={{ fontSize: 13, marginTop: 6 }}>Tocá + para agregar</div></div>
+            <div style={{ textAlign: "center", padding: "48px 24px", color: C.sub }}><div style={{ display: "flex", justifyContent: "center", opacity: 0.35 }}><IcoMovimientos size={48} strokeWidth={1} /></div><div>Sin movimientos</div><div style={{ fontSize: 13, marginTop: 6 }}>Tocá + para agregar</div></div>
           ) : data.movs.map(m => (
             <div key={m.id} onClick={() => setModal({ type: "mov", item: m })} style={{ ...card, cursor: "pointer" }}>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
@@ -1186,7 +1199,7 @@ const SecMovimientos = ({ date, syncKey = 0 }) => {
       {tab === "ctrls" && (
         <>
           {data.ctrls.length === 0 ? (
-            <div style={{ textAlign: "center", padding: "48px 24px", color: C.sub }}><div style={{ fontSize: 48 }}>🔬</div><div>Sin controles registrados</div><div style={{ fontSize: 13, marginTop: 6 }}>Tocá + para agregar</div></div>
+            <div style={{ textAlign: "center", padding: "48px 24px", color: C.sub }}><div style={{ display: "flex", justifyContent: "center", opacity: 0.35 }}><IcoCtrl size={48} strokeWidth={1} /></div><div>Sin controles registrados</div><div style={{ fontSize: 13, marginTop: 6 }}>Tocá + para agregar</div></div>
           ) : data.ctrls.map(c => (
             <div key={c.id} onClick={() => setModal({ type: "ctrl", item: c })} style={{ ...card, cursor: "pointer" }}>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
@@ -1297,7 +1310,7 @@ const SecStock = ({ date, syncKey = 0 }) => {
         <div style={{ ...card, borderColor: C.danger, background: "#1a0808", marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
             <div style={{ fontSize: 11, color: C.danger, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 2 }}>
-              🔴 Silos vaciados — requieren lavado CIP
+              <span style={{ display: "flex", alignItems: "center", gap: 5 }}><AlertaError size={11} strokeWidth={SW} />Silos vaciados — requieren lavado CIP</span>
             </div>
             <div style={{ fontSize: 13, color: C.text }}>{silosVaciados.join(", ")} → marcados como Sucio (vacío)</div>
           </div>
@@ -1472,7 +1485,7 @@ const FortForm = ({ initial, onSave, onClose, onDelete }) => {
       </div>
 
       <div style={panel}>
-        <div style={secTitle}>⚗️ Adiciones</div>
+        <div style={secTitle}>Adiciones</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 80px 64px 28px", gap: 5, marginBottom: 5 }}>
           <span style={{ ...lbl, marginBottom: 0 }}>Producto</span>
           <span style={{ ...lbl, marginBottom: 0 }}>Cantidad</span>
@@ -1513,7 +1526,7 @@ const FortForm = ({ initial, onSave, onClose, onDelete }) => {
       </div>
 
       <div style={panel}>
-        <div style={secTitle}>🧪 Control de calidad</div>
+        <div style={secTitle}>Control de calidad</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
           <F label="pH"><Inp type="number" value={f.ph} onChange={set("ph")} step="0.01" /></F>
           <F label="Acidez"><Inp type="number" value={f.acidez} onChange={set("acidez")} step="0.1" /></F>
@@ -1586,7 +1599,7 @@ const SecFortificados = ({ date, syncKey = 0 }) => {
       )}
       {list.length === 0 ? (
         <div style={{ textAlign: "center", padding: "48px 24px", color: C.sub }}>
-          <div style={{ fontSize: 48, marginBottom: 12 }}>🥛</div>
+          <div style={{ marginBottom: 12, display: "flex", justifyContent: "center", opacity: 0.35 }}><IcoFortificados size={48} strokeWidth={1} /></div>
           <div style={{ fontSize: 15 }}>Sin lotes de leche fortificada hoy</div>
           <div style={{ fontSize: 13, marginTop: 6 }}>Tocá + para agregar</div>
         </div>
@@ -1661,7 +1674,7 @@ const InformeModal = ({ date, onClose }) => {
   );
 
   if (!d) return (
-    <Modal title={`📄 Informe — ${fmtDate(date)}`} onClose={onClose}>
+    <Modal title={`Informe — ${fmtDate(date)}`} onClose={onClose}>
       <div style={{ padding: 40, textAlign: "center", color: C.sub }}>Cargando informe...</div>
     </Modal>
   );
@@ -1675,7 +1688,7 @@ const InformeModal = ({ date, onClose }) => {
   const resps = TURNOS.map(t => (d.stk[t] || {}).resp).filter(Boolean);
 
   return (
-    <Modal title={`📄 Informe — ${fmtDate(date)}`} onClose={onClose}>
+    <Modal title={`Informe — ${fmtDate(date)}`} onClose={onClose}>
 
       {/* Resumen */}
       <div style={{ ...card, borderColor: C.accentDark, marginBottom: 14 }}>
@@ -1688,7 +1701,7 @@ const InformeModal = ({ date, onClose }) => {
       </div>
 
       {/* Estado silos */}
-      <Blk title="🏗️ Estado de silos">
+      <Blk title="Estado de silos">
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
           {STOCK_SILOS.map(s => {
             const l = d.litros[s] || 0, cap = SILO_CAP[s] || 100000;
@@ -1709,11 +1722,11 @@ const InformeModal = ({ date, onClose }) => {
 
       {/* Ingresos */}
       {d.ing.length > 0 && (
-        <Blk title={`🚛 Ingresos (${d.ing.length} camiones · ${totalIng.toLocaleString("es-AR")} L)`}>
+        <Blk title={`Ingresos (${d.ing.length} camiones · ${totalIng.toLocaleString("es-AR")} L)`}>
           {d.ing.map(i => (
             <div key={i.id}>
               <Fila lbl={`${i.hora}  [${i.num}] ${i.tambo || "—"}${i.producto ? "  ·  " + i.producto : ""}`} val={`${parseFloat(i.litrosFca || 0).toLocaleString("es-AR")} L`} color={C.accent} />
-              {i.obs && <div style={{ fontSize: 11, color: C.sub, padding: "2px 0 4px 8px", borderBottom: `1px solid ${C.border}22`, fontStyle: "italic" }}>💬 {i.obs}</div>}
+              {i.obs && <div style={{ fontSize: 11, color: C.sub, padding: "2px 0 4px 8px", borderBottom: `1px solid ${C.border}22`, fontStyle: "italic" }}>{i.obs}</div>}
             </div>
           ))}
         </Blk>
@@ -1721,7 +1734,7 @@ const InformeModal = ({ date, onClose }) => {
 
       {/* Movimientos */}
       {(d.mov.movs || []).length > 0 && (
-        <Blk title="🔄 Movimientos">
+        <Blk title="Movimientos">
           {d.mov.movs.map(m => (
             <div key={m.id}>
               <Fila lbl={`${m.hora}  ${m.desde || "?"}→${m.hasta || "?"}${m.motivo ? " · " + m.motivo : ""}`} val={`${parseFloat(m.litros || 0).toLocaleString("es-AR")} L`} />
@@ -1732,11 +1745,11 @@ const InformeModal = ({ date, onClose }) => {
 
       {/* Cargas */}
       {d.carg.length > 0 && (
-        <Blk title={`🚚 Cargas (${totalCarg.toLocaleString("es-AR")} L)`}>
+        <Blk title={`Cargas (${totalCarg.toLocaleString("es-AR")} L)`}>
           {d.carg.map(c => (
             <div key={c.id}>
               <Fila lbl={`${c.hora}  ${c.label || ""}  ${c.destino || "—"}`} val={`${parseFloat(c.litros || 0).toLocaleString("es-AR")} L`} />
-              {c.obs && <div style={{ fontSize: 11, color: C.sub, padding: "2px 0 4px 8px", borderBottom: `1px solid ${C.border}22`, fontStyle: "italic" }}>💬 {c.obs}</div>}
+              {c.obs && <div style={{ fontSize: 11, color: C.sub, padding: "2px 0 4px 8px", borderBottom: `1px solid ${C.border}22`, fontStyle: "italic" }}>{c.obs}</div>}
             </div>
           ))}
         </Blk>
@@ -1744,11 +1757,11 @@ const InformeModal = ({ date, onClose }) => {
 
       {/* Fortificados */}
       {d.fort.length > 0 && (
-        <Blk title={`⚗️ Fortificados (${totalFort.toLocaleString("es-AR")} L)`}>
+        <Blk title={`Fortificados (${totalFort.toLocaleString("es-AR")} L)`}>
           {d.fort.map(f => (
             <div key={f.id}>
               <Fila lbl={`${f.hora}  ${f.paraQue || ""}  ${f.siloOrigen || "?"}→${f.siloDestino || "?"}`} val={`${parseFloat(f.litrosBase || 0).toLocaleString("es-AR")} L`} color="#27ae60" />
-              {f.obs && <div style={{ fontSize: 11, color: C.sub, padding: "2px 0 4px 8px", borderBottom: `1px solid ${C.border}22`, fontStyle: "italic" }}>💬 {f.obs}</div>}
+              {f.obs && <div style={{ fontSize: 11, color: C.sub, padding: "2px 0 4px 8px", borderBottom: `1px solid ${C.border}22`, fontStyle: "italic" }}>{f.obs}</div>}
             </div>
           ))}
         </Blk>
@@ -1756,7 +1769,7 @@ const InformeModal = ({ date, onClose }) => {
 
       {/* CIP realizado */}
       {CIP_SILOS.some(s => (d.cip.silos || {})[s]?.hora) && (
-        <Blk title="🧼 CIP realizado">
+        <Blk title="CIP realizado">
           {CIP_SILOS.filter(s => (d.cip.silos || {})[s]?.hora).map(s => (
             <Fila key={s} lbl={`SILO ${s}`} val={(d.cip.silos || {})[s]?.hora || ""} color={C.success} />
           ))}
@@ -1769,14 +1782,14 @@ const InformeModal = ({ date, onClose }) => {
       {/* Pendientes */}
       {(vacios.length > 0 || silosPend.length > 0 || camsPend.length > 0) ? (
         <div style={{ ...card, borderColor: C.danger + "66", background: _THEME === "light" ? "#fef2f2" : "#160808", marginBottom: 8 }}>
-          <div style={{ ...secTitle, color: C.danger }}>⚠️ Pendientes</div>
-          {vacios.length > 0 && <div style={{ fontSize: 12, color: C.danger, marginBottom: 6 }}>🔴 Silos vacíos (requieren CIP): {vacios.join(", ")}</div>}
-          {silosPend.length > 0 && <div style={{ fontSize: 12, color: C.accent, marginBottom: 4 }}>🧼 CIP silos sin registrar: {silosPend.join(", ")}</div>}
-          {camsPend.length > 0 && <div style={{ fontSize: 12, color: C.accent }}>🚛 CIP camiones sin registrar: {camsPend.join(", ")}</div>}
+          <div style={{ ...secTitle, color: C.danger }}>Pendientes</div>
+          {vacios.length > 0 && <div style={{ fontSize: 12, color: C.danger, marginBottom: 6 }}>Silos vacíos (requieren CIP): {vacios.join(", ")}</div>}
+          {silosPend.length > 0 && <div style={{ fontSize: 12, color: C.accent, marginBottom: 4 }}>CIP silos sin registrar: {silosPend.join(", ")}</div>}
+          {camsPend.length > 0 && <div style={{ fontSize: 12, color: C.accent }}>CIP camiones sin registrar: {camsPend.join(", ")}</div>}
         </div>
       ) : d.ing.length > 0 && (
         <div style={{ ...card, borderColor: C.success + "55", background: _THEME === "light" ? "#f0fdf4" : "#081608", textAlign: "center", padding: 16 }}>
-          <div style={{ fontSize: 22, marginBottom: 4 }}>✅</div>
+          <div style={{ marginBottom: 4, display: "flex", justifyContent: "center", color: C.success }}><AlertaOk size={22} strokeWidth={1.5} /></div>
           <div style={{ fontSize: 13, color: C.success, fontWeight: 700 }}>Todo en orden</div>
           <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>Sin pendientes registrados</div>
         </div>
@@ -1965,7 +1978,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
   const TIPO_COL = { ingreso: C.accent, carga: "#60a5fa", movimiento: "#a78bfa", control: "#34d399", fortificado: "#27ae60" };
 
   // ── Componentes visuales ─────────────────────────────────────
-  const StatCard = ({ icon, label, value, unit, color, sub, trend }) => {
+  const StatCard = ({ Icon: StatIcon, label, value, unit, color, sub, trend }) => {
     const col = color || C.text;
     return (
       <div style={{
@@ -1981,7 +1994,9 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
           position: "absolute", top: -12, right: -12, width: 50, height: 50,
           borderRadius: "50%", background: col + "18",
         }} />
-        <div style={{ fontSize: 20, marginBottom: 5, position: "relative" }}>{icon}</div>
+        <div style={{ marginBottom: 5, position: "relative", display: "flex", justifyContent: "center", color: col }}>
+          {StatIcon && <StatIcon size={20} strokeWidth={SW} />}
+        </div>
         <div style={{ fontSize: 22, fontWeight: 800, color: col, fontFamily: "monospace", lineHeight: 1, position: "relative" }}>
           {typeof value === "number" ? value.toLocaleString("es-AR") : value}
           {unit && <span style={{ fontSize: 10, fontWeight: 400, color: C.sub, marginLeft: 3 }}>{unit}</span>}
@@ -3224,7 +3239,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
       alertas.push({
         tipo: isCrit ? "err" : "warn",
         msg: isCrit
-          ? `🚨 AGUADO detectado — promedio ${v.avg.toFixed(3)} (debe ser 0) — revisar adulteración`
+          ? `AGUADO detectado — promedio ${v.avg.toFixed(3)} (debe ser 0) — revisar adulteración`
           : `${label} fuera de rango: promedio ${v.avg.toFixed(2)} (ref: ${ref.min}–${ref.max})`,
       });
     }
@@ -3232,13 +3247,13 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
   // Alertas por desvíos Tambo vs Fábrica (cualquier ingreso con aguado > 0 = crítico)
   const ingConAguado = d.ing.filter(i => parseFloat(i.aguadoFca) > 0 || parseFloat(i.aguadoTbo) > 0);
   if (ingConAguado.length > 0)
-    alertas.push({ tipo: "err", msg: `🚨 ${ingConAguado.length} camión/es con AGUADO detectado: ${ingConAguado.map(i => i.tambo || "?").join(", ")}` });
+    alertas.push({ tipo: "err", msg: `${ingConAguado.length} camión/es con AGUADO detectado: ${ingConAguado.map(i => i.tambo || "?").join(", ")}` });
   const ingConDesvio = d.ing.filter(i => {
     const dL = Math.abs((parseFloat(i.litrosFca) || 0) - (parseFloat(i.litrosTbo) || 0));
     return dL > 150;
   });
   if (ingConDesvio.length > 0)
-    alertas.push({ tipo: "warn", msg: `⚖️ ${ingConDesvio.length} camión/es con diferencia de litros Tbo/Fca > 150 L` });
+    alertas.push({ tipo: "warn", msg: `${ingConDesvio.length} camión/es con diferencia de litros Tbo/Fca > 150 L` });
 
   // ── Análisis diferencias Tambo vs Fábrica ────────────────────
   const analisisDifs = d.ing.map(ing => {
@@ -3328,7 +3343,16 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
 
       {/* ── TABS PREMIUM ── */}
       <div style={{ display: "flex", gap: 4, marginBottom: 16, overflowX: "auto", paddingBottom: 4, scrollbarWidth: "none", msOverflowStyle: "none" }}>
-        {[["resumen", "📊", "Resumen"], ["silos", "🏭", "Silos"], ["calidad", "📈", "Calidad"], ["difs", "🔍", "Difs."], ["semana", "📅", "Semana"], ["tambos", "🐄", "Tambos"], ["historial", "📋", "Historial"], ["exportar", "📤", "Exportar"]].map(([t, ico, lbl]) => {
+        {[
+          ["resumen",  TabResumen,   "Resumen"],
+          ["silos",    TabSilos,     "Silos"],
+          ["calidad",  TabCalidad,   "Calidad"],
+          ["difs",     TabDifs,      "Difs."],
+          ["semana",   TabSemana,    "Semana"],
+          ["tambos",   IcoLeche,     "Tambos"],
+          ["historial",TabHistorial, "Historial"],
+          ["exportar", TabExportar,  "Exportar"],
+        ].map(([t, TabIcon, lbl]) => {
           const active = tab === t;
           return (
             <button key={t} onClick={() => setTab(t)} style={{
@@ -3344,7 +3368,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
               transition: "all 0.18s",
               whiteSpace: "nowrap",
             }}>
-              <div style={{ fontSize: 15 }}>{ico}</div>
+              <div style={{ display: "flex", justifyContent: "center" }}><TabIcon size={15} strokeWidth={SW} /></div>
               <div style={{ fontSize: 9, letterSpacing: "0.03em", marginTop: 3, textTransform: "uppercase" }}>{lbl}</div>
             </button>
           );
@@ -3395,15 +3419,15 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
 
             {/* KPI grid */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
-              <StatCard icon="🥛" label="Ingresados" value={totalIngresados} unit="L" color={C.accent} />
-              <StatCard icon="🚚" label="Cargados"   value={totalCargados}   unit="L" color="#60a5fa" />
-              <StatCard icon="⚖️" label="Balance"    value={balance}         unit="L" color={balColor} />
-              <StatCard icon="🚛" label="Camiones"   value={d.ing.length}    color={C.text} sub={`${tambosUnicos} tambos`} />
+              <StatCard Icon={IcoLeche}       label="Ingresados" value={totalIngresados} unit="L" color={C.accent} />
+              <StatCard Icon={IcoCarga}       label="Cargados"   value={totalCargados}   unit="L" color="#60a5fa" />
+              <StatCard Icon={IcoBalance}     label="Balance"    value={balance}         unit="L" color={balColor} />
+              <StatCard Icon={CamionIcon}     label="Camiones"   value={d.ing.length}    color={C.text} sub={`${tambosUnicos} tambos`} />
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8, marginBottom: 14 }}>
-              <StatCard icon="📦" label="Cargas"  value={d.cargas.length}           color={C.text} />
-              <StatCard icon="⚗️" label="Fort."   value={d.forts.length}            color="#22c55e" />
-              <StatCard icon="🔄" label="Movim."  value={(d.movData.movs || []).length} color="#a78bfa" />
+              <StatCard Icon={IcoDestino}      label="Cargas"  value={d.cargas.length}           color={C.text} />
+              <StatCard Icon={IcoFortificados} label="Fort."   value={d.forts.length}            color="#22c55e" />
+              <StatCard Icon={IcoMovimientos}  label="Movim."  value={(d.movData.movs || []).length} color="#a78bfa" />
             </div>
 
             {/* Alerts */}
@@ -3415,7 +3439,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
                 textAlign: "center", padding: 18,
                 boxShadow: `0 0 20px ${C.success}10`,
               }}>
-                <div style={{ fontSize: 28, marginBottom: 6 }}>✅</div>
+                <div style={{ marginBottom: 6, display: "flex", justifyContent: "center", color: C.success }}><AlertaOk size={28} strokeWidth={1.5} /></div>
                 <div style={{ fontSize: 13, color: C.success, fontWeight: 700 }}>Sin alertas activas</div>
                 <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>Todo dentro de parámetros normales</div>
               </div>
@@ -3425,14 +3449,14 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
                 borderColor: C.danger + "44",
                 background: _THEME === "light" ? "#fef2f2" : "#160808",
               }}>
-                <div style={{ ...secTitle, color: C.danger, marginBottom: 10 }}>⚠️ Alertas activas ({alertas.length})</div>
+                <div style={{ ...secTitle, color: C.danger, marginBottom: 10 }}>Alertas activas ({alertas.length})</div>
                 {alertas.map((a, i) => (
                   <div key={i} style={{
                     fontSize: 12, color: a.tipo === "err" ? C.danger : C.accent,
                     padding: "7px 0", borderBottom: i < alertas.length - 1 ? `1px solid ${C.border}44` : "none",
                     display: "flex", alignItems: "flex-start", gap: 6,
                   }}>
-                    <span>{a.tipo === "err" ? "🔴" : "🟡"}</span>
+                    <span style={{ display: "flex", flexShrink: 0 }}>{a.tipo === "err" ? <AlertaError size={14} strokeWidth={SW} /> : <AlertaWarn size={14} strokeWidth={SW} />}</span>
                     <span>{a.msg}</span>
                   </div>
                 ))}
@@ -3455,7 +3479,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
         <div>
           {Object.keys(quality).length === 0 ? (
             <div style={{ textAlign: "center", padding: "48px 24px", color: C.sub }}>
-              <div style={{ fontSize: 40, marginBottom: 10 }}>📈</div>
+              <div style={{ marginBottom: 10, display: "flex", justifyContent: "center", opacity: 0.35 }}><TabCalidad size={40} strokeWidth={1} /></div>
               <div>Sin ingresos registrados</div>
             </div>
           ) : (
@@ -3480,7 +3504,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                       <span style={{ fontSize: 12, color: C.sub, fontWeight: 700 }}>{label}</span>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        {ref && <span style={{ fontSize: 10, color: ok ? C.success : C.danger, fontWeight: 700 }}>{ok ? "✅ OK" : "⚠ Fuera"}</span>}
+                        {ref && <span style={{ fontSize: 10, color: ok ? C.success : C.danger, fontWeight: 700 }}>{ok ? "OK" : "Fuera"}</span>}
                         <span style={{ fontSize: 20, fontWeight: 900, color: ok ? C.accent : C.danger, fontFamily: "monospace" }}>{v.avg.toFixed(3)}</span>
                       </div>
                     </div>
@@ -3514,10 +3538,10 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
 
         const lt = _THEME === "light";
         const SEV = {
-          crit: { label: "🚨 ADULTERACIÓN",  bg: lt ? "#fef2f2" : "#450a0a", border: "#ef444466", text: lt ? "#b91c1c" : "#fca5a5", badge: "#ef4444" },
-          warn: { label: "🔴 ALERTA",         bg: lt ? "#fff7ed" : "#431407", border: "#f9731644", text: lt ? "#c2410c" : "#fdba74", badge: "#f97316" },
-          attn: { label: "🟡 DESVÍO",         bg: lt ? "#fffbeb" : "#422006", border: "#d9770644", text: lt ? "#92400e" : "#fde68a", badge: "#f59e0b" },
-          ok:   { label: "✅ Normal",          bg: C.card,    border: C.border,    text: C.sub,    badge: "#22c55e" },
+          crit: { label: "ADULTERACIÓN",  bg: lt ? "#fef2f2" : "#450a0a", border: "#ef444466", text: lt ? "#b91c1c" : "#fca5a5", badge: "#ef4444" },
+          warn: { label: "ALERTA",        bg: lt ? "#fff7ed" : "#431407", border: "#f9731644", text: lt ? "#c2410c" : "#fdba74", badge: "#f97316" },
+          attn: { label: "DESVÍO",        bg: lt ? "#fffbeb" : "#422006", border: "#d9770644", text: lt ? "#92400e" : "#fde68a", badge: "#f59e0b" },
+          ok:   { label: "Normal",        bg: C.card,    border: C.border,    text: C.sub,    badge: "#22c55e" },
         };
 
         return (
@@ -3525,7 +3549,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
             {/* Banner resumen */}
             <div style={{ ...panel, marginBottom: 14, borderColor: critCount > 0 ? "#ef444466" : warnCount > 0 ? "#f9731644" : "#f59e0b44", background: _THEME === "light" ? "#fff" : C.surface }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 8 }}>
-                🔍 Auditoría Tambo vs Fábrica — {fmtDate(date)}
+                Auditoría Tambo vs Fábrica — {fmtDate(date)}
               </div>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 {[
@@ -3542,7 +3566,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
               </div>
               {critCount === 0 && conProblemas.length === 0 && (
                 <div style={{ textAlign: "center", marginTop: 10, color: "#22c55e", fontSize: 13, fontWeight: 600 }}>
-                  ✅ Todos los camiones dentro de parámetros normales
+                  Todos los camiones dentro de parámetros normales
                 </div>
               )}
             </div>
@@ -3599,7 +3623,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
                           const rowCol = df.critical ? "#fca5a5" : sev.text;
                           return (
                             <Fragment key={i}>
-                              <div style={{ fontSize: 11, fontWeight: 700, color: rowCol }}>{df.label}{df.critical ? " 🚨" : ""}</div>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: rowCol }}>{df.label}{df.critical ? " !" : ""}</div>
                               <div style={{ fontSize: 11, color: C.text, fontFamily: "monospace" }}>{df.label === "Litros" ? (df.vTbo || 0).toLocaleString("es-AR") : df.vTbo.toFixed(3)}</div>
                               <div style={{ fontSize: 11, color: C.text, fontFamily: "monospace" }}>{df.label === "Litros" ? (df.vFca || 0).toLocaleString("es-AR") : df.vFca.toFixed(3)}</div>
                               <div style={{ fontSize: 11, color: rowCol, fontFamily: "monospace", fontWeight: 600 }}>{diffStr}</div>
@@ -3637,15 +3661,15 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
       {tab === "historial" && (
         <div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
-            {[["🚛", "Ingresos", d.ing.length], ["🚚", "Cargas", d.cargas.length], ["⚗️", "Fort.", d.forts.length], ["🔄", "Movim.", (d.movData.movs || []).length]].map(([ico, lbl, cnt]) => (
+            {[[IcoIngresos, "Ingresos", d.ing.length], [IcoCarga, "Cargas", d.cargas.length], [IcoFortificados, "Fort.", d.forts.length], [IcoMovimientos, "Movim.", (d.movData.movs || []).length]].map(([Ico, lbl, cnt]) => (
               <div key={lbl} style={{ ...card, textAlign: "center", padding: "12px 8px" }}>
-                <div style={{ fontSize: 20 }}>{ico}</div>
+                <div style={{ display: "flex", justifyContent: "center", marginBottom: 2, color: C.sub }}><Ico size={20} strokeWidth={SW} /></div>
                 <div style={{ fontSize: 22, fontWeight: 800, color: C.accent }}>{cnt}</div>
                 <div style={{ fontSize: 10, color: C.sub, textTransform: "uppercase" }}>{lbl}</div>
               </div>
             ))}
           </div>
-          <div style={{ ...secTitle }}>🗑️ Eliminaciones recientes</div>
+          <div style={{ ...secTitle }}>Eliminaciones recientes</div>
           {d.historial.length === 0 ? (
             <div style={{ textAlign: "center", padding: "24px", color: C.sub, fontSize: 12 }}>Sin eliminaciones registradas</div>
           ) : d.historial.slice(0, 30).map((e, i) => (
@@ -3666,7 +3690,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
       {tab === "exportar" && (
         <div>
           <div style={{ ...panel, marginBottom: 14 }}>
-            <div style={secTitle}>📅 Seleccionar fecha</div>
+            <div style={secTitle}>Seleccionar fecha</div>
             <div style={{ display: "flex", gap: 8 }}>
               <input type="date" value={exportDate} onChange={e => setExportDate(e.target.value)} style={{ ...inp, flex: 1 }} />
               <button onClick={() => setExportDate(date)} style={{ ...btnSecondary, width: "auto", padding: "10px 14px", whiteSpace: "nowrap" }}>Hoy</button>
@@ -3677,19 +3701,19 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
           <div style={{ ...secTitle }}>Formato de exportación</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 10 }}>
             <button onClick={doExportCSV} disabled={exporting} style={{ background: "#064e3b", color: "#34d399", border: "1px solid #34d39944", borderRadius: 12, padding: "16px 18px", cursor: "pointer", textAlign: "left", opacity: exporting ? 0.6 : 1 }}>
-              <div style={{ fontSize: 17, marginBottom: 3, fontWeight: 700 }}>📊 Exportar CSV</div>
+              <div style={{ fontSize: 17, marginBottom: 3, fontWeight: 700 }}>Exportar CSV</div>
               <div style={{ fontSize: 11, color: "#6ee7b7" }}>Ingresos · Cargas · Movimientos — Compatible con Excel, Google Sheets y cualquier planilla</div>
             </button>
             <button onClick={doExportXLS} disabled={exporting} style={{ background: "#1e3a5f", color: "#60a5fa", border: "1px solid #60a5fa44", borderRadius: 12, padding: "16px 18px", cursor: "pointer", textAlign: "left", opacity: exporting ? 0.6 : 1 }}>
-              <div style={{ fontSize: 17, marginBottom: 3, fontWeight: 700 }}>📗 Exportar Excel (.xls)</div>
+              <div style={{ fontSize: 17, marginBottom: 3, fontWeight: 700 }}>Exportar Excel (.xls)</div>
               <div style={{ fontSize: 11, color: "#93c5fd" }}>Tabla formateada lista para abrir en Microsoft Excel</div>
             </button>
             <button onClick={doExportPDF} disabled={exporting} style={{ background: "#4a1942", color: "#e879f9", border: "1px solid #e879f944", borderRadius: 12, padding: "16px 18px", cursor: "pointer", textAlign: "left", opacity: exporting ? 0.6 : 1 }}>
-              <div style={{ fontSize: 17, marginBottom: 3, fontWeight: 700 }}>📄 Ver / Imprimir PDF</div>
+              <div style={{ fontSize: 17, marginBottom: 3, fontWeight: 700 }}>Ver / Imprimir PDF</div>
               <div style={{ fontSize: 11, color: "#f0abfc" }}>Abre una vista de impresión — guardá como PDF desde el navegador</div>
             </button>
           </div>
-          {exporting && <div style={{ textAlign: "center", marginTop: 14, color: C.accent, fontSize: 13 }}>⏳ Preparando exportación...</div>}
+          {exporting && <div style={{ textAlign: "center", marginTop: 14, color: C.accent, fontSize: 13 }}>Preparando exportación...</div>}
         </div>
       )}
 
@@ -3697,7 +3721,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
       {tab === "semana" && (() => {
         const loadingPlaceholder = (
           <div style={{ padding: "48px 0", textAlign: "center", color: C.sub }}>
-            <div style={{ fontSize: 36, marginBottom: 10 }}>📅</div>
+            <div style={{ marginBottom: 10, display: "flex", justifyContent: "center", opacity: 0.35 }}><TabSemana size={36} strokeWidth={1} /></div>
             <div style={{ fontSize: 13 }}>Cargando datos semanales...</div>
           </div>
         );
@@ -3715,8 +3739,8 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
           <div>
             {/* KPI pills */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
-              <StatCard icon="📦" label="Total semana" value={totalSem} unit="L" color={C.accent} sub={`${diasActivos} días con entrega`} />
-              <StatCard icon="🚛" label="Camiones" value={totalCam} color={C.text} sub={`prom. ${diasActivos > 0 ? (totalCam / diasActivos).toFixed(1) : 0}/día`} />
+              <StatCard Icon={IcoLeche}   label="Total semana" value={totalSem} unit="L" color={C.accent} sub={`${diasActivos} días con entrega`} />
+              <StatCard Icon={CamionIcon} label="Camiones" value={totalCam} color={C.text} sub={`prom. ${diasActivos > 0 ? (totalCam / diasActivos).toFixed(1) : 0}/día`} />
             </div>
 
             {/* Bar chart card */}
@@ -3842,7 +3866,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
       {tab === "tambos" && (() => {
         if (loadingWeek || !weekData) return (
           <div style={{ padding: "48px 0", textAlign: "center", color: C.sub }}>
-            <div style={{ fontSize: 36, marginBottom: 10 }}>🐄</div>
+            <div style={{ marginBottom: 10, display: "flex", justifyContent: "center", opacity: 0.35 }}><IcoLeche size={36} strokeWidth={1} /></div>
             <div style={{ fontSize: 13 }}>Cargando tendencias por tambo...</div>
           </div>
         );
@@ -3885,7 +3909,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
 
         if (tambos.length === 0) return (
           <div style={{ textAlign: "center", padding: "48px 24px", color: C.sub }}>
-            <div style={{ fontSize: 40, marginBottom: 10 }}>🐄</div>
+            <div style={{ marginBottom: 10, display: "flex", justifyContent: "center", opacity: 0.35 }}><IcoLeche size={40} strokeWidth={1} /></div>
             <div>Sin entregas en los últimos 14 días</div>
           </div>
         );
@@ -3899,7 +3923,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
         return (
           <div>
             <div style={{ ...secTitle, marginBottom: 12 }}>
-              🐄 Proveedores activos — últimos 14 días · {tambos.length} tambos
+              Proveedores activos — últimos 14 días · {tambos.length} tambos
             </div>
 
             {tambos.map(({ nombre, entregas, totalLitros, avgAcidez, avgPh, avgGb, lastDate }) => {
@@ -4035,7 +4059,7 @@ export default function App() {
   const isToday = date === getToday();
 
   const navItems = perfil
-    ? [...NAV, { id: "supervisor", label: "Superv.", icon: PERFILES[perfil]?.icon || "👔" }]
+    ? [...NAV, { id: "supervisor", label: "Superv.", Icon: PERFILES[perfil]?.Icon || IcoSupervisor }]
     : NAV;
 
   // Verificar disponibilidad del storage al iniciar
@@ -4131,7 +4155,7 @@ export default function App() {
           padding: "10px 16px", display: "flex", alignItems: "center", gap: 10,
           position: "sticky", top: 0, zIndex: 300,
         }}>
-          <span style={{ fontSize: 20 }}>📵</span>
+          <IcoOffline size={20} strokeWidth={SW} color="#fca5a5" />
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: "#fca5a5" }}>Sin acceso al almacenamiento</div>
             <div style={{ fontSize: 11, color: "#f87171", marginTop: 1 }}>
@@ -4244,7 +4268,7 @@ export default function App() {
           <YataLogo compact />
           <div style={{ width: 1, height: 26, background: C.border }} />
           <div style={{ fontSize: 12, color: C.sub, fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}>
-            <span style={{ fontSize: 15 }}>{navItems.find(n => n.id === section)?.icon}</span>
+            {(() => { const n = navItems.find(item => item.id === section); return n ? <n.Icon size={14} strokeWidth={SW} /> : null; })()}
             <span>{navItems.find(n => n.id === section)?.label}</span>
           </div>
         </div>
@@ -4263,7 +4287,7 @@ export default function App() {
             cursor: "pointer", fontSize: 15,
             display: "flex", alignItems: "center", justifyContent: "center",
             transition: "all 0.2s",
-          }}>{_THEME === "dark" ? "☀️" : "🌙"}</button>
+          }}>{_THEME === "dark" ? <ThemeLight size={16} strokeWidth={SW} /> : <ThemeDark size={16} strokeWidth={SW} />}</button>
 
           {/* Botón perfil */}
           <button onClick={() => setPerfilModal(true)} title={perfil ? PERFILES[perfil].label : "Acceder con perfil"} style={{
@@ -4284,7 +4308,7 @@ export default function App() {
             borderRadius: 9, color: C.sub, width: 34, height: 34,
             cursor: "pointer", fontSize: 15,
             display: "flex", alignItems: "center", justifyContent: "center",
-          }}>📄</button>
+          }}><IcoInforme size={16} strokeWidth={SW} /></button>
 
           <button onClick={() => setDatePicker(!datePicker)} style={{
             background: isToday ? C.card : C.accentDim,
@@ -4294,7 +4318,7 @@ export default function App() {
             fontSize: 12, fontFamily: "'Courier New',monospace", fontWeight: 700,
             display: "flex", alignItems: "center", gap: 4,
           }}>
-            <span style={{ fontSize: 13 }}>📅</span>
+            <IcoDate size={13} strokeWidth={SW} />
             <span>{isToday ? "Hoy" : fmtDate(date)}</span>
           </button>
         </div>
@@ -4337,10 +4361,11 @@ export default function App() {
               transition: "border-color 0.18s",
             }}>
               <span style={{
-                fontSize: 20,
+                display: "flex",
+                color: active ? C.accent : C.sub,
                 filter: active ? `drop-shadow(0 0 6px ${C.accent}88)` : "none",
-                transition: "filter 0.18s",
-              }}>{n.icon}</span>
+                transition: "filter 0.18s, color 0.18s",
+              }}><n.Icon size={20} strokeWidth={SW} /></span>
               <span style={{
                 fontSize: 9, fontWeight: 700,
                 color: active ? C.accent : C.sub,
