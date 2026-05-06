@@ -426,7 +426,7 @@ const Pair = ({ label, v1, v2, on1, on2 }) => (
   </div>
 );
 const FAB = ({ onClick }) => (
-  <button onClick={onClick} style={{
+  <button type="button"onClick={onClick} style={{
     position: "fixed", right: 20, bottom: 82, width: 56, height: 56, borderRadius: 28,
     background: C.accent, border: "none", color: "#000", fontSize: 28, fontWeight: 700,
     cursor: "pointer", boxShadow: `0 4px 24px ${C.accent}55`,
@@ -449,7 +449,7 @@ const Modal = ({ title, onClose, children, zIndex = 100 }) => {
       }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
           <span style={{ fontWeight: 700, fontSize: 18, color: C.text }}>{title}</span>
-          <button onClick={onClose} style={{ background: C.card, border: "none", color: C.sub, borderRadius: 8, width: 36, height: 36, cursor: "pointer", fontSize: 20 }}>×</button>
+          <button type="button"onClick={onClose} aria-label="Cerrar" style={{ background: C.card, border: "none", color: C.sub, borderRadius: 8, width: 36, height: 36, cursor: "pointer", fontSize: 20 }}>×</button>
         </div>
         {children}
         <div style={{ height: 20 }} />
@@ -488,7 +488,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
         <Sel value={f.tambo} onChange={pickTambo}
           options={tambos.map(t => ({ value: t.nombre, label: `${t.num} — ${t.nombre}` }))}
           placeholder="Seleccionar tambo..." />
-        <button onClick={onNuevoTambo} style={{ marginTop: 6, background: "none", border: "none", color: C.accent, fontSize: 12, cursor: "pointer", padding: "4px 0", textDecoration: "underline" }}>
+        <button type="button"onClick={onNuevoTambo} style={{ marginTop: 6, background: "none", border: "none", color: C.accent, fontSize: 12, cursor: "pointer", padding: "4px 0", textDecoration: "underline" }}>
           + Agregar nuevo tambo
         </button>
       </F>
@@ -588,8 +588,8 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
         <textarea style={{ ...inp, minHeight: 60, resize: "vertical" }} value={f.obs} onChange={e => set("obs")(e.target.value)} placeholder="Observaciones..." />
       </F>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-        <button style={btnSecondary} onClick={onClose}>Cancelar</button>
-        <button style={btnPrimary} onClick={() => {
+        <button type="button"style={btnSecondary} onClick={onClose}>Cancelar</button>
+        <button type="button"style={btnPrimary} onClick={() => {
           let req;
           if (isConcentrado) {
             req = [["tambo", "Tambo"], ["litrosFca", "Litros"], ["destino", "Destino"],
@@ -604,7 +604,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
           onSave(f);
         }}>Guardar</button>
       </div>
-      {onDelete && <button style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar este ingreso</button>}
+      {onDelete && <button type="button"style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar este ingreso</button>}
     </div>
   );
 };
@@ -676,7 +676,7 @@ const SecIngresos = ({ date, syncKey = 0 }) => {
             onChange={e => setFiltro(e.target.value)}
           />
           {filtro && (
-            <button onClick={() => setFiltro("")} style={{
+            <button type="button"onClick={() => setFiltro("")} style={{
               position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)",
               background: C.muted, border: "none", color: C.sub, cursor: "pointer",
               borderRadius: "50%", width: 20, height: 20, fontSize: 13,
@@ -704,7 +704,7 @@ const SecIngresos = ({ date, syncKey = 0 }) => {
           <div style={{ textAlign: "center", padding: "32px 24px", color: C.sub }}>
             <div style={{ marginBottom: 8, display: "flex", justifyContent: "center", opacity: 0.35 }}><IcoBuscar size={32} strokeWidth={1} /></div>
             <div style={{ fontSize: 14 }}>Sin resultados para "{filtro}"</div>
-            <button onClick={() => setFiltro("")} style={{ marginTop: 10, background: "none", border: `1px solid ${C.border}`, color: C.sub, borderRadius: 8, padding: "6px 14px", fontSize: 12, cursor: "pointer" }}>
+            <button type="button"onClick={() => setFiltro("")} style={{ marginTop: 10, background: "none", border: `1px solid ${C.border}`, color: C.sub, borderRadius: 8, padding: "6px 14px", fontSize: 12, cursor: "pointer" }}>
               Limpiar búsqueda
             </button>
           </div>
@@ -748,8 +748,8 @@ const SecIngresos = ({ date, syncKey = 0 }) => {
               onChange={e => setNewTambo(p => ({ ...p, num: e.target.value }))} placeholder="Ej: 99" />
           </F>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-            <button style={btnSecondary} onClick={() => setTamboModal(false)}>Cancelar</button>
-            <button style={btnPrimary} onClick={saveNuevoTambo}>Guardar</button>
+            <button type="button"style={btnSecondary} onClick={() => setTamboModal(false)}>Cancelar</button>
+            <button type="button"style={btnPrimary} onClick={saveNuevoTambo}>Guardar</button>
           </div>
         </Modal>
       )}
@@ -858,7 +858,7 @@ const SecCIP = ({ date, syncKey = 0 }) => {
     <div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
         {[["silos", "Silos / Líneas"], ["camiones", "Camiones"]].map(([t, l]) => (
-          <button key={t} onClick={() => setTab(t)} style={{ ...(tab === t ? btnPrimary : btnSecondary), padding: "10px 6px" }}>{l}</button>
+          <button type="button"key={t} onClick={() => setTab(t)} style={{ ...(tab === t ? btnPrimary : btnSecondary), padding: "10px 6px" }}>{l}</button>
         ))}
       </div>
       {tab === "silos" && (
@@ -879,7 +879,7 @@ const SecCIP = ({ date, syncKey = 0 }) => {
       {tab === "camiones" && (
         <>
           {camiones.map(c => <CIPRow key={c} nombre={c} tipo="CAMIÓN" data={(data.camiones || {})[c] || {}} onChange={v => updateCamion(c, v)} />)}
-          <button onClick={() => setCamionModal(true)} style={{ ...btnSecondary, marginTop: 8, borderStyle: "dashed", color: C.accent, borderColor: C.accentDark }}>
+          <button type="button"onClick={() => setCamionModal(true)} style={{ ...btnSecondary, marginTop: 8, borderStyle: "dashed", color: C.accent, borderColor: C.accentDark }}>
             + Agregar nuevo camión
           </button>
         </>
@@ -891,8 +891,8 @@ const SecCIP = ({ date, syncKey = 0 }) => {
               onChange={e => setNewCamion(e.target.value)} placeholder="Ej: MARTINEZ" />
           </F>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-            <button style={btnSecondary} onClick={() => setCamionModal(false)}>Cancelar</button>
-            <button style={btnPrimary} onClick={saveNuevoCamion}>Guardar</button>
+            <button type="button"style={btnSecondary} onClick={() => setCamionModal(false)}>Cancelar</button>
+            <button type="button"style={btnPrimary} onClick={saveNuevoCamion}>Guardar</button>
           </div>
         </Modal>
       )}
@@ -946,7 +946,7 @@ const CargaForm = ({ initial, onSave, onClose, onDelete }) => {
     <div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 6, marginBottom: 12 }}>
         {["CARGA 1", "CARGA 2", "CARGA 3"].map(l => (
-          <button key={l} onClick={() => set("label")(l)} style={{ ...(f.label === l ? btnPrimary : btnSecondary), padding: "10px 6px", fontSize: 13 }}>{l}</button>
+          <button type="button"key={l} onClick={() => set("label")(l)} style={{ ...(f.label === l ? btnPrimary : btnSecondary), padding: "10px 6px", fontSize: 13 }}>{l}</button>
         ))}
       </div>
       <F label="Destino"><Inp value={f.destino} onChange={set("destino")} placeholder="Destino de la carga..." /></F>
@@ -958,7 +958,7 @@ const CargaForm = ({ initial, onSave, onClose, onDelete }) => {
           <div style={{ flex: 1 }}>
             <Sel value={f.producto || ""} onChange={set("producto")} options={cargaProductos} placeholder="Seleccionar producto..." />
           </div>
-          <button onClick={() => setProdModal(true)} style={{
+          <button type="button"onClick={() => setProdModal(true)} style={{
             background: C.card, border: `1px solid ${C.accentDark}`, color: C.accent,
             borderRadius: 8, padding: "11px 14px", cursor: "pointer", fontSize: 13, fontWeight: 700,
             whiteSpace: "nowrap",
@@ -973,7 +973,7 @@ const CargaForm = ({ initial, onSave, onClose, onDelete }) => {
           <div style={{ flex: 1 }}>
             <Sel value={f.transportista || ""} onChange={set("transportista")} options={transportistas} placeholder="Seleccionar transportista..." />
           </div>
-          <button onClick={() => setTransModal(true)} style={{
+          <button type="button"onClick={() => setTransModal(true)} style={{
             background: C.card, border: `1px solid ${C.accentDark}`, color: C.accent,
             borderRadius: 8, padding: "11px 14px", cursor: "pointer", fontSize: 13, fontWeight: 700,
             whiteSpace: "nowrap",
@@ -998,8 +998,8 @@ const CargaForm = ({ initial, onSave, onClose, onDelete }) => {
       </div>
       <F label="Observaciones"><textarea style={{ ...inp, minHeight: 48, resize: "vertical" }} value={f.obs} onChange={e => set("obs")(e.target.value)} /></F>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-        <button style={btnSecondary} onClick={onClose}>Cancelar</button>
-        <button style={btnPrimary} onClick={() => {
+        <button type="button"style={btnSecondary} onClick={onClose}>Cancelar</button>
+        <button type="button"style={btnPrimary} onClick={() => {
           const req = [["destino", "Destino"], ["siloProveniente", "Silo Proveniente"], ["limpCisterna", "Limpieza Cisterna"],
           ["litros", "Litros"], ["hora", "Hora"], ["responsable", "Responsable"],
           ["T", "T"], ["gC", "°C"], ["pH", "pH"], ["A", "A"], ["gD", "°D"]];
@@ -1008,7 +1008,7 @@ const CargaForm = ({ initial, onSave, onClose, onDelete }) => {
           onSave(f);
         }}>Guardar</button>
       </div>
-      {onDelete && <button style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar</button>}
+      {onDelete && <button type="button"style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar</button>}
 
       {transModal && (
         <Modal title="Agregar Transportista" onClose={() => setTransModal(false)}>
@@ -1019,8 +1019,8 @@ const CargaForm = ({ initial, onSave, onClose, onDelete }) => {
               placeholder="Ej: MARTINEZ" />
           </F>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-            <button style={btnSecondary} onClick={() => setTransModal(false)}>Cancelar</button>
-            <button style={btnPrimary} onClick={saveNuevoTrans}>Guardar</button>
+            <button type="button"style={btnSecondary} onClick={() => setTransModal(false)}>Cancelar</button>
+            <button type="button"style={btnPrimary} onClick={saveNuevoTrans}>Guardar</button>
           </div>
         </Modal>
       )}
@@ -1033,8 +1033,8 @@ const CargaForm = ({ initial, onSave, onClose, onDelete }) => {
               placeholder="Ej: Leche Parcialmente Descremada" />
           </F>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-            <button style={btnSecondary} onClick={() => setProdModal(false)}>Cancelar</button>
-            <button style={btnPrimary} onClick={saveNuevoProd}>Guardar</button>
+            <button type="button"style={btnSecondary} onClick={() => setProdModal(false)}>Cancelar</button>
+            <button type="button"style={btnPrimary} onClick={saveNuevoProd}>Guardar</button>
           </div>
         </Modal>
       )}
@@ -1111,15 +1111,15 @@ const MovForm = ({ initial, onSave, onClose, onDelete }) => {
       <F label="Motivo"><Inp value={f.motivo || ""} onChange={set("motivo")} placeholder="Ej: Trasvase, Mezcla, etc." /></F>
       <F label="Responsable"><Inp value={f.resp} onChange={set("resp")} /></F>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-        <button style={btnSecondary} onClick={onClose}>Cancelar</button>
-        <button style={btnPrimary} onClick={() => {
+        <button type="button"style={btnSecondary} onClick={onClose}>Cancelar</button>
+        <button type="button"style={btnPrimary} onClick={() => {
           const req = [["litros", "Litros"], ["desde", "Desde"], ["hasta", "Hasta"], ["motivo", "Motivo"], ["resp", "Responsable"]];
           const miss = req.filter(([k]) => !String(f[k] || "").trim()).map(([, v]) => v);
           if (miss.length) { alert("Campos obligatorios sin completar:\n• " + miss.join("\n• ")); return; }
           onSave(f);
         }}>Guardar</button>
       </div>
-      {onDelete && <button style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar</button>}
+      {onDelete && <button type="button"style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar</button>}
     </div>
   );
 };
@@ -1138,15 +1138,15 @@ const CtrlForm = ({ initial, onSave, onClose, onDelete }) => {
       </div>
       <F label="Responsable"><Inp value={f.resp} onChange={set("resp")} /></F>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-        <button style={btnSecondary} onClick={onClose}>Cancelar</button>
-        <button style={btnPrimary} onClick={() => {
+        <button type="button"style={btnSecondary} onClick={onClose}>Cancelar</button>
+        <button type="button"style={btnPrimary} onClick={() => {
           const req = [["silo", "Silo"], ["ph", "pH"], ["gD", "°D"], ["gC", "°C"], ["alc", "Alc."], ["mg", "MG"], ["sng", "SNG"], ["dens", "Densidad"], ["fp", "FP"], ["prot", "Proteína"], ["resp", "Responsable"]];
           const miss = req.filter(([k]) => !String(f[k] || "").trim()).map(([, v]) => v);
           if (miss.length) { alert("Campos obligatorios sin completar:\n• " + miss.join("\n• ")); return; }
           onSave(f);
         }}>Guardar</button>
       </div>
-      {onDelete && <button style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar</button>}
+      {onDelete && <button type="button"style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar</button>}
     </div>
   );
 };
@@ -1181,7 +1181,7 @@ const SecMovimientos = ({ date, syncKey = 0 }) => {
     <div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
         {[["movs", "Movimientos"], ["ctrls", "Control Silos"]].map(([t, l]) => (
-          <button key={t} onClick={() => setTab(t)} style={{ ...(tab === t ? btnPrimary : btnSecondary), padding: "10px 6px" }}>{l}</button>
+          <button type="button"key={t} onClick={() => setTab(t)} style={{ ...(tab === t ? btnPrimary : btnSecondary), padding: "10px 6px" }}>{l}</button>
         ))}
       </div>
       {tab === "movs" && (
@@ -1327,7 +1327,7 @@ const SecStock = ({ date, syncKey = 0 }) => {
             </div>
             <div style={{ fontSize: 13, color: C.text }}>{silosVaciados.join(", ")} → marcados como Sucio (vacío)</div>
           </div>
-          <button onClick={() => setSilosVaciados([])} style={{ background: "none", border: "none", color: C.sub, fontSize: 22, cursor: "pointer", padding: "0 4px" }}>×</button>
+          <button type="button"onClick={() => setSilosVaciados([])} style={{ background: "none", border: "none", color: C.sub, fontSize: 22, cursor: "pointer", padding: "0 4px" }}>×</button>
         </div>
       )}
 
@@ -1337,7 +1337,7 @@ const SecStock = ({ date, syncKey = 0 }) => {
           const filled = Object.values((data[t] || {}).silos || {}).filter(s => s.ph && s.grasa).length;
           const isActive = t === getCurrentTurno() && date === getToday();
           return (
-            <button key={t} onClick={() => setTurno(t)} style={{ ...(turno === t ? btnPrimary : btnSecondary), padding: "8px 4px", position: "relative" }}>
+            <button type="button"key={t} onClick={() => setTurno(t)} style={{ ...(turno === t ? btnPrimary : btnSecondary), padding: "8px 4px", position: "relative" }}>
               {isActive && <span style={{ position: "absolute", top: 4, right: 6, width: 6, height: 6, borderRadius: 3, background: turno === t ? "#000" : "#22c55e", display: "inline-block" }} />}
               <div style={{ fontSize: 13, fontWeight: 700 }}>{TURNO_LABELS[t]}</div>
               <div style={{ fontSize: 11, opacity: 0.7 }}>{t}–{TURNO_CIERRE[t]} hs.</div>
@@ -1528,12 +1528,12 @@ const FortForm = ({ initial, onSave, onClose, onDelete }) => {
               {UNIDADES_FORT.map(u => <option key={u} value={u}>{u}</option>)}
             </select>
             {idx >= 3
-              ? <button onClick={() => delAdicion(a.id)} style={{ background: "none", border: `1px solid ${C.danger}55`, borderRadius: 6, color: C.danger, cursor: "pointer", height: 42, width: 28, fontSize: 18, padding: 0, lineHeight: 1 }}>×</button>
+              ? <button type="button"onClick={() => delAdicion(a.id)} style={{ background: "none", border: `1px solid ${C.danger}55`, borderRadius: 6, color: C.danger, cursor: "pointer", height: 42, width: 28, fontSize: 18, padding: 0, lineHeight: 1 }}>×</button>
               : <div />
             }
           </div>
         ))}
-        <button onClick={addAdicion} style={{ ...btnSecondary, marginTop: 6, borderStyle: "dashed", color: C.accent, borderColor: C.accentDark, fontSize: 13, padding: "9px 12px" }}>
+        <button type="button"onClick={addAdicion} style={{ ...btnSecondary, marginTop: 6, borderStyle: "dashed", color: C.accent, borderColor: C.accentDark, fontSize: 13, padding: "9px 12px" }}>
           + Agregar producto
         </button>
       </div>
@@ -1552,8 +1552,8 @@ const FortForm = ({ initial, onSave, onClose, onDelete }) => {
         <textarea style={{ ...inp, minHeight: 56, resize: "vertical" }} value={f.obs} onChange={e => set("obs")(e.target.value)} placeholder="Obs..." />
       </F>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-        <button style={btnSecondary} onClick={onClose}>Cancelar</button>
-        <button style={btnPrimary} onClick={() => {
+        <button type="button"style={btnSecondary} onClick={onClose}>Cancelar</button>
+        <button type="button"style={btnPrimary} onClick={() => {
           const req = [["siloOrigen", "Silo Origen"], ["litrosBase", "Litros base"], ["siloDestino", "Silo Destino"], ["responsable", "Responsable"]];
           const miss = req.filter(([k]) => !String(f[k] || "").trim()).map(([, v]) => v);
           const sinCant = f.adiciones.filter(a => !String(a.cantidad || "").trim()).map(a => a.producto || "Adición");
@@ -1562,7 +1562,7 @@ const FortForm = ({ initial, onSave, onClose, onDelete }) => {
           onSave(f);
         }}>Guardar</button>
       </div>
-      {onDelete && <button style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar</button>}
+      {onDelete && <button type="button"style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar</button>}
     </div>
   );
 };
@@ -1879,7 +1879,7 @@ const DonutChart = ({ pct = 0, color, size = 74, label }) => {
           stroke={color || C.accent} strokeWidth={sw}
           strokeDasharray={`${dash} ${circ}`}
           strokeLinecap="round"
-          style={{ transform: "rotate(-90deg)", transformOrigin: `${cx}px ${cy}px`, transition: "stroke-dasharray 1.2s cubic-bezier(0.34,1.1,0.64,1)" }}
+          style={{ transform: "rotate(-90deg)", transformOrigin: `${cx}px ${cy}px`, transition: `stroke-dasharray 0.6s ${EASE_OUT}` }}
         />
       )}
       {label !== undefined && (
@@ -1890,9 +1890,10 @@ const DonutChart = ({ pct = 0, color, size = 74, label }) => {
   );
 };
 
-const Sparkline = ({ values, color = "#f59e0b", w = 64, h = 24 }) => {
+const Sparkline = ({ values, color, w = 64, h = 24 }) => {
+  const sparkColor = color || C.accent;
   const clean = (values || []).filter(v => v != null && !isNaN(v) && v > 0);
-  if (clean.length < 2) return <span style={{ fontSize: 9, color: "#2d3a55" }}>—</span>;
+  if (clean.length < 2) return <span style={{ fontSize: 9, color: C.muted }}>—</span>;
   const lo = Math.min(...clean), hi = Math.max(...clean), span = hi - lo || 0.001;
   const pts = clean.map((v, i) => {
     const x = 2 + (i / (clean.length - 1)) * (w - 4);
@@ -1902,9 +1903,9 @@ const Sparkline = ({ values, color = "#f59e0b", w = 64, h = 24 }) => {
   const [lx, ly] = pts[pts.length - 1].split(",");
   return (
     <svg width={w} height={h} style={{ display: "block", overflow: "visible" }}>
-      <polyline points={pts.join(" ")} fill="none" stroke={color} strokeWidth="1.6"
+      <polyline points={pts.join(" ")} fill="none" stroke={sparkColor} strokeWidth="1.6"
         strokeLinecap="round" strokeLinejoin="round" opacity="0.9" />
-      <circle cx={lx} cy={ly} r="2.2" fill={color} />
+      <circle cx={lx} cy={ly} r="2.2" fill={sparkColor} />
     </svg>
   );
 };
@@ -1990,7 +1991,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
   });
 
   const TIPO_LABEL = { ingreso: "Ingreso", carga: "Carga", movimiento: "Movimiento", control: "Control Silo", fortificado: "Fortificado" };
-  const TIPO_COL = { ingreso: C.accent, carga: "#60a5fa", movimiento: "#a78bfa", control: "#34d399", fortificado: C.success };
+  const TIPO_COL = { ingreso: C.accent, carga: C.sub, movimiento: C.muted, control: C.success, fortificado: C.success };
 
   // ── Componentes visuales ─────────────────────────────────────
   const StatCard = ({ Icon: StatIcon, label, value, unit, color, sub, trend }) => {
@@ -2062,7 +2063,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
           <div style={{
             width: `${Math.max(pct, isEmpty ? 0 : 1)}%`, height: "100%",
             background: isEmpty ? C.danger + "44" : `linear-gradient(90deg, ${statusColor}aa, ${statusColor})`,
-            borderRadius: 8, transition: "width 0.8s cubic-bezier(0.34,1.1,0.64,1)",
+            borderRadius: 8, transition: `width 0.6s ${EASE_OUT}`,
             boxShadow: pct > 5 ? `0 0 8px ${statusColor}44` : "none",
           }} />
         </div>
@@ -3261,7 +3262,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
             <span class="print-bar-brand">YATASTO</span>
             <span class="print-bar-sub">Informe Ejecutivo · ${fmtDate(exportDate)}</span>
           </div>
-          <button class="print-btn" onclick="window.print()">🖨 Imprimir / Guardar PDF</button>
+          <button type="button"class="print-btn" onclick="window.print()">🖨 Imprimir / Guardar PDF</button>
         </div>
       `;
 
@@ -3423,7 +3424,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
         ].map(([t, TabIcon, lbl]) => {
           const active = tab === t;
           return (
-            <button key={t} onClick={() => setTab(t)} style={{
+            <button type="button"key={t} onClick={() => setTab(t)} style={{
               background: active
                 ? `linear-gradient(145deg, ${C.accent}, ${C.accent}cc)`
                 : (_THEME === "light" ? "#fff" : C.card),
@@ -3488,14 +3489,14 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
             {/* KPI grid */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
               <StatCard Icon={IcoLeche}       label="Ingresados" value={totalIngresados} unit="L" color={C.accent} />
-              <StatCard Icon={IcoCarga}       label="Cargados"   value={totalCargados}   unit="L" color="#60a5fa" />
+              <StatCard Icon={IcoCarga}       label="Cargados"   value={totalCargados}   unit="L" color={C.sub} />
               <StatCard Icon={IcoBalance}     label="Balance"    value={balance}         unit="L" color={balColor} />
               <StatCard Icon={CamionIcon}     label="Camiones"   value={d.ing.length}    color={C.text} sub={`${tambosUnicos} tambos`} />
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8, marginBottom: 14 }}>
               <StatCard Icon={IcoDestino}      label="Cargas"  value={d.cargas.length}           color={C.text} />
-              <StatCard Icon={IcoFortificados} label="Fort."   value={d.forts.length}            color="#22c55e" />
-              <StatCard Icon={IcoMovimientos}  label="Movim."  value={(d.movData.movs || []).length} color="#a78bfa" />
+              <StatCard Icon={IcoFortificados} label="Fort."   value={d.forts.length}            color={C.success} />
+              <StatCard Icon={IcoMovimientos}  label="Movim."  value={(d.movData.movs || []).length} color={C.sub} />
             </div>
 
             {/* Alerts */}
@@ -3776,7 +3777,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
                 { label: "14 días", fn: () => { const d14 = getLastNDays(14); setExportFrom(d14[0]); setExportTo(date); } },
                 { label: "30 días", fn: () => { const d30 = getLastNDays(30); setExportFrom(d30[0]); setExportTo(date); } },
               ].map(({ label, fn }) => (
-                <button key={label} onClick={fn} style={{ ...btnSecondary, width: "auto", padding: "6px 12px", fontSize: 12 }}>{label}</button>
+                <button type="button"key={label} onClick={fn} style={{ ...btnSecondary, width: "auto", padding: "6px 12px", fontSize: 12 }}>{label}</button>
               ))}
             </div>
             <div style={{ fontSize: 11, color: C.sub, marginTop: 8, textAlign: "center" }}>
@@ -3788,15 +3789,15 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
 
           <div style={{ ...secTitle }}>Formato de exportación</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 10 }}>
-            <button onClick={doExportCSV} disabled={exporting} style={{ background: C.success.replace(/\)$/, " / 0.12)"), color: C.success, border: `1px solid ${C.success.replace(/\)$/, " / 0.35)")}`, borderRadius: 12, padding: "16px 18px", cursor: "pointer", textAlign: "left", opacity: exporting ? 0.6 : 1 }}>
+            <button type="button"onClick={doExportCSV} disabled={exporting} style={{ background: C.success.replace(/\)$/, " / 0.12)"), color: C.success, border: `1px solid ${C.success.replace(/\)$/, " / 0.35)")}`, borderRadius: 12, padding: "16px 18px", cursor: "pointer", textAlign: "left", opacity: exporting ? 0.6 : 1 }}>
               <div style={{ fontSize: 17, marginBottom: 3, fontWeight: 700 }}>Exportar CSV</div>
               <div style={{ fontSize: 11, color: C.sub }}>Ingresos · Cargas · Movimientos — Compatible con Excel, Google Sheets y cualquier planilla</div>
             </button>
-            <button onClick={doExportXLS} disabled={exporting} style={{ background: C.accentDim, color: C.accent, border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 18px", cursor: "pointer", textAlign: "left", opacity: exporting ? 0.6 : 1 }}>
+            <button type="button"onClick={doExportXLS} disabled={exporting} style={{ background: C.accentDim, color: C.accent, border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 18px", cursor: "pointer", textAlign: "left", opacity: exporting ? 0.6 : 1 }}>
               <div style={{ fontSize: 17, marginBottom: 3, fontWeight: 700 }}>Exportar Excel (.xls)</div>
               <div style={{ fontSize: 11, color: C.sub }}>Tabla formateada lista para abrir en Microsoft Excel</div>
             </button>
-            <button onClick={doExportPDF} disabled={exporting} style={{ background: C.danger.replace(/\)$/, " / 0.10)"), color: C.danger, border: `1px solid ${C.danger.replace(/\)$/, " / 0.30)")}`, borderRadius: 12, padding: "16px 18px", cursor: "pointer", textAlign: "left", opacity: exporting ? 0.6 : 1 }}>
+            <button type="button"onClick={doExportPDF} disabled={exporting} style={{ background: C.danger.replace(/\)$/, " / 0.10)"), color: C.danger, border: `1px solid ${C.danger.replace(/\)$/, " / 0.30)")}`, borderRadius: 12, padding: "16px 18px", cursor: "pointer", textAlign: "left", opacity: exporting ? 0.6 : 1 }}>
               <div style={{ fontSize: 17, marginBottom: 3, fontWeight: 700 }}>Ver / Imprimir PDF</div>
               <div style={{ fontSize: 11, color: C.sub }}>Abre una vista de impresión — guardá como PDF desde el navegador</div>
             </button>
@@ -3851,7 +3852,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
                           height: `${Math.max(pct, ingresados > 0 ? 3 : 0)}%`,
                           background: barCol,
                           borderRadius: "3px 3px 0 0",
-                          transition: "height 0.9s cubic-bezier(0.34,1.1,0.64,1)",
+                          transition: `height 0.6s ${EASE_OUT}`,
                           boxShadow: isHoy ? `0 0 12px ${C.accent}66` : "none",
                         }} />
                       </div>
@@ -4003,9 +4004,9 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
         );
 
         const PARAM_DEFS = [
-          { key: "acidez", label: "Acidez", ref: QUALITY_REFS["Acidez"],   col: "#f59e0b" },
-          { key: "ph",     label: "pH",     ref: QUALITY_REFS["pH"],       col: "#60a5fa" },
-          { key: "gb",     label: "GB %",   ref: QUALITY_REFS["GB"],       col: "#34d399" },
+          { key: "acidez", label: "Acidez", ref: QUALITY_REFS["Acidez"],   col: C.accent },
+          { key: "ph",     label: "pH",     ref: QUALITY_REFS["pH"],       col: C.sub },
+          { key: "gb",     label: "GB %",   ref: QUALITY_REFS["GB"],       col: C.success },
         ];
 
         return (
@@ -4250,10 +4251,10 @@ export default function App() {
               Los datos no se guardarán. Verificá la conexión con el sistema Antigravity.
             </div>
           </div>
-          <button onClick={() => {
+          <button type="button"onClick={() => {
             const HC = "yatasto:_hc";
             window.storage.set(HC, "1").then(() => window.storage.get(HC)).then(r => setStorageOk(!!r)).catch(() => setStorageOk(false));
-          }} style={{ background: "#ef4444", border: "none", color: "#fff", borderRadius: 8, padding: "5px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
+          }} style={{ background: C.danger.replace(/\)$/, " / 0.15)"), border: `1px solid ${C.danger.replace(/\)$/, " / 0.4)")}`, color: C.danger, borderRadius: 8, padding: "5px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
             Reintentar
           </button>
         </div>
@@ -4272,8 +4273,8 @@ export default function App() {
               placeholder="Ej: Juan García" />
           </F>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-            <button style={btnSecondary} onClick={() => setInitModal(false)}>Ahora no</button>
-            <button style={btnPrimary} onClick={guardarResponsable}>Ingresar</button>
+            <button type="button"style={btnSecondary} onClick={() => setInitModal(false)}>Ahora no</button>
+            <button type="button"style={btnPrimary} onClick={guardarResponsable}>Ingresar</button>
           </div>
         </Modal>
       )}
@@ -4296,7 +4297,7 @@ export default function App() {
                   ● SESIÓN ACTIVA
                 </div>
               </div>
-              <button style={{ ...btnSecondary, color: C.danger, borderColor: C.danger + "55", width: "100%" }} onClick={handleLogout}>
+              <button type="button"style={{ ...btnSecondary, color: C.danger, borderColor: C.danger + "55", width: "100%" }} onClick={handleLogout}>
                 Cerrar sesión
               </button>
             </div>
@@ -4333,8 +4334,8 @@ export default function App() {
                 </div>
               )}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                <button style={btnSecondary} onClick={closePerfilModal}>Cancelar</button>
-                <button style={btnPrimary} onClick={handleLogin}>Ingresar</button>
+                <button type="button"style={btnSecondary} onClick={closePerfilModal}>Cancelar</button>
+                <button type="button"style={btnPrimary} onClick={handleLogin}>Ingresar</button>
               </div>
             </div>
           )}
@@ -4364,7 +4365,7 @@ export default function App() {
         {/* Right: action buttons */}
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
           {/* Theme toggle */}
-          <button onClick={() => {
+          <button type="button"onClick={() => {
             const next = _THEME === "dark" ? "light" : "dark";
             saveSessionForReload({ section, date, perfil, nombre: initNombre });
             try { localStorage.setItem("yatasto:theme", next); } catch {}
@@ -4380,7 +4381,7 @@ export default function App() {
           }}>{_THEME === "dark" ? <ThemeLight size={16} strokeWidth={SW} /> : <ThemeDark size={16} strokeWidth={SW} />}</button>
 
           {/* Botón perfil */}
-          <button onClick={() => setPerfilModal(true)}
+          <button type="button"onClick={() => setPerfilModal(true)}
             title={perfil ? PERFILES[perfil].label : "Acceder con perfil"}
             aria-label={perfil ? `Perfil: ${PERFILES[perfil].label}` : "Acceder con perfil"}
             style={{
@@ -4396,14 +4397,14 @@ export default function App() {
             )}
           </button>
 
-          <button onClick={() => setInforme(true)} title="Informe del día" aria-label="Ver informe del día" style={{
+          <button type="button"onClick={() => setInforme(true)} title="Informe del día" aria-label="Ver informe del día" style={{
             background: C.card, border: `1px solid ${C.border}`,
             borderRadius: 9, color: C.sub, width: 34, height: 34,
             cursor: "pointer", fontSize: 15,
             display: "flex", alignItems: "center", justifyContent: "center",
           }}><IcoInforme size={16} strokeWidth={SW} /></button>
 
-          <button onClick={() => setDatePicker(!datePicker)} style={{
+          <button type="button"onClick={() => setDatePicker(!datePicker)} style={{
             background: isToday ? C.card : C.accentDim,
             border: `1px solid ${isToday ? C.border : C.accentDark}`,
             borderRadius: 9, color: isToday ? C.text : C.accent,
@@ -4421,7 +4422,7 @@ export default function App() {
       {datePicker && (
         <div style={{ background: C.card, borderBottom: `1px solid ${C.border}`, padding: "12px 16px", display: "flex", gap: 8 }}>
           <input type="date" value={date} onChange={e => { setDate(e.target.value); setDatePicker(false); }} style={{ ...inp, flex: 1 }} />
-          <button onClick={() => { setDate(getToday()); setDatePicker(false); }} style={{ ...btnPrimary, width: "auto", padding: "10px 16px", whiteSpace: "nowrap" }}>Hoy</button>
+          <button type="button"onClick={() => { setDate(getToday()); setDatePicker(false); }} style={{ ...btnPrimary, width: "auto", padding: "10px 16px", whiteSpace: "nowrap" }}>Hoy</button>
         </div>
       )}
 
@@ -4447,7 +4448,7 @@ export default function App() {
         {navItems.map(n => {
           const active = section === n.id;
           return (
-            <button key={n.id} onClick={() => setSection(n.id)} style={{
+            <button type="button"key={n.id} onClick={() => setSection(n.id)} style={{
               background: "none", border: "none", cursor: "pointer", padding: "10px 0 13px",
               display: "flex", flexDirection: "column", alignItems: "center", gap: 2,
               borderTop: active ? `2.5px solid ${C.accent}` : "2.5px solid transparent",
