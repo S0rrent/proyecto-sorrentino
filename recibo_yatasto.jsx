@@ -109,6 +109,7 @@ const PRODS_CONCENTRADOS = ["Lactosa", "Suero", "Concentrado"];
 const getToday = () => new Date().toISOString().split("T")[0];
 const getPreviousDate = (dateStr) => { const d = new Date(dateStr + "T00:00:00"); d.setDate(d.getDate() - 1); return d.toISOString().split("T")[0]; };
 const getLastNDays = (n) => { const days = []; for (let i = n - 1; i >= 0; i--) { const d = new Date(); d.setDate(d.getDate() - i); days.push(d.toISOString().split("T")[0]); } return days; };
+const getDaysInRange = (from, to) => { const days = []; const cur = new Date(from + "T00:00:00"); const end = new Date(to + "T00:00:00"); while (cur <= end && days.length < 90) { days.push(cur.toISOString().slice(0, 10)); cur.setDate(cur.getDate() + 1); } return days; };
 const DIAS_ES = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
 const getNow = () => { const d = new Date(); return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
 const getCurrentTurno = () => { const h = new Date().getHours(); return h >= 7 && h < 14 ? "07:00" : h >= 14 && h < 21 ? "14:00" : "21:00"; };
@@ -432,18 +433,30 @@ const FAB = ({ onClick }) => (
     display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50,
   }}>+</button>
 );
-const Modal = ({ title, onClose, children, zIndex = 100 }) => (
-  <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)", zIndex, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
-    <div style={{ background: C.bg, borderRadius: "20px 20px 0 0", padding: 20, maxHeight: "93vh", overflowY: "auto", border: `1px solid ${C.border}`, borderBottom: "none" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
-        <span style={{ fontWeight: 700, fontSize: 18, color: C.text }}>{title}</span>
-        <button onClick={onClose} style={{ background: C.card, border: "none", color: C.sub, borderRadius: 8, width: 36, height: 36, cursor: "pointer", fontSize: 20 }}>×</button>
+const Modal = ({ title, onClose, children, zIndex = 100 }) => {
+  const isDesktop = typeof window !== "undefined" && window.innerWidth >= 1024;
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)", zIndex, display: "flex", alignItems: isDesktop ? "center" : "flex-end", justifyContent: "center" }}>
+      <div style={{
+        background: C.bg, padding: 20, overflowY: "auto",
+        border: `1px solid ${C.border}`,
+        ...(isDesktop ? {
+          borderRadius: 16, width: "min(580px, 90vw)", maxHeight: "85vh",
+          boxShadow: "0 24px 48px rgba(0,0,0,0.45)",
+        } : {
+          borderRadius: "20px 20px 0 0", width: "100%", maxHeight: "93vh", borderBottom: "none",
+        }),
+      }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+          <span style={{ fontWeight: 700, fontSize: 18, color: C.text }}>{title}</span>
+          <button onClick={onClose} style={{ background: C.card, border: "none", color: C.sub, borderRadius: 8, width: 36, height: 36, cursor: "pointer", fontSize: 20 }}>×</button>
+        </div>
+        {children}
+        <div style={{ height: 20 }} />
       </div>
-      {children}
-      <div style={{ height: 20 }} />
     </div>
-  </div>
-);
+  );
+};
 
 // ─── INGRESOS ────────────────────────────────────────────────
 const emptyIng = () => ({
@@ -1604,12 +1617,12 @@ const SecFortificados = ({ date, syncKey = 0 }) => {
           <div style={{ fontSize: 13, marginTop: 6 }}>Tocá + para agregar</div>
         </div>
       ) : list.map(f => (
-        <div key={f.id} onClick={() => setModal(f)} style={{ ...card, cursor: "pointer", borderLeftWidth: 3, borderLeftColor: "#27ae60" }}>
+        <div key={f.id} onClick={() => setModal(f)} style={{ ...card, cursor: "pointer", border: `1px solid ${C.success.replace(/\)$/, " / 0.3)")}`, background: C.success.replace(/\)$/, " / 0.06)") }}>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
             <span style={{ fontFamily: "monospace", fontWeight: 700, color: C.accent, fontSize: 17 }}>{f.hora}</span>
             <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-              {f.paraQue && <span style={{ background: "#0a2218", color: "#27ae60", borderRadius: 6, padding: "2px 8px", fontSize: 11, fontWeight: 700, border: "1px solid #27ae6044" }}>{f.paraQue}</span>}
-              <span style={{ background: "#0d2b1a", color: "#27ae60", borderRadius: 6, padding: "2px 10px", fontSize: 12, fontWeight: 700 }}>
+              {f.paraQue && <span style={{ background: C.success.replace(/\)$/, " / 0.15)"), color: C.success, borderRadius: 6, padding: "2px 8px", fontSize: 11, fontWeight: 700, border: `1px solid ${C.success.replace(/\)$/, " / 0.35)")}` }}>{f.paraQue}</span>}
+              <span style={{ background: C.success.replace(/\)$/, " / 0.15)"), color: C.success, borderRadius: 6, padding: "2px 10px", fontSize: 12, fontWeight: 700 }}>
                 {f.litrosBase ? `${parseFloat(f.litrosBase).toLocaleString("es-AR")} L` : "Sin litros"}
               </span>
             </div>
@@ -1900,14 +1913,16 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
   const [tab, setTab] = useState("resumen");
   const [d, setD] = useState(null);
   const [users, setUsers] = useState([]);
-  const [exportDate, setExportDate] = useState(date);
+  const [exportFrom, setExportFrom] = useState(date);
+  const [exportTo, setExportTo] = useState(date);
   const [exporting, setExporting] = useState(false);
   const [weekData, setWeekData] = useState(null);
   const [loadingWeek, setLoadingWeek] = useState(false);
   const [tamboSel, setTamboSel] = useState(null);
 
   useEffect(() => {
-    setExportDate(date);
+    setExportFrom(date);
+    setExportTo(date);
     Promise.all([
       load(date, "ingresos", []),
       load(date, "carga", []),
@@ -2067,21 +2082,42 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
   const doExportCSV = async () => {
     setExporting(true);
     try {
-      const [ing, cargas, movData] = await Promise.all([
-        load(exportDate, "ingresos", []),
-        load(exportDate, "carga", []),
-        load(exportDate, "movimientos", { movs: [] }),
-      ]);
-      let csv = `YATASTO - INFORME DIARIO - ${fmtDate(exportDate)}\n\n`;
-      csv += "INGRESOS\nHora,Tambo,Litros,Destino,pH,Acidez,GB,SNG,Densidad,Proteína,Responsable\n";
-      ing.forEach(i => { csv += `${i.hora || ""},${i.tambo || ""},${i.litrosFca || ""},${i.destino || ""},${i.phFca || ""},${i.acidezFca || ""},${i.gbFca || ""},${i.sngFca || ""},${i.densFca || ""},${i.protFca || ""},${i.responsable || ""}\n`; });
-      csv += "\nCARGAS\nHora,Label,Destino,Transportista,Silo,Litros,pH,Temp,Responsable\n";
-      cargas.forEach(c => { csv += `${c.hora || ""},${c.label || ""},${c.destino || ""},${c.transportista || ""},${c.siloProveniente || ""},${c.litros || ""},${c.pH || ""},${c.gC || ""},${c.responsable || ""}\n`; });
-      csv += "\nMOVIMIENTOS\nHora,Desde,Hasta,Litros,Motivo,Responsable\n";
-      (movData.movs || []).forEach(m => { csv += `${m.hora || ""},${m.desde || ""},${m.hasta || ""},${m.litros || ""},${m.motivo || ""},${m.resp || ""}\n`; });
+      const days = getDaysInRange(exportFrom, exportTo);
+      const multiDay = days.length > 1;
+      const diffVal = (fca, tbo) => { const f = parseFloat(fca), t = parseFloat(tbo); return (!isNaN(f) && !isNaN(t)) ? (f - t).toFixed(3) : ""; };
+      const rangeLabel = multiDay ? `${fmtDate(exportFrom)} al ${fmtDate(exportTo)}` : fmtDate(exportFrom);
+      let csv = `YATASTO - INFORME - ${rangeLabel}\n\n`;
+      csv += "INGRESOS\n";
+      csv += `${multiDay ? "Fecha," : ""}Hora,Tambo,LitrosFca,LitrosTbo,ΔLitros,Destino,pH,Acidez,GBFca,GBTbo,ΔGB,SNGFca,SNGTbo,ΔSNG,DensFca,DensTbo,ΔDens,AguadoFca,AguadoTbo,ΔAguado,ProtFca,ProtTbo,ΔProt,AlcFca,AlcTbo,ΔAlc,Responsable\n`;
+      for (const day of days) {
+        const ing = await load(day, "ingresos", []);
+        ing.forEach(i => {
+          const prefix = multiDay ? `${fmtDate(day)},` : "";
+          csv += `${prefix}${i.hora || ""},${i.tambo || ""},${i.litrosFca || ""},${i.litrosTbo || ""},${diffVal(i.litrosFca, i.litrosTbo)},${i.destino || ""},${i.phFca || ""},${i.acidezFca || ""},${i.gbFca || ""},${i.gbTbo || ""},${diffVal(i.gbFca, i.gbTbo)},${i.sngFca || ""},${i.sngTbo || ""},${diffVal(i.sngFca, i.sngTbo)},${i.densFca || ""},${i.densTbo || ""},${diffVal(i.densFca, i.densTbo)},${i.aguadoFca || ""},${i.aguadoTbo || ""},${diffVal(i.aguadoFca, i.aguadoTbo)},${i.protFca || ""},${i.protTbo || ""},${diffVal(i.protFca, i.protTbo)},${i.alcFca || ""},${i.alcTbo || ""},${diffVal(i.alcFca, i.alcTbo)},${i.responsable || ""}\n`;
+        });
+      }
+      csv += "\nCARGAS\n";
+      csv += `${multiDay ? "Fecha," : ""}Hora,Label,Destino,Transportista,Silo,Litros,pH,Temp,Responsable\n`;
+      for (const day of days) {
+        const cargas = await load(day, "carga", []);
+        cargas.forEach(c => {
+          const prefix = multiDay ? `${fmtDate(day)},` : "";
+          csv += `${prefix}${c.hora || ""},${c.label || ""},${c.destino || ""},${c.transportista || ""},${c.siloProveniente || ""},${c.litros || ""},${c.pH || ""},${c.gC || ""},${c.responsable || ""}\n`;
+        });
+      }
+      csv += "\nMOVIMIENTOS\n";
+      csv += `${multiDay ? "Fecha," : ""}Hora,Desde,Hasta,Litros,Motivo,Responsable\n`;
+      for (const day of days) {
+        const movData = await load(day, "movimientos", { movs: [] });
+        (movData.movs || []).forEach(m => {
+          const prefix = multiDay ? `${fmtDate(day)},` : "";
+          csv += `${prefix}${m.hora || ""},${m.desde || ""},${m.hasta || ""},${m.litros || ""},${m.motivo || ""},${m.resp || ""}\n`;
+        });
+      }
+      const fname = multiDay ? `yatasto_${exportFrom}_${exportTo}.csv` : `yatasto_${exportFrom}.csv`;
       const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
       const url = URL.createObjectURL(blob);
-      const a = document.createElement("a"); a.href = url; a.download = `yatasto_${exportDate}.csv`; a.click();
+      const a = document.createElement("a"); a.href = url; a.download = fname; a.click();
       URL.revokeObjectURL(url);
     } finally { setExporting(false); }
   };
@@ -2089,14 +2125,21 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
   const doExportXLS = async () => {
     setExporting(true);
     try {
-      const [ing, cargas, movData, stk, forts] = await Promise.all([
-        load(exportDate, "ingresos", []),
-        load(exportDate, "carga", []),
-        load(exportDate, "movimientos", { movs: [] }),
-        load(exportDate, "stock", {}),
-        load(exportDate, "fortificados", []),
-      ]);
-      const autoL = await calcAutoLitros(exportDate);
+      const xlsDays = getDaysInRange(exportFrom, exportTo);
+      const xlsMulti = xlsDays.length > 1;
+      const allDayData = await Promise.all(xlsDays.map(async day => {
+        const [ing, cargas, movData, stk, forts] = await Promise.all([
+          load(day, "ingresos", []),
+          load(day, "carga", []),
+          load(day, "movimientos", { movs: [] }),
+          load(day, "stock", {}),
+          load(day, "fortificados", []),
+        ]);
+        const autoL = await calcAutoLitros(day);
+        return { day, ing, cargas, movData, stk, forts, autoL };
+      }));
+      const { ing, cargas, movData, stk, forts, autoL } = allDayData[0];
+      const exportDate = exportFrom;
 
       // ── KPIs ─────────────────────────────────────────────────
       const totIng   = ing.reduce((s, i) => s + (parseFloat(i.litrosFca) || 0), 0);
@@ -2461,73 +2504,93 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
             <span class="table-card-badge">Total: ${fmtN(totIng)} L</span>
           </div>
           <table><thead><tr>
-            <th>Hora</th><th>Tambo</th><th class="r">Litros Fca</th><th class="r">Litros Tbo</th>
+            ${xlsMulti ? `<th>Fecha</th>` : ""}<th>Hora</th><th>Tambo</th><th class="r">Litros Fca</th><th class="r">Litros Tbo</th><th class="r">ΔLitros</th>
             <th>Destino</th><th class="r">pH</th><th class="r">Acidez</th>
-            <th class="r">GB%</th><th class="r">SNG%</th><th class="r">Densidad</th>
-            <th class="r">Aguado</th><th>Responsable</th>
+            <th class="r">GBFca</th><th class="r">GBTbo</th><th class="r">ΔGB</th>
+            <th class="r">SNGFca</th><th class="r">SNGTbo</th><th class="r">ΔSNG</th>
+            <th class="r">DensFca</th><th class="r">DensTbo</th><th class="r">ΔDens</th>
+            <th class="r">AguFca</th><th class="r">AguTbo</th><th class="r">ΔAgu</th>
+            <th class="r">ProtFca</th><th class="r">ProtTbo</th><th class="r">ΔProt</th>
+            <th>Responsable</th>
           </tr></thead><tbody>
       `;
-      if (ing.length === 0) {
-        H += `<tr><td colspan="12" style="text-align:center;color:#94a3b8;padding:24px">Sin ingresos registrados para esta fecha</td></tr>`;
+      const xlsDiffVal = (fca, tbo) => { const f = parseFloat(fca), t = parseFloat(tbo); return (!isNaN(f) && !isNaN(t)) ? (f - t).toFixed(3) : "—"; };
+      const xlsIngRows = xlsMulti ? allDayData.flatMap(dd => dd.ing.map(i => ({ ...i, _day: dd.day }))) : ing.map(i => ({ ...i, _day: exportDate }));
+      if (xlsIngRows.length === 0) {
+        H += `<tr><td colspan="${xlsMulti ? 25 : 24}" style="text-align:center;color:#94a3b8;padding:24px">Sin ingresos registrados para este período</td></tr>`;
       } else {
-        ing.forEach(i => {
-          const lFca  = parseFloat(i.litrosFca) || 0;
-          const lTbo  = parseFloat(i.litrosTbo) || 0;
-          const difL  = Math.abs(lFca - lTbo);
-          const agu   = parseFloat(i.aguadoFca);
+        xlsIngRows.forEach(i => {
+          const lFca = parseFloat(i.litrosFca) || 0;
+          const lTbo = parseFloat(i.litrosTbo) || 0;
+          const difL = lFca - lTbo;
+          const agu  = parseFloat(i.aguadoFca);
           const aguHTML = isNaN(agu) || agu === 0
             ? `<span class="badge ok">0.000</span>`
             : `<span class="badge err">${agu.toFixed(3)} ⚠</span>`;
-          const difHTML = difL > 150
-            ? ` <span class="badge warn">Δ${fmtN(Math.round(difL))}L</span>` : "";
+          const difHTML = Math.abs(difL) > 150 ? ` <span class="badge warn">Δ${fmtN(Math.round(Math.abs(difL)))}L</span>` : "";
           H += `<tr>
+            ${xlsMulti ? `<td class="td-muted">${fmtDate(i._day)}</td>` : ""}
             <td class="td-mono">${i.hora || "—"}</td>
             <td class="td-bold">${i.tambo || "—"}</td>
             <td class="r td-bold">${lFca ? fmtN(lFca) : "—"}${difHTML}</td>
             <td class="r td-muted">${lTbo ? fmtN(lTbo) : "—"}</td>
+            <td class="r">${xlsDiffVal(i.litrosFca, i.litrosTbo)}</td>
             <td>${i.destino || "—"}</td>
             <td class="r">${i.phFca || "—"}</td>
             <td class="r">${i.acidezFca || "—"}</td>
             <td class="r">${i.gbFca || "—"}</td>
+            <td class="r">${i.gbTbo || "—"}</td>
+            <td class="r">${xlsDiffVal(i.gbFca, i.gbTbo)}</td>
             <td class="r">${i.sngFca || "—"}</td>
+            <td class="r">${i.sngTbo || "—"}</td>
+            <td class="r">${xlsDiffVal(i.sngFca, i.sngTbo)}</td>
             <td class="r">${i.densFca || "—"}</td>
+            <td class="r">${i.densTbo || "—"}</td>
+            <td class="r">${xlsDiffVal(i.densFca, i.densTbo)}</td>
             <td class="r">${aguHTML}</td>
+            <td class="r">${i.aguadoTbo || "—"}</td>
+            <td class="r">${xlsDiffVal(i.aguadoFca, i.aguadoTbo)}</td>
+            <td class="r">${i.protFca || "—"}</td>
+            <td class="r">${i.protTbo || "—"}</td>
+            <td class="r">${xlsDiffVal(i.protFca, i.protTbo)}</td>
             <td class="td-muted">${i.responsable || "—"}</td>
           </tr>`;
         });
-        const tFca = ing.reduce((s, i) => s + (parseFloat(i.litrosFca) || 0), 0);
-        const tTbo = ing.reduce((s, i) => s + (parseFloat(i.litrosTbo) || 0), 0);
+        const tFca = xlsIngRows.reduce((s, i) => s + (parseFloat(i.litrosFca) || 0), 0);
+        const tTbo = xlsIngRows.reduce((s, i) => s + (parseFloat(i.litrosTbo) || 0), 0);
         H += `<tr class="total-row">
-          <td></td><td class="td-bold">TOTAL</td>
+          ${xlsMulti ? "<td></td>" : ""}<td></td><td class="td-bold">TOTAL</td>
           <td class="r">${fmtN(tFca)} L</td>
           <td class="r">${fmtN(tTbo)} L</td>
-          <td colspan="8"></td>
+          <td colspan="20"></td>
         </tr>`;
       }
       H += `</tbody></table></div>`;
 
       // ── CARGAS ────────────────────────────────────────────────
+      const xlsCargRows = xlsMulti ? allDayData.flatMap(dd => dd.cargas.map(c => ({ ...c, _day: dd.day }))) : cargas.map(c => ({ ...c, _day: exportDate }));
       H += `
         <div class="sec-head">
           <span class="sec-head-title">Cargas Despachadas</span>
           <div class="sec-head-line"></div>
-          <span class="sec-head-pill">${cargas.length} registros</span>
+          <span class="sec-head-pill">${xlsCargRows.length} registros</span>
         </div>
         <div class="table-card">
           <div class="table-card-head">
             <span class="table-card-title">Detalle de Despachos</span>
-            <span class="table-card-badge">Total: ${fmtN(totCarg)} L</span>
+            <span class="table-card-badge">Total: ${fmtN(xlsCargRows.reduce((s,c)=>s+(parseFloat(c.litros)||0),0))} L</span>
           </div>
           <table><thead><tr>
-            <th>Hora</th><th>Denominación</th><th>Destino</th><th>Transportista</th>
+            ${xlsMulti ? `<th>Fecha</th>` : ""}<th>Hora</th><th>Denominación</th><th>Destino</th><th>Transportista</th>
             <th>Silo Origen</th><th class="r">Litros</th><th class="r">pH</th><th class="r">Temp°C</th><th>Responsable</th>
           </tr></thead><tbody>
       `;
-      if (cargas.length === 0) {
-        H += `<tr><td colspan="9" style="text-align:center;color:#94a3b8;padding:24px">Sin cargas registradas para esta fecha</td></tr>`;
+      if (xlsCargRows.length === 0) {
+        H += `<tr><td colspan="${xlsMulti ? 10 : 9}" style="text-align:center;color:#94a3b8;padding:24px">Sin cargas registradas para este período</td></tr>`;
       } else {
-        cargas.forEach(c => {
+        xlsCargRows.forEach(c => {
           H += `<tr>
+            ${xlsMulti ? `<td class="td-muted">${fmtDate(c._day)}</td>` : ""}
             <td class="td-mono">${c.hora || "—"}</td>
             <td class="td-bold">${c.label || "—"}</td>
             <td>${c.destino || "—"}</td>
@@ -2539,33 +2602,34 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
             <td class="td-muted">${c.responsable || "—"}</td>
           </tr>`;
         });
-        const tC = cargas.reduce((s, c) => s + (parseFloat(c.litros) || 0), 0);
+        const tC = xlsCargRows.reduce((s, c) => s + (parseFloat(c.litros) || 0), 0);
         H += `<tr class="total-row">
-          <td></td><td class="td-bold">TOTAL</td><td></td><td></td><td></td>
+          ${xlsMulti ? "<td></td>" : ""}<td></td><td class="td-bold">TOTAL</td><td></td><td></td><td></td>
           <td class="r">${fmtN(tC)} L</td><td colspan="3"></td>
         </tr>`;
       }
       H += `</tbody></table></div>`;
 
       // ── MOVIMIENTOS (si hay) ──────────────────────────────────
-      const movs = movData.movs || [];
-      if (movs.length > 0) {
+      const xlsMovRows = xlsMulti ? allDayData.flatMap(dd => (dd.movData.movs||[]).map(m => ({ ...m, _day: dd.day }))) : (movData.movs||[]).map(m => ({ ...m, _day: exportDate }));
+      if (xlsMovRows.length > 0) {
         H += `
           <div class="sec-head">
             <span class="sec-head-title">Movimientos entre Silos</span>
             <div class="sec-head-line"></div>
-            <span class="sec-head-pill">${movs.length} registros</span>
+            <span class="sec-head-pill">${xlsMovRows.length} registros</span>
           </div>
           <div class="table-card">
             <div class="table-card-head">
               <span class="table-card-title">Transferencias internas</span>
             </div>
             <table><thead><tr>
-              <th>Hora</th><th>Desde</th><th>Hasta</th><th class="r">Litros</th><th>Motivo</th><th>Responsable</th>
+              ${xlsMulti ? `<th>Fecha</th>` : ""}<th>Hora</th><th>Desde</th><th>Hasta</th><th class="r">Litros</th><th>Motivo</th><th>Responsable</th>
             </tr></thead><tbody>
         `;
-        movs.forEach(m => {
+        xlsMovRows.forEach(m => {
           H += `<tr>
+            ${xlsMulti ? `<td class="td-muted">${fmtDate(m._day)}</td>` : ""}
             <td class="td-mono">${m.hora || "—"}</td>
             <td>${m.desde || "—"}</td><td>${m.hasta || "—"}</td>
             <td class="r td-bold">${m.litros ? fmtN(parseFloat(m.litros)) : "—"}</td>
@@ -2577,25 +2641,27 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
       }
 
       // ── FORTIFICADOS (si hay) ─────────────────────────────────
-      if (forts.length > 0) {
+      const xlsFortRows = xlsMulti ? allDayData.flatMap(dd => dd.forts.map(f => ({ ...f, _day: dd.day }))) : forts.map(f => ({ ...f, _day: exportDate }));
+      if (xlsFortRows.length > 0) {
         H += `
           <div class="sec-head">
             <span class="sec-head-title">Lotes Fortificados</span>
             <div class="sec-head-line"></div>
-            <span class="sec-head-pill">${forts.length} lotes</span>
+            <span class="sec-head-pill">${xlsFortRows.length} lotes</span>
           </div>
           <div class="table-card">
             <div class="table-card-head">
               <span class="table-card-title">Producción Especial</span>
             </div>
             <table><thead><tr>
-              <th>Hora</th><th>Lote</th><th>Producto</th><th class="r">Litros</th>
+              ${xlsMulti ? `<th>Fecha</th>` : ""}<th>Hora</th><th>Lote</th><th>Producto</th><th class="r">Litros</th>
               <th>Tanque</th><th>Adiciones</th><th>Responsable</th>
             </tr></thead><tbody>
         `;
-        forts.forEach(f => {
+        xlsFortRows.forEach(f => {
           const adic = (f.adiciones || []).map(a => `${a.producto} ${a.cantidad}${a.unidad}`).join(" · ") || "—";
           H += `<tr>
+            ${xlsMulti ? `<td class="td-muted">${fmtDate(f._day)}</td>` : ""}
             <td class="td-mono">${f.hora || "—"}</td>
             <td class="td-bold">${f.lote || "—"}</td>
             <td>${f.producto || "—"}</td>
@@ -2609,10 +2675,11 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
       }
 
       // ── FOOTER ────────────────────────────────────────────────
+      const xlsRangeLabel = xlsMulti ? `${fmtDate(exportFrom)} al ${fmtDate(exportTo)}` : fmtDate(exportDate);
       H += `
         <div class="footer">
           <span class="footer-brand">Lacteos Yatasto SA · Sistema de Gestión v2.0</span>
-          <span>Generado: ${ts} &nbsp;·&nbsp; Fecha informe: ${fmtDate(exportDate)}</span>
+          <span>Generado: ${ts} &nbsp;·&nbsp; Período: ${xlsRangeLabel}</span>
         </div>
       `;
 
@@ -2632,7 +2699,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
       const url  = URL.createObjectURL(blob);
       const a    = document.createElement("a");
       a.href     = url;
-      a.download = `yatasto_informe_${exportDate}.xls`;
+      a.download = xlsMulti ? `yatasto_informe_${exportFrom}_${exportTo}.xls` : `yatasto_informe_${exportDate}.xls`;
       a.click();
       URL.revokeObjectURL(url);
     } finally { setExporting(false); }
@@ -2642,6 +2709,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
   const doExportPDF = async () => {
     setExporting(true);
     try {
+      const exportDate = exportFrom;
       const [ing, cargas, movData, stk, forts] = await Promise.all([
         load(exportDate, "ingresos", []),
         load(exportDate, "carga", []),
@@ -3690,12 +3758,32 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
       {tab === "exportar" && (
         <div>
           <div style={{ ...panel, marginBottom: 14 }}>
-            <div style={secTitle}>Seleccionar fecha</div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <input type="date" value={exportDate} onChange={e => setExportDate(e.target.value)} style={{ ...inp, flex: 1 }} />
-              <button onClick={() => setExportDate(date)} style={{ ...btnSecondary, width: "auto", padding: "10px 14px", whiteSpace: "nowrap" }}>Hoy</button>
+            <div style={secTitle}>Rango de fechas</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+              <div>
+                <div style={{ fontSize: 11, color: C.sub, marginBottom: 4 }}>Desde</div>
+                <input type="date" value={exportFrom} onChange={e => { setExportFrom(e.target.value); if (e.target.value > exportTo) setExportTo(e.target.value); }} style={{ ...inp, width: "100%" }} />
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: C.sub, marginBottom: 4 }}>Hasta</div>
+                <input type="date" value={exportTo} onChange={e => { setExportTo(e.target.value); if (e.target.value < exportFrom) setExportFrom(e.target.value); }} style={{ ...inp, width: "100%" }} />
+              </div>
             </div>
-            <div style={{ fontSize: 11, color: C.sub, marginTop: 8, textAlign: "center" }}>Exportando datos del {fmtDate(exportDate)}</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {[
+                { label: "Hoy", fn: () => { setExportFrom(date); setExportTo(date); } },
+                { label: "7 días", fn: () => { const d7 = getLastNDays(7); setExportFrom(d7[0]); setExportTo(date); } },
+                { label: "14 días", fn: () => { const d14 = getLastNDays(14); setExportFrom(d14[0]); setExportTo(date); } },
+                { label: "30 días", fn: () => { const d30 = getLastNDays(30); setExportFrom(d30[0]); setExportTo(date); } },
+              ].map(({ label, fn }) => (
+                <button key={label} onClick={fn} style={{ ...btnSecondary, width: "auto", padding: "6px 12px", fontSize: 12 }}>{label}</button>
+              ))}
+            </div>
+            <div style={{ fontSize: 11, color: C.sub, marginTop: 8, textAlign: "center" }}>
+              {exportFrom === exportTo
+                ? `Exportando datos del ${fmtDate(exportFrom)}`
+                : `Exportando del ${fmtDate(exportFrom)} al ${fmtDate(exportTo)} (${getDaysInRange(exportFrom, exportTo).length} días)`}
+            </div>
           </div>
 
           <div style={{ ...secTitle }}>Formato de exportación</div>
