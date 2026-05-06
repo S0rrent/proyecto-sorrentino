@@ -656,7 +656,7 @@ const SecIngresos = ({ date, syncKey = 0 }) => {
       <div style={{ ...card, display: "flex", justifyContent: "space-between", alignItems: "center", borderColor: C.accentDark }}>
         <div>
           <div style={{ fontSize: 11, color: C.sub, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 2 }}>Total del día</div>
-          <div style={{ fontSize: 30, fontWeight: 700, color: C.accent, fontFamily: "'Courier New',monospace", lineHeight: 1 }}>
+          <div style={{ fontSize: 30, fontWeight: 700, color: C.accent, fontFamily: FONT_MONO, lineHeight: 1 }}>
             {totalFca.toLocaleString("es-AR")} <span style={{ fontSize: 16 }}>L</span>
           </div>
         </div>
@@ -713,7 +713,7 @@ const SecIngresos = ({ date, syncKey = 0 }) => {
         return vista.map(ing => (
           <div key={ing.id} onClick={() => setModal(ing)} style={{ ...card, cursor: "pointer" }}>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-              <span style={{ fontFamily: "'Courier New',monospace", fontWeight: 700, color: C.accent, fontSize: 17 }}>{ing.hora}</span>
+              <span style={{ fontFamily: FONT_MONO, fontWeight: 700, color: C.accent, fontSize: 17 }}>{ing.hora}</span>
               <span style={{ background: C.accentDim, color: C.accent, borderRadius: 6, padding: "2px 10px", fontSize: 12, fontWeight: 700 }}>{ing.destino || "Sin destino"}</span>
             </div>
             <div style={{ fontWeight: 700, fontSize: 16, color: C.text, marginBottom: 4 }}>[{ing.num}] {ing.tambo || "—"}</div>
@@ -1342,7 +1342,7 @@ const SecStock = ({ date, syncKey = 0 }) => {
               {isActive && <span style={{ position: "absolute", top: 4, right: 6, width: 6, height: 6, borderRadius: 3, background: turno === t ? "#000" : "#22c55e", display: "inline-block" }} />}
               <div style={{ fontSize: 13, fontWeight: 700 }}>{TURNO_LABELS[t]}</div>
               <div style={{ fontSize: 11, opacity: 0.7 }}>{t}–{TURNO_CIERRE[t]} hs.</div>
-              <div style={{ fontSize: 9, marginTop: 2, color: turno === t ? "#000a" : "#22c55e88" }}>
+              <div style={{ fontSize: 10, marginTop: 2, color: turno === t ? C.text.replace(/\)$/, " / 0.6)") : C.success.replace(/\)$/, " / 0.55)") }}>
                 {filled > 0 ? `✓ ${filled} silos` : "Sin datos"}
               </div>
             </button>
@@ -1374,7 +1374,7 @@ const SecStock = ({ date, syncKey = 0 }) => {
                 {silo.startsWith("TQ") ? "TQ" : "SILO"} {silo.replace("TQ", "")}
               </span>
               <div style={{ textAlign: "right" }}>
-                <div style={{ fontSize: 9, color: C.sub, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 1 }}>Acumulado del día</div>
+                <div style={{ fontSize: 10, color: C.sub, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 1 }}>Acumulado del día</div>
                 <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: 16, color: litrosAuto > 0 ? C.accent : C.sub }}>
                   {litrosAuto.toLocaleString("es-AR")} L
                 </span>
@@ -1727,7 +1727,7 @@ const InformeModal = ({ date, onClose }) => {
                 <div style={{ fontSize: 13, fontWeight: 700, color: col, fontFamily: "monospace" }}>
                   {l <= 0 ? "VACÍO" : `${l.toLocaleString("es-AR")} L`}
                 </div>
-                {l > 0 && <div style={{ fontSize: 9, color: C.muted }}>{pct}% de {cap.toLocaleString("es-AR")} L</div>}
+                {l > 0 && <div style={{ fontSize: 10, color: C.muted }}>{pct}% de {cap.toLocaleString("es-AR")} L</div>}
               </div>
             );
           })}
@@ -1795,7 +1795,7 @@ const InformeModal = ({ date, onClose }) => {
 
       {/* Pendientes */}
       {(vacios.length > 0 || silosPend.length > 0 || camsPend.length > 0) ? (
-        <div style={{ ...card, borderColor: C.danger + "66", background: _THEME === "light" ? "#fef2f2" : "#160808", marginBottom: 8 }}>
+        <div style={{ ...card, borderColor: C.danger.replace(/\)$/, " / 0.4)"), background: C.danger.replace(/\)$/, " / 0.07)"), marginBottom: 8 }}>
           <div style={{ ...secTitle, color: C.danger }}>Pendientes</div>
           {vacios.length > 0 && <div style={{ fontSize: 12, color: C.danger, marginBottom: 6 }}>Silos vacíos (requieren CIP): {vacios.join(", ")}</div>}
           {silosPend.length > 0 && <div style={{ fontSize: 12, color: C.accent, marginBottom: 4 }}>CIP silos sin registrar: {silosPend.join(", ")}</div>}
@@ -4058,7 +4058,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
                       const chipBdr = !ok ? C.danger + "55" : C.border;
                       return (
                         <div key={key} style={{ background: chipBg, border: `1px solid ${chipBdr}`, borderRadius: 8, padding: "7px 8px" }}>
-                          <div style={{ fontSize: 9, color: C.sub, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 2 }}>{label}</div>
+                          <div style={{ fontSize: 10, color: C.sub, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 2 }}>{label}</div>
                           <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "monospace", color: v > 0 ? (ok ? col : C.danger) : C.muted, marginBottom: 4 }}>
                             {v > 0 ? v.toFixed(2) : "—"}
                           </div>
@@ -4391,7 +4391,7 @@ export default function App() {
                   placeholder="Contraseña" />
               </F>
               {loginError && (
-                <div style={{ color: C.danger, fontSize: 12, marginBottom: 12, padding: "8px 12px", background: _THEME === "light" ? "#fef2f2" : "#ef444418", borderRadius: 8, border: `1px solid ${C.danger}33` }}>
+                <div style={{ color: C.danger, fontSize: 12, marginBottom: 12, padding: "8px 12px", background: C.danger.replace(/\)$/, " / 0.08)"), borderRadius: 8, border: `1px solid ${C.danger.replace(/\)$/, " / 0.3)")}` }}>
                   {loginError}
                 </div>
               )}
@@ -4500,6 +4500,7 @@ export default function App() {
 
       {/* Content */}
       <div style={{ padding: isDesktop ? "16px 24px 24px" : "12px 16px 0", marginLeft: isDesktop ? SIDEBAR_W : 0 }}>
+        <div style={{ maxWidth: isDesktop ? 960 : "100%", margin: isDesktop ? "0 auto" : undefined }}>
         {section === "ingresos" && <SecIngresos date={date} syncKey={syncKey} />}
         {section === "cip" && <SecCIP date={date} syncKey={syncKey} />}
         {section === "carga" && <SecCarga date={date} syncKey={syncKey} />}
@@ -4507,6 +4508,7 @@ export default function App() {
         {section === "stock" && <SecStock date={date} syncKey={syncKey} />}
         {section === "fortificados" && <SecFortificados date={date} syncKey={syncKey} />}
         {section === "supervisor" && perfil && <SecDashboard date={date} perfil={perfil} perfilLabel={PERFILES[perfil]?.label || ""} syncKey={syncKey} />}
+        </div>
       </div>
 
       {/* Bottom nav — mobile only */}
