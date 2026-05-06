@@ -769,7 +769,7 @@ const CIPRow = ({ nombre, tipo, data, onChange }) => {
         <span style={{ fontWeight: 700, fontSize: 15, color: C.text }}>{tipo} {nombre}</span>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {hasData && <span style={{ width: 8, height: 8, borderRadius: 4, background: C.success, display: "inline-block" }} />}
-          {data?.hora && <span style={{ fontSize: 12, color: C.success, fontFamily: "monospace" }}>{data.hora}</span>}
+          {data?.hora && <span style={{ fontSize: 12, color: C.success, fontFamily: FONT_MONO }}>{data.hora}</span>}
           <span style={{ color: C.sub }}>{open ? "▲" : "▼"}</span>
         </div>
       </div>
@@ -1064,7 +1064,7 @@ const SecCarga = ({ date, syncKey = 0 }) => {
       ) : list.map(c => (
         <div key={c.id} onClick={() => setModal(c)} style={{ ...card, cursor: "pointer" }}>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-            <span style={{ fontFamily: "monospace", fontWeight: 700, color: C.accent, fontSize: 16 }}>{c.hora}</span>
+            <span style={{ fontFamily: FONT_MONO, fontWeight: 700, color: C.accent, fontSize: 16 }}>{c.hora}</span>
             <span style={{ background: C.accentDim, color: C.accent, borderRadius: 6, padding: "2px 10px", fontSize: 12, fontWeight: 700 }}>{c.label}</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
@@ -1192,7 +1192,7 @@ const SecMovimientos = ({ date, syncKey = 0 }) => {
           ) : data.movs.map(m => (
             <div key={m.id} onClick={() => setModal({ type: "mov", item: m })} style={{ ...card, cursor: "pointer" }}>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                <span style={{ fontFamily: "monospace", color: C.accent, fontWeight: 700, fontSize: 16 }}>{m.hora}</span>
+                <span style={{ fontFamily: FONT_MONO, color: C.accent, fontWeight: 700, fontSize: 16 }}>{m.hora}</span>
                 {m.litros && <span style={{ color: C.text, fontWeight: 600 }}>{parseFloat(m.litros).toLocaleString("es-AR")} L</span>}
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
@@ -1217,7 +1217,7 @@ const SecMovimientos = ({ date, syncKey = 0 }) => {
           ) : data.ctrls.map(c => (
             <div key={c.id} onClick={() => setModal({ type: "ctrl", item: c })} style={{ ...card, cursor: "pointer" }}>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                <span style={{ fontFamily: "monospace", color: C.accent, fontWeight: 700, fontSize: 16 }}>{c.hora}</span>
+                <span style={{ fontFamily: FONT_MONO, color: C.accent, fontWeight: 700, fontSize: 16 }}>{c.hora}</span>
                 <span style={{ background: C.accentDim, color: C.accent, borderRadius: 6, padding: "2px 10px", fontSize: 12, fontWeight: 700 }}>SILO {c.silo || "—"}</span>
               </div>
               <div style={{ display: "flex", gap: 10, fontSize: 12, color: C.sub, flexWrap: "wrap" }}>
@@ -1321,7 +1321,7 @@ const SecStock = ({ date, syncKey = 0 }) => {
     <div>
       {/* Banner silos vaciados */}
       {silosVaciados.length > 0 && (
-        <div style={{ ...card, borderColor: C.danger, background: "#1a0808", marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ ...card, borderColor: C.danger.replace(/\)$/, " / 0.5)"), background: C.danger.replace(/\)$/, " / 0.10)"), marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
             <div style={{ fontSize: 11, color: C.danger, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 2 }}>
               <span style={{ display: "flex", alignItems: "center", gap: 5 }}><AlertaError size={11} strokeWidth={SW} />Silos vaciados — requieren lavado CIP</span>
@@ -1339,7 +1339,7 @@ const SecStock = ({ date, syncKey = 0 }) => {
           const isActive = t === getCurrentTurno() && date === getToday();
           return (
             <button type="button" key={t} onClick={() => setTurno(t)} style={{ ...(turno === t ? btnPrimary : btnSecondary), padding: "8px 4px", position: "relative" }}>
-              {isActive && <span style={{ position: "absolute", top: 4, right: 6, width: 6, height: 6, borderRadius: 3, background: turno === t ? "#000" : "#22c55e", display: "inline-block" }} />}
+              {isActive && <span style={{ position: "absolute", top: 4, right: 6, width: 6, height: 6, borderRadius: 3, background: turno === t ? C.bg : C.success, display: "inline-block" }} />}
               <div style={{ fontSize: 13, fontWeight: 700 }}>{TURNO_LABELS[t]}</div>
               <div style={{ fontSize: 11, opacity: 0.7 }}>{t}–{TURNO_CIERRE[t]} hs.</div>
               <div style={{ fontSize: 10, marginTop: 2, color: turno === t ? C.text.replace(/\)$/, " / 0.6)") : C.success.replace(/\)$/, " / 0.55)") }}>
@@ -1375,7 +1375,7 @@ const SecStock = ({ date, syncKey = 0 }) => {
               </span>
               <div style={{ textAlign: "right" }}>
                 <div style={{ fontSize: 10, color: C.sub, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 1 }}>Acumulado del día</div>
-                <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: 16, color: litrosAuto > 0 ? C.accent : C.sub }}>
+                <span style={{ fontFamily: FONT_MONO, fontWeight: 700, fontSize: 16, color: litrosAuto > 0 ? C.accent : C.sub }}>
                   {litrosAuto.toLocaleString("es-AR")} L
                 </span>
               </div>
@@ -1404,7 +1404,7 @@ const SecStock = ({ date, syncKey = 0 }) => {
 
                 {/* Litros en silo / capacidad */}
                 <div style={{ fontSize: 11, color: C.sub, marginBottom: 10 }}>
-                  <span style={{ color: litrosAuto > 0 ? C.text : C.sub, fontFamily: "monospace", fontWeight: 600 }}>
+                  <span style={{ color: litrosAuto > 0 ? C.text : C.sub, fontFamily: FONT_MONO, fontWeight: 600 }}>
                     {litrosAuto.toLocaleString("es-AR")}
                   </span>
                   <span style={{ color: C.muted }}> / {cap.toLocaleString("es-AR")} L</span>
@@ -1620,7 +1620,7 @@ const SecFortificados = ({ date, syncKey = 0 }) => {
       ) : list.map(f => (
         <div key={f.id} onClick={() => setModal(f)} style={{ ...card, cursor: "pointer", border: `1px solid ${C.success.replace(/\)$/, " / 0.3)")}`, background: C.success.replace(/\)$/, " / 0.06)") }}>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
-            <span style={{ fontFamily: "monospace", fontWeight: 700, color: C.accent, fontSize: 17 }}>{f.hora}</span>
+            <span style={{ fontFamily: FONT_MONO, fontWeight: 700, color: C.accent, fontSize: 17 }}>{f.hora}</span>
             <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
               {f.paraQue && <span style={{ background: C.success.replace(/\)$/, " / 0.15)"), color: C.success, borderRadius: 6, padding: "2px 8px", fontSize: 11, fontWeight: 700, border: `1px solid ${C.success.replace(/\)$/, " / 0.35)")}` }}>{f.paraQue}</span>}
               <span style={{ background: C.success.replace(/\)$/, " / 0.15)"), color: C.success, borderRadius: 6, padding: "2px 10px", fontSize: 12, fontWeight: 700 }}>
@@ -1683,7 +1683,7 @@ const InformeModal = ({ date, onClose }) => {
   const Fila = ({ lbl, val, color }) => (
     <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", borderBottom: `1px solid ${C.border}44` }}>
       <span style={{ fontSize: 12, color: C.sub, flex: 1 }}>{lbl}</span>
-      <span style={{ fontSize: 12, fontWeight: 700, color: color || C.text, fontFamily: "monospace", marginLeft: 8 }}>{val}</span>
+      <span style={{ fontSize: 12, fontWeight: 700, color: color || C.text, fontFamily: FONT_MONO, marginLeft: 8 }}>{val}</span>
     </div>
   );
 
@@ -1724,7 +1724,7 @@ const InformeModal = ({ date, onClose }) => {
             return (
               <div key={s} style={{ background: C.surface, borderRadius: 8, padding: "8px 10px", border: `1px solid ${l <= 0 ? C.danger + "55" : C.border}` }}>
                 <div style={{ fontSize: 11, color: C.sub, marginBottom: 2 }}>{s}</div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: col, fontFamily: "monospace" }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: col, fontFamily: FONT_MONO }}>
                   {l <= 0 ? "VACÍO" : `${l.toLocaleString("es-AR")} L`}
                 </div>
                 {l > 0 && <div style={{ fontSize: 10, color: C.muted }}>{pct}% de {cap.toLocaleString("es-AR")} L</div>}
@@ -1802,7 +1802,7 @@ const InformeModal = ({ date, onClose }) => {
           {camsPend.length > 0 && <div style={{ fontSize: 12, color: C.accent }}>CIP camiones sin registrar: {camsPend.join(", ")}</div>}
         </div>
       ) : d.ing.length > 0 && (
-        <div style={{ ...card, borderColor: C.success + "55", background: _THEME === "light" ? "#f0fdf4" : "#081608", textAlign: "center", padding: 16 }}>
+        <div style={{ ...card, borderColor: C.success.replace(/\)$/, " / 0.35)"), background: C.success.replace(/\)$/, " / 0.08)"), textAlign: "center", padding: 16 }}>
           <div style={{ marginBottom: 4, display: "flex", justifyContent: "center", color: C.success }}><AlertaOk size={22} strokeWidth={1.5} /></div>
           <div style={{ fontSize: 13, color: C.success, fontWeight: 700 }}>Todo en orden</div>
           <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>Sin pendientes registrados</div>
@@ -1885,7 +1885,7 @@ const DonutChart = ({ pct = 0, color, size = 74, label }) => {
       )}
       {label !== undefined && (
         <text x={cx} y={cy + 5} textAnchor="middle" fontSize={13}
-          fontWeight="800" fill={C.text} fontFamily="monospace">{label}</text>
+          fontWeight="800" fill={C.text} fontFamily={FONT_MONO}>{label}</text>
       )}
     </svg>
   );
@@ -2014,7 +2014,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
         <div style={{ marginBottom: 5, position: "relative", display: "flex", justifyContent: "center", color: col }}>
           {StatIcon && <StatIcon size={20} strokeWidth={SW} />}
         </div>
-        <div style={{ fontSize: 22, fontWeight: 800, color: col, fontFamily: "monospace", lineHeight: 1, position: "relative" }}>
+        <div style={{ fontSize: 22, fontWeight: 800, color: col, fontFamily: FONT_MONO, lineHeight: 1, position: "relative" }}>
           {typeof value === "number" ? value.toLocaleString("es-AR") : value}
           {unit && <span style={{ fontSize: 11, fontWeight: 400, color: C.sub, marginLeft: 3 }}>{unit}</span>}
         </div>
@@ -2054,7 +2054,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
             <span style={{ fontSize: 13, fontWeight: 700, color: C.text }}>Silo {silo}</span>
             {isAlert && <span style={{ fontSize: 9, background: C.accent + "22", color: C.accent, borderRadius: 5, padding: "1px 6px", fontWeight: 700, letterSpacing: "0.05em" }}>⚠ LLENO</span>}
           </div>
-          <span style={{ fontSize: 15, fontFamily: "monospace", fontWeight: 800, color: isEmpty ? C.danger : C.accent }}>
+          <span style={{ fontSize: 15, fontFamily: FONT_MONO, fontWeight: 800, color: isEmpty ? C.danger : C.accent }}>
             {isEmpty ? "—" : litros >= 1000 ? `${(litros / 1000).toFixed(1)}k` : litros.toLocaleString("es-AR")}
             {!isEmpty && <span style={{ fontSize: 9, fontWeight: 400, color: C.sub, marginLeft: 2 }}>L</span>}
           </span>
@@ -2072,7 +2072,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
           <span style={{ fontSize: 11, color: isEmpty ? C.danger : C.sub, fontWeight: isEmpty ? 700 : 400 }}>
             {isEmpty ? "Sin contenido" : prod || "Sin producto"}
           </span>
-          <span style={{ fontSize: 11, color: C.muted, fontFamily: "monospace" }}>
+          <span style={{ fontSize: 11, color: C.muted, fontFamily: FONT_MONO }}>
             {pct.toFixed(1)}% <span style={{ color: C.border }}>·</span> {(cap / 1000).toFixed(0)}k cap.
           </span>
         </div>
@@ -3469,7 +3469,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
               <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
                 <DonutChart pct={capPct} color={capColor} size={78} label={`${capPct.toFixed(0)}%`} />
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 26, fontWeight: 900, color: capColor, fontFamily: "monospace", lineHeight: 1 }}>
+                  <div style={{ fontSize: 26, fontWeight: 900, color: capColor, fontFamily: FONT_MONO, lineHeight: 1 }}>
                     {(totalStock / 1000).toFixed(1)}
                     <span style={{ fontSize: 13, fontWeight: 400, color: C.sub, marginLeft: 4 }}>k L</span>
                   </div>
@@ -3575,7 +3575,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
                       <span style={{ fontSize: 12, color: C.sub, fontWeight: 700 }}>{label}</span>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         {ref && <span style={{ fontSize: 11, color: ok ? C.success : C.danger, fontWeight: 700 }}>{ok ? "OK" : "Fuera"}</span>}
-                        <span style={{ fontSize: 20, fontWeight: 900, color: ok ? C.accent : C.danger, fontFamily: "monospace" }}>{v.avg.toFixed(3)}</span>
+                        <span style={{ fontSize: 20, fontWeight: 900, color: ok ? C.accent : C.danger, fontFamily: FONT_MONO }}>{v.avg.toFixed(3)}</span>
                       </div>
                     </div>
                     <div style={{ background: C.muted, borderRadius: 6, height: 7, overflow: "hidden", marginBottom: 8 }}>
@@ -3694,10 +3694,10 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
                           return (
                             <Fragment key={i}>
                               <div style={{ fontSize: 11, fontWeight: 700, color: rowCol }}>{df.label}{df.critical ? " !" : ""}</div>
-                              <div style={{ fontSize: 11, color: C.text, fontFamily: "monospace" }}>{df.label === "Litros" ? (df.vTbo || 0).toLocaleString("es-AR") : df.vTbo.toFixed(3)}</div>
-                              <div style={{ fontSize: 11, color: C.text, fontFamily: "monospace" }}>{df.label === "Litros" ? (df.vFca || 0).toLocaleString("es-AR") : df.vFca.toFixed(3)}</div>
-                              <div style={{ fontSize: 11, color: rowCol, fontFamily: "monospace", fontWeight: 600 }}>{diffStr}</div>
-                              <div style={{ fontSize: 11, color: df.pctDiff !== null && Math.abs(df.pctDiff) > 5 ? rowCol : C.muted, fontFamily: "monospace" }}>{pctStr}</div>
+                              <div style={{ fontSize: 11, color: C.text, fontFamily: FONT_MONO }}>{df.label === "Litros" ? (df.vTbo || 0).toLocaleString("es-AR") : df.vTbo.toFixed(3)}</div>
+                              <div style={{ fontSize: 11, color: C.text, fontFamily: FONT_MONO }}>{df.label === "Litros" ? (df.vFca || 0).toLocaleString("es-AR") : df.vFca.toFixed(3)}</div>
+                              <div style={{ fontSize: 11, color: rowCol, fontFamily: FONT_MONO, fontWeight: 600 }}>{diffStr}</div>
+                              <div style={{ fontSize: 11, color: df.pctDiff !== null && Math.abs(df.pctDiff) > 5 ? rowCol : C.muted, fontFamily: FONT_MONO }}>{pctStr}</div>
                             </Fragment>
                           );
                         })}
@@ -3748,7 +3748,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
                 <span style={{ fontSize: 11, background: TIPO_COL[e.tipo] + "22", color: TIPO_COL[e.tipo], borderRadius: 4, padding: "2px 7px", fontWeight: 700, textTransform: "uppercase" }}>
                   {TIPO_LABEL[e.tipo] || e.tipo}
                 </span>
-                <span style={{ fontSize: 11, color: C.muted, fontFamily: "monospace" }}>{e.fecha} {e.hora}</span>
+                <span style={{ fontSize: 11, color: C.muted, fontFamily: FONT_MONO }}>{e.fecha} {e.hora}</span>
               </div>
               <div style={{ fontSize: 12, color: C.sub, marginTop: 2 }}>{e.resumen}</div>
             </div>
@@ -3844,7 +3844,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
                   const dayDate = new Date(dy + "T00:00:00");
                   return (
                     <div key={dy} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", height: "100%" }}>
-                      <div style={{ fontSize: 8, color: ingresados > 0 ? (isHoy ? C.accent : C.sub) : "transparent", fontFamily: "monospace", marginBottom: 3 }}>
+                      <div style={{ fontSize: 8, color: ingresados > 0 ? (isHoy ? C.accent : C.sub) : "transparent", fontFamily: FONT_MONO, marginBottom: 3 }}>
                         {ingresados >= 1000 ? `${(ingresados / 1000).toFixed(1)}k` : ingresados || ""}
                       </div>
                       <div style={{ flex: 1, width: "100%", background: C.muted, borderRadius: "4px 4px 0 0", position: "relative", overflow: "hidden" }}>
@@ -3901,22 +3901,22 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
                       <div style={{ fontSize: 11, fontWeight: 700, color: isHoy ? C.accent : C.text }}>
                         {DIAS_ES[dayDate.getDay()]}
                       </div>
-                      <div style={{ fontSize: 9, color: C.muted, fontFamily: "monospace" }}>{dd}/{mm}</div>
+                      <div style={{ fontSize: 9, color: C.muted, fontFamily: FONT_MONO }}>{dd}/{mm}</div>
                     </div>
                     <div style={{ textAlign: "center" }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, fontFamily: "monospace", color: sinData ? C.muted : C.text }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, fontFamily: FONT_MONO, color: sinData ? C.muted : C.text }}>
                         {sinData ? "—" : ingresados >= 1000 ? `${(ingresados / 1000).toFixed(1)}k` : ingresados}
                       </div>
                       <div style={{ fontSize: 9, color: C.sub }}>Ingresos L</div>
                     </div>
                     <div style={{ textAlign: "center" }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, fontFamily: "monospace", color: sinData ? C.muted : C.text }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, fontFamily: FONT_MONO, color: sinData ? C.muted : C.text }}>
                         {sinData ? "—" : camiones}
                       </div>
                       <div style={{ fontSize: 9, color: C.sub }}>Camiones</div>
                     </div>
                     <div style={{ textAlign: "center" }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, fontFamily: "monospace", color: sinData ? C.muted : (bal >= 0 ? C.success : C.danger) }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, fontFamily: FONT_MONO, color: sinData ? C.muted : (bal >= 0 ? C.success : C.danger) }}>
                         {sinData ? "—" : (bal >= 0 ? "+" : "") + (Math.abs(bal) >= 1000 ? `${(bal / 1000).toFixed(1)}k` : bal)}
                       </div>
                       <div style={{ fontSize: 9, color: C.sub }}>Balance L</div>
@@ -3932,16 +3932,16 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
               }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: C.sub, textTransform: "uppercase" }}>Total</div>
                 <div style={{ textAlign: "center" }}>
-                  <div style={{ fontSize: 13, fontWeight: 800, fontFamily: "monospace", color: C.accent }}>
+                  <div style={{ fontSize: 13, fontWeight: 800, fontFamily: FONT_MONO, color: C.accent }}>
                     {totalSem >= 1000 ? `${(totalSem / 1000).toFixed(1)}k` : totalSem}
                   </div>
                 </div>
                 <div style={{ textAlign: "center" }}>
-                  <div style={{ fontSize: 13, fontWeight: 800, fontFamily: "monospace", color: C.text }}>{totalCam}</div>
+                  <div style={{ fontSize: 13, fontWeight: 800, fontFamily: FONT_MONO, color: C.text }}>{totalCam}</div>
                 </div>
                 <div style={{ textAlign: "center" }}>
                   {(() => { const b = totalSem - totalCarg; return (
-                    <div style={{ fontSize: 13, fontWeight: 800, fontFamily: "monospace", color: b >= 0 ? C.success : C.danger }}>
+                    <div style={{ fontSize: 13, fontWeight: 800, fontFamily: FONT_MONO, color: b >= 0 ? C.success : C.danger }}>
                       {(b >= 0 ? "+" : "") + (Math.abs(b) >= 1000 ? `${(b / 1000).toFixed(1)}k` : b)}
                     </div>
                   ); })()}
@@ -4036,11 +4036,11 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
                     <div>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <span style={{ fontSize: 14, fontWeight: 700, color: C.text }}>{nombre}</span>
-                        {anyAlert && <span style={{ fontSize: 11, background: "#f59e0b22", color: C.accent, borderRadius: 6, padding: "1px 7px", fontWeight: 700 }}>⚠ Fuera de ref.</span>}
+                        {anyAlert && <span style={{ fontSize: 11, background: C.accentDim, color: C.accent, borderRadius: 6, padding: "1px 7px", fontWeight: 700 }}>⚠ Fuera de ref.</span>}
                       </div>
                       <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>
                         {entregas.length} entrega{entregas.length !== 1 ? "s" : ""} ·{" "}
-                        <span style={{ fontFamily: "monospace", color: C.accent }}>
+                        <span style={{ fontFamily: FONT_MONO, color: C.accent }}>
                           {(totalLitros / 1000).toFixed(1)}k L
                         </span>
                         {lastDate && <span style={{ marginLeft: 6, color: C.muted }}>· último {fmtDate(lastDate)}</span>}
@@ -4059,7 +4059,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
                       return (
                         <div key={key} style={{ background: chipBg, border: `1px solid ${chipBdr}`, borderRadius: 8, padding: "7px 8px" }}>
                           <div style={{ fontSize: 10, color: C.sub, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 2 }}>{label}</div>
-                          <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "monospace", color: v > 0 ? (ok ? col : C.danger) : C.muted, marginBottom: 4 }}>
+                          <div style={{ fontSize: 15, fontWeight: 700, fontFamily: FONT_MONO, color: v > 0 ? (ok ? col : C.danger) : C.muted, marginBottom: 4 }}>
                             {v > 0 ? v.toFixed(2) : "—"}
                           </div>
                           <Sparkline values={entregas.map(e => e[key])} color={v > 0 ? (ok ? col : C.danger) : C.muted} w={54} h={20} />
@@ -4100,17 +4100,17 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
                             gap: 3, padding: "5px 0",
                             borderBottom: i < entregas.length - 1 ? `1px solid ${C.border}22` : "none",
                           }}>
-                            <div style={{ fontSize: 11, fontFamily: "monospace", color: e.date === getToday() ? C.accent : C.sub }}>
+                            <div style={{ fontSize: 11, fontFamily: FONT_MONO, color: e.date === getToday() ? C.accent : C.sub }}>
                               {fmtDate(e.date)}
                             </div>
-                            <div style={{ fontSize: 11, fontFamily: "monospace", fontWeight: 600, color: C.accent }}>
+                            <div style={{ fontSize: 11, fontFamily: FONT_MONO, fontWeight: 600, color: C.accent }}>
                               {e.litros > 0 ? e.litros.toLocaleString("es-AR") : "—"}
                             </div>
                             {fieldDefs.map(({ v, ref: r }, j) => {
                               const valid = !isNaN(v) && v > 0;
                               const outRef = valid && r && (v < r.min || v > r.max);
                               return (
-                                <div key={j} style={{ fontSize: 11, fontFamily: "monospace", color: outRef ? C.danger : valid ? C.text : C.muted }}>
+                                <div key={j} style={{ fontSize: 11, fontFamily: FONT_MONO, color: outRef ? C.danger : valid ? C.text : C.muted }}>
                                   {valid ? (j === 4 ? v.toFixed(3) : v.toFixed(2)) : "—"}{outRef ? " ⚠" : ""}
                                 </div>
                               );
