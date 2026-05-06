@@ -1,5 +1,6 @@
 import { useState, useEffect, Fragment } from "react";
 import { DARK, LIGHT, FONT_SANS, FONT_MONO, EASE_OUT, DUR } from "./tokens.js";
+import { useViewport } from "./hooks.js";
 import {
   Ingresos as IcoIngresos, Movimientos as IcoMovimientos, Carga as IcoCarga,
   Fortificados as IcoFortificados, CIP as IcoCIP, Stock as IcoStock,
@@ -426,7 +427,7 @@ const Pair = ({ label, v1, v2, on1, on2 }) => (
   </div>
 );
 const FAB = ({ onClick }) => (
-  <button type="button"onClick={onClick} style={{
+  <button type="button" onClick={onClick} style={{
     position: "fixed", right: 20, bottom: 82, width: 56, height: 56, borderRadius: 28,
     background: C.accent, border: "none", color: "#000", fontSize: 28, fontWeight: 700,
     cursor: "pointer", boxShadow: `0 4px 24px ${C.accent}55`,
@@ -449,7 +450,7 @@ const Modal = ({ title, onClose, children, zIndex = 100 }) => {
       }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
           <span style={{ fontWeight: 700, fontSize: 18, color: C.text }}>{title}</span>
-          <button type="button"onClick={onClose} aria-label="Cerrar" style={{ background: C.card, border: "none", color: C.sub, borderRadius: 8, width: 36, height: 36, cursor: "pointer", fontSize: 20 }}>×</button>
+          <button type="button" onClick={onClose} aria-label="Cerrar" style={{ background: C.card, border: "none", color: C.sub, borderRadius: 8, width: 36, height: 36, cursor: "pointer", fontSize: 20 }}>×</button>
         </div>
         {children}
         <div style={{ height: 20 }} />
@@ -488,7 +489,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
         <Sel value={f.tambo} onChange={pickTambo}
           options={tambos.map(t => ({ value: t.nombre, label: `${t.num} — ${t.nombre}` }))}
           placeholder="Seleccionar tambo..." />
-        <button type="button"onClick={onNuevoTambo} style={{ marginTop: 6, background: "none", border: "none", color: C.accent, fontSize: 12, cursor: "pointer", padding: "4px 0", textDecoration: "underline" }}>
+        <button type="button" onClick={onNuevoTambo} style={{ marginTop: 6, background: "none", border: "none", color: C.accent, fontSize: 12, cursor: "pointer", padding: "4px 0", textDecoration: "underline" }}>
           + Agregar nuevo tambo
         </button>
       </F>
@@ -588,8 +589,8 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
         <textarea style={{ ...inp, minHeight: 60, resize: "vertical" }} value={f.obs} onChange={e => set("obs")(e.target.value)} placeholder="Observaciones..." />
       </F>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-        <button type="button"style={btnSecondary} onClick={onClose}>Cancelar</button>
-        <button type="button"style={btnPrimary} onClick={() => {
+        <button type="button" style={btnSecondary} onClick={onClose}>Cancelar</button>
+        <button type="button" style={btnPrimary} onClick={() => {
           let req;
           if (isConcentrado) {
             req = [["tambo", "Tambo"], ["litrosFca", "Litros"], ["destino", "Destino"],
@@ -604,7 +605,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
           onSave(f);
         }}>Guardar</button>
       </div>
-      {onDelete && <button type="button"style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar este ingreso</button>}
+      {onDelete && <button type="button" style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar este ingreso</button>}
     </div>
   );
 };
@@ -676,7 +677,7 @@ const SecIngresos = ({ date, syncKey = 0 }) => {
             onChange={e => setFiltro(e.target.value)}
           />
           {filtro && (
-            <button type="button"onClick={() => setFiltro("")} style={{
+            <button type="button" onClick={() => setFiltro("")} style={{
               position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)",
               background: C.muted, border: "none", color: C.sub, cursor: "pointer",
               borderRadius: "50%", width: 20, height: 20, fontSize: 13,
@@ -704,7 +705,7 @@ const SecIngresos = ({ date, syncKey = 0 }) => {
           <div style={{ textAlign: "center", padding: "32px 24px", color: C.sub }}>
             <div style={{ marginBottom: 8, display: "flex", justifyContent: "center", opacity: 0.35 }}><IcoBuscar size={32} strokeWidth={1} /></div>
             <div style={{ fontSize: 14 }}>Sin resultados para "{filtro}"</div>
-            <button type="button"onClick={() => setFiltro("")} style={{ marginTop: 10, background: "none", border: `1px solid ${C.border}`, color: C.sub, borderRadius: 8, padding: "6px 14px", fontSize: 12, cursor: "pointer" }}>
+            <button type="button" onClick={() => setFiltro("")} style={{ marginTop: 10, background: "none", border: `1px solid ${C.border}`, color: C.sub, borderRadius: 8, padding: "6px 14px", fontSize: 12, cursor: "pointer" }}>
               Limpiar búsqueda
             </button>
           </div>
@@ -748,8 +749,8 @@ const SecIngresos = ({ date, syncKey = 0 }) => {
               onChange={e => setNewTambo(p => ({ ...p, num: e.target.value }))} placeholder="Ej: 99" />
           </F>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-            <button type="button"style={btnSecondary} onClick={() => setTamboModal(false)}>Cancelar</button>
-            <button type="button"style={btnPrimary} onClick={saveNuevoTambo}>Guardar</button>
+            <button type="button" style={btnSecondary} onClick={() => setTamboModal(false)}>Cancelar</button>
+            <button type="button" style={btnPrimary} onClick={saveNuevoTambo}>Guardar</button>
           </div>
         </Modal>
       )}
@@ -858,7 +859,7 @@ const SecCIP = ({ date, syncKey = 0 }) => {
     <div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
         {[["silos", "Silos / Líneas"], ["camiones", "Camiones"]].map(([t, l]) => (
-          <button type="button"key={t} onClick={() => setTab(t)} style={{ ...(tab === t ? btnPrimary : btnSecondary), padding: "10px 6px" }}>{l}</button>
+          <button type="button" key={t} onClick={() => setTab(t)} style={{ ...(tab === t ? btnPrimary : btnSecondary), padding: "10px 6px" }}>{l}</button>
         ))}
       </div>
       {tab === "silos" && (
@@ -879,7 +880,7 @@ const SecCIP = ({ date, syncKey = 0 }) => {
       {tab === "camiones" && (
         <>
           {camiones.map(c => <CIPRow key={c} nombre={c} tipo="CAMIÓN" data={(data.camiones || {})[c] || {}} onChange={v => updateCamion(c, v)} />)}
-          <button type="button"onClick={() => setCamionModal(true)} style={{ ...btnSecondary, marginTop: 8, borderStyle: "dashed", color: C.accent, borderColor: C.accentDark }}>
+          <button type="button" onClick={() => setCamionModal(true)} style={{ ...btnSecondary, marginTop: 8, borderStyle: "dashed", color: C.accent, borderColor: C.accentDark }}>
             + Agregar nuevo camión
           </button>
         </>
@@ -891,8 +892,8 @@ const SecCIP = ({ date, syncKey = 0 }) => {
               onChange={e => setNewCamion(e.target.value)} placeholder="Ej: MARTINEZ" />
           </F>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-            <button type="button"style={btnSecondary} onClick={() => setCamionModal(false)}>Cancelar</button>
-            <button type="button"style={btnPrimary} onClick={saveNuevoCamion}>Guardar</button>
+            <button type="button" style={btnSecondary} onClick={() => setCamionModal(false)}>Cancelar</button>
+            <button type="button" style={btnPrimary} onClick={saveNuevoCamion}>Guardar</button>
           </div>
         </Modal>
       )}
@@ -946,7 +947,7 @@ const CargaForm = ({ initial, onSave, onClose, onDelete }) => {
     <div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 6, marginBottom: 12 }}>
         {["CARGA 1", "CARGA 2", "CARGA 3"].map(l => (
-          <button type="button"key={l} onClick={() => set("label")(l)} style={{ ...(f.label === l ? btnPrimary : btnSecondary), padding: "10px 6px", fontSize: 13 }}>{l}</button>
+          <button type="button" key={l} onClick={() => set("label")(l)} style={{ ...(f.label === l ? btnPrimary : btnSecondary), padding: "10px 6px", fontSize: 13 }}>{l}</button>
         ))}
       </div>
       <F label="Destino"><Inp value={f.destino} onChange={set("destino")} placeholder="Destino de la carga..." /></F>
@@ -958,7 +959,7 @@ const CargaForm = ({ initial, onSave, onClose, onDelete }) => {
           <div style={{ flex: 1 }}>
             <Sel value={f.producto || ""} onChange={set("producto")} options={cargaProductos} placeholder="Seleccionar producto..." />
           </div>
-          <button type="button"onClick={() => setProdModal(true)} style={{
+          <button type="button" onClick={() => setProdModal(true)} style={{
             background: C.card, border: `1px solid ${C.accentDark}`, color: C.accent,
             borderRadius: 8, padding: "11px 14px", cursor: "pointer", fontSize: 13, fontWeight: 700,
             whiteSpace: "nowrap",
@@ -973,7 +974,7 @@ const CargaForm = ({ initial, onSave, onClose, onDelete }) => {
           <div style={{ flex: 1 }}>
             <Sel value={f.transportista || ""} onChange={set("transportista")} options={transportistas} placeholder="Seleccionar transportista..." />
           </div>
-          <button type="button"onClick={() => setTransModal(true)} style={{
+          <button type="button" onClick={() => setTransModal(true)} style={{
             background: C.card, border: `1px solid ${C.accentDark}`, color: C.accent,
             borderRadius: 8, padding: "11px 14px", cursor: "pointer", fontSize: 13, fontWeight: 700,
             whiteSpace: "nowrap",
@@ -998,8 +999,8 @@ const CargaForm = ({ initial, onSave, onClose, onDelete }) => {
       </div>
       <F label="Observaciones"><textarea style={{ ...inp, minHeight: 48, resize: "vertical" }} value={f.obs} onChange={e => set("obs")(e.target.value)} /></F>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-        <button type="button"style={btnSecondary} onClick={onClose}>Cancelar</button>
-        <button type="button"style={btnPrimary} onClick={() => {
+        <button type="button" style={btnSecondary} onClick={onClose}>Cancelar</button>
+        <button type="button" style={btnPrimary} onClick={() => {
           const req = [["destino", "Destino"], ["siloProveniente", "Silo Proveniente"], ["limpCisterna", "Limpieza Cisterna"],
           ["litros", "Litros"], ["hora", "Hora"], ["responsable", "Responsable"],
           ["T", "T"], ["gC", "°C"], ["pH", "pH"], ["A", "A"], ["gD", "°D"]];
@@ -1008,7 +1009,7 @@ const CargaForm = ({ initial, onSave, onClose, onDelete }) => {
           onSave(f);
         }}>Guardar</button>
       </div>
-      {onDelete && <button type="button"style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar</button>}
+      {onDelete && <button type="button" style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar</button>}
 
       {transModal && (
         <Modal title="Agregar Transportista" onClose={() => setTransModal(false)}>
@@ -1019,8 +1020,8 @@ const CargaForm = ({ initial, onSave, onClose, onDelete }) => {
               placeholder="Ej: MARTINEZ" />
           </F>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-            <button type="button"style={btnSecondary} onClick={() => setTransModal(false)}>Cancelar</button>
-            <button type="button"style={btnPrimary} onClick={saveNuevoTrans}>Guardar</button>
+            <button type="button" style={btnSecondary} onClick={() => setTransModal(false)}>Cancelar</button>
+            <button type="button" style={btnPrimary} onClick={saveNuevoTrans}>Guardar</button>
           </div>
         </Modal>
       )}
@@ -1033,8 +1034,8 @@ const CargaForm = ({ initial, onSave, onClose, onDelete }) => {
               placeholder="Ej: Leche Parcialmente Descremada" />
           </F>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-            <button type="button"style={btnSecondary} onClick={() => setProdModal(false)}>Cancelar</button>
-            <button type="button"style={btnPrimary} onClick={saveNuevoProd}>Guardar</button>
+            <button type="button" style={btnSecondary} onClick={() => setProdModal(false)}>Cancelar</button>
+            <button type="button" style={btnPrimary} onClick={saveNuevoProd}>Guardar</button>
           </div>
         </Modal>
       )}
@@ -1111,15 +1112,15 @@ const MovForm = ({ initial, onSave, onClose, onDelete }) => {
       <F label="Motivo"><Inp value={f.motivo || ""} onChange={set("motivo")} placeholder="Ej: Trasvase, Mezcla, etc." /></F>
       <F label="Responsable"><Inp value={f.resp} onChange={set("resp")} /></F>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-        <button type="button"style={btnSecondary} onClick={onClose}>Cancelar</button>
-        <button type="button"style={btnPrimary} onClick={() => {
+        <button type="button" style={btnSecondary} onClick={onClose}>Cancelar</button>
+        <button type="button" style={btnPrimary} onClick={() => {
           const req = [["litros", "Litros"], ["desde", "Desde"], ["hasta", "Hasta"], ["motivo", "Motivo"], ["resp", "Responsable"]];
           const miss = req.filter(([k]) => !String(f[k] || "").trim()).map(([, v]) => v);
           if (miss.length) { alert("Campos obligatorios sin completar:\n• " + miss.join("\n• ")); return; }
           onSave(f);
         }}>Guardar</button>
       </div>
-      {onDelete && <button type="button"style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar</button>}
+      {onDelete && <button type="button" style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar</button>}
     </div>
   );
 };
@@ -1138,15 +1139,15 @@ const CtrlForm = ({ initial, onSave, onClose, onDelete }) => {
       </div>
       <F label="Responsable"><Inp value={f.resp} onChange={set("resp")} /></F>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-        <button type="button"style={btnSecondary} onClick={onClose}>Cancelar</button>
-        <button type="button"style={btnPrimary} onClick={() => {
+        <button type="button" style={btnSecondary} onClick={onClose}>Cancelar</button>
+        <button type="button" style={btnPrimary} onClick={() => {
           const req = [["silo", "Silo"], ["ph", "pH"], ["gD", "°D"], ["gC", "°C"], ["alc", "Alc."], ["mg", "MG"], ["sng", "SNG"], ["dens", "Densidad"], ["fp", "FP"], ["prot", "Proteína"], ["resp", "Responsable"]];
           const miss = req.filter(([k]) => !String(f[k] || "").trim()).map(([, v]) => v);
           if (miss.length) { alert("Campos obligatorios sin completar:\n• " + miss.join("\n• ")); return; }
           onSave(f);
         }}>Guardar</button>
       </div>
-      {onDelete && <button type="button"style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar</button>}
+      {onDelete && <button type="button" style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar</button>}
     </div>
   );
 };
@@ -1181,7 +1182,7 @@ const SecMovimientos = ({ date, syncKey = 0 }) => {
     <div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
         {[["movs", "Movimientos"], ["ctrls", "Control Silos"]].map(([t, l]) => (
-          <button type="button"key={t} onClick={() => setTab(t)} style={{ ...(tab === t ? btnPrimary : btnSecondary), padding: "10px 6px" }}>{l}</button>
+          <button type="button" key={t} onClick={() => setTab(t)} style={{ ...(tab === t ? btnPrimary : btnSecondary), padding: "10px 6px" }}>{l}</button>
         ))}
       </div>
       {tab === "movs" && (
@@ -1327,7 +1328,7 @@ const SecStock = ({ date, syncKey = 0 }) => {
             </div>
             <div style={{ fontSize: 13, color: C.text }}>{silosVaciados.join(", ")} → marcados como Sucio (vacío)</div>
           </div>
-          <button type="button"onClick={() => setSilosVaciados([])} style={{ background: "none", border: "none", color: C.sub, fontSize: 22, cursor: "pointer", padding: "0 4px" }}>×</button>
+          <button type="button" onClick={() => setSilosVaciados([])} style={{ background: "none", border: "none", color: C.sub, fontSize: 22, cursor: "pointer", padding: "0 4px" }}>×</button>
         </div>
       )}
 
@@ -1337,7 +1338,7 @@ const SecStock = ({ date, syncKey = 0 }) => {
           const filled = Object.values((data[t] || {}).silos || {}).filter(s => s.ph && s.grasa).length;
           const isActive = t === getCurrentTurno() && date === getToday();
           return (
-            <button type="button"key={t} onClick={() => setTurno(t)} style={{ ...(turno === t ? btnPrimary : btnSecondary), padding: "8px 4px", position: "relative" }}>
+            <button type="button" key={t} onClick={() => setTurno(t)} style={{ ...(turno === t ? btnPrimary : btnSecondary), padding: "8px 4px", position: "relative" }}>
               {isActive && <span style={{ position: "absolute", top: 4, right: 6, width: 6, height: 6, borderRadius: 3, background: turno === t ? "#000" : "#22c55e", display: "inline-block" }} />}
               <div style={{ fontSize: 13, fontWeight: 700 }}>{TURNO_LABELS[t]}</div>
               <div style={{ fontSize: 11, opacity: 0.7 }}>{t}–{TURNO_CIERRE[t]} hs.</div>
@@ -1528,12 +1529,12 @@ const FortForm = ({ initial, onSave, onClose, onDelete }) => {
               {UNIDADES_FORT.map(u => <option key={u} value={u}>{u}</option>)}
             </select>
             {idx >= 3
-              ? <button type="button"onClick={() => delAdicion(a.id)} style={{ background: "none", border: `1px solid ${C.danger}55`, borderRadius: 6, color: C.danger, cursor: "pointer", height: 42, width: 28, fontSize: 18, padding: 0, lineHeight: 1 }}>×</button>
+              ? <button type="button" onClick={() => delAdicion(a.id)} style={{ background: "none", border: `1px solid ${C.danger}55`, borderRadius: 6, color: C.danger, cursor: "pointer", height: 42, width: 28, fontSize: 18, padding: 0, lineHeight: 1 }}>×</button>
               : <div />
             }
           </div>
         ))}
-        <button type="button"onClick={addAdicion} style={{ ...btnSecondary, marginTop: 6, borderStyle: "dashed", color: C.accent, borderColor: C.accentDark, fontSize: 13, padding: "9px 12px" }}>
+        <button type="button" onClick={addAdicion} style={{ ...btnSecondary, marginTop: 6, borderStyle: "dashed", color: C.accent, borderColor: C.accentDark, fontSize: 13, padding: "9px 12px" }}>
           + Agregar producto
         </button>
       </div>
@@ -1552,8 +1553,8 @@ const FortForm = ({ initial, onSave, onClose, onDelete }) => {
         <textarea style={{ ...inp, minHeight: 56, resize: "vertical" }} value={f.obs} onChange={e => set("obs")(e.target.value)} placeholder="Obs..." />
       </F>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-        <button type="button"style={btnSecondary} onClick={onClose}>Cancelar</button>
-        <button type="button"style={btnPrimary} onClick={() => {
+        <button type="button" style={btnSecondary} onClick={onClose}>Cancelar</button>
+        <button type="button" style={btnPrimary} onClick={() => {
           const req = [["siloOrigen", "Silo Origen"], ["litrosBase", "Litros base"], ["siloDestino", "Silo Destino"], ["responsable", "Responsable"]];
           const miss = req.filter(([k]) => !String(f[k] || "").trim()).map(([, v]) => v);
           const sinCant = f.adiciones.filter(a => !String(a.cantidad || "").trim()).map(a => a.producto || "Adición");
@@ -1562,7 +1563,7 @@ const FortForm = ({ initial, onSave, onClose, onDelete }) => {
           onSave(f);
         }}>Guardar</button>
       </div>
-      {onDelete && <button type="button"style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar</button>}
+      {onDelete && <button type="button" style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar</button>}
     </div>
   );
 };
@@ -3262,7 +3263,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
             <span class="print-bar-brand">YATASTO</span>
             <span class="print-bar-sub">Informe Ejecutivo · ${fmtDate(exportDate)}</span>
           </div>
-          <button type="button"class="print-btn" onclick="window.print()">🖨 Imprimir / Guardar PDF</button>
+          <button type="button" class="print-btn" onclick="window.print()">🖨 Imprimir / Guardar PDF</button>
         </div>
       `;
 
@@ -3424,7 +3425,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
         ].map(([t, TabIcon, lbl]) => {
           const active = tab === t;
           return (
-            <button type="button"key={t} onClick={() => setTab(t)} style={{
+            <button type="button" key={t} onClick={() => setTab(t)} style={{
               background: active
                 ? `linear-gradient(145deg, ${C.accent}, ${C.accent}cc)`
                 : (_THEME === "light" ? "#fff" : C.card),
@@ -3777,7 +3778,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
                 { label: "14 días", fn: () => { const d14 = getLastNDays(14); setExportFrom(d14[0]); setExportTo(date); } },
                 { label: "30 días", fn: () => { const d30 = getLastNDays(30); setExportFrom(d30[0]); setExportTo(date); } },
               ].map(({ label, fn }) => (
-                <button type="button"key={label} onClick={fn} style={{ ...btnSecondary, width: "auto", padding: "6px 12px", fontSize: 12 }}>{label}</button>
+                <button type="button" key={label} onClick={fn} style={{ ...btnSecondary, width: "auto", padding: "6px 12px", fontSize: 12 }}>{label}</button>
               ))}
             </div>
             <div style={{ fontSize: 11, color: C.sub, marginTop: 8, textAlign: "center" }}>
@@ -3789,15 +3790,15 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
 
           <div style={{ ...secTitle }}>Formato de exportación</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 10 }}>
-            <button type="button"onClick={doExportCSV} disabled={exporting} style={{ background: C.success.replace(/\)$/, " / 0.12)"), color: C.success, border: `1px solid ${C.success.replace(/\)$/, " / 0.35)")}`, borderRadius: 12, padding: "16px 18px", cursor: "pointer", textAlign: "left", opacity: exporting ? 0.6 : 1 }}>
+            <button type="button" onClick={doExportCSV} disabled={exporting} style={{ background: C.success.replace(/\)$/, " / 0.12)"), color: C.success, border: `1px solid ${C.success.replace(/\)$/, " / 0.35)")}`, borderRadius: 12, padding: "16px 18px", cursor: "pointer", textAlign: "left", opacity: exporting ? 0.6 : 1 }}>
               <div style={{ fontSize: 17, marginBottom: 3, fontWeight: 700 }}>Exportar CSV</div>
               <div style={{ fontSize: 11, color: C.sub }}>Ingresos · Cargas · Movimientos — Compatible con Excel, Google Sheets y cualquier planilla</div>
             </button>
-            <button type="button"onClick={doExportXLS} disabled={exporting} style={{ background: C.accentDim, color: C.accent, border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 18px", cursor: "pointer", textAlign: "left", opacity: exporting ? 0.6 : 1 }}>
+            <button type="button" onClick={doExportXLS} disabled={exporting} style={{ background: C.accentDim, color: C.accent, border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 18px", cursor: "pointer", textAlign: "left", opacity: exporting ? 0.6 : 1 }}>
               <div style={{ fontSize: 17, marginBottom: 3, fontWeight: 700 }}>Exportar Excel (.xls)</div>
               <div style={{ fontSize: 11, color: C.sub }}>Tabla formateada lista para abrir en Microsoft Excel</div>
             </button>
-            <button type="button"onClick={doExportPDF} disabled={exporting} style={{ background: C.danger.replace(/\)$/, " / 0.10)"), color: C.danger, border: `1px solid ${C.danger.replace(/\)$/, " / 0.30)")}`, borderRadius: 12, padding: "16px 18px", cursor: "pointer", textAlign: "left", opacity: exporting ? 0.6 : 1 }}>
+            <button type="button" onClick={doExportPDF} disabled={exporting} style={{ background: C.danger.replace(/\)$/, " / 0.10)"), color: C.danger, border: `1px solid ${C.danger.replace(/\)$/, " / 0.30)")}`, borderRadius: 12, padding: "16px 18px", cursor: "pointer", textAlign: "left", opacity: exporting ? 0.6 : 1 }}>
               <div style={{ fontSize: 17, marginBottom: 3, fontWeight: 700 }}>Ver / Imprimir PDF</div>
               <div style={{ fontSize: 11, color: C.sub }}>Abre una vista de impresión — guardá como PDF desde el navegador</div>
             </button>
@@ -4130,8 +4131,11 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
 };
 
 // ─── APP PRINCIPAL ────────────────────────────────────────────
+const SIDEBAR_W = 220;
+
 export default function App() {
   // Restaura sección/fecha/perfil guardados justo antes de recargar para cambio de tema
+  const { isDesktop } = useViewport();
   const [section, setSection] = useState(_restoredSession?.section || "ingresos");
   const [date, setDate]       = useState(_restoredSession?.date    || getToday());
   const [datePicker, setDatePicker] = useState(false);
@@ -4235,23 +4239,81 @@ export default function App() {
   };
 
   return (
-    <div style={{ background: C.bg, minHeight: "100vh", color: C.text, fontFamily: FONT_SANS, paddingBottom: 72 }}>
+    <div style={{ background: C.bg, minHeight: "100vh", color: C.text, fontFamily: FONT_SANS, paddingBottom: isDesktop ? 0 : 72 }}>
+
+      {/* Sidebar — desktop only */}
+      {isDesktop && (
+        <div style={{
+          position: "fixed", top: 0, left: 0, bottom: 0, width: SIDEBAR_W,
+          background: C.surface, borderRight: `1px solid ${C.border}`,
+          display: "flex", flexDirection: "column", zIndex: 50,
+          boxShadow: _THEME === "light" ? "2px 0 12px rgba(0,0,0,0.06)" : "2px 0 12px rgba(0,0,0,0.3)",
+        }}>
+          {/* Sidebar header — logo */}
+          <div style={{ padding: "18px 16px 14px", borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
+            <YataLogo />
+            <div style={{ fontSize: 10, color: C.muted, marginTop: 6, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+              Lacteos Yatasto SA
+            </div>
+          </div>
+
+          {/* Nav items */}
+          <div style={{ flex: 1, overflowY: "auto", padding: "6px 0" }}>
+            {navItems.map(n => {
+              const active = section === n.id;
+              return (
+                <button type="button" key={n.id} onClick={() => setSection(n.id)} style={{
+                  width: "100%", border: "none", cursor: "pointer", textAlign: "left",
+                  background: active ? C.accentDim : "none",
+                  color: active ? C.accent : C.sub,
+                  padding: "10px 16px",
+                  display: "flex", alignItems: "center", gap: 10,
+                  borderLeft: active ? `3px solid ${C.accent}` : "3px solid transparent",
+                  transition: `background ${DUR.fast}, color ${DUR.fast}, border-color ${DUR.fast}`,
+                }}>
+                  <n.Icon size={17} strokeWidth={SW} />
+                  <span style={{ fontSize: 13, fontWeight: active ? 700 : 500, letterSpacing: "0.01em" }}>
+                    {n.id === "supervisor" ? "Dashboard" : n.label}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Sidebar footer — date picker */}
+          <div style={{ padding: "12px 14px", borderTop: `1px solid ${C.border}`, flexShrink: 0 }}>
+            <button type="button" onClick={() => setDatePicker(!datePicker)} style={{
+              width: "100%", background: isToday ? C.card : C.accentDim,
+              border: `1px solid ${isToday ? C.border : C.accentDark}`,
+              borderRadius: 8, color: isToday ? C.text : C.accent,
+              padding: "8px 10px", cursor: "pointer", textAlign: "left",
+              display: "flex", alignItems: "center", gap: 8,
+            }}>
+              <IcoDate size={13} strokeWidth={SW} />
+              <span style={{ fontSize: 12, fontFamily: FONT_MONO, fontWeight: 700 }}>
+                {isToday ? "Hoy" : fmtDate(date)}
+              </span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Banner offline — almacenamiento no disponible */}
       {!storageOk && (
         <div style={{
-          background: _THEME === "light" ? "#fef2f2" : "#450a0a", borderBottom: `2px solid ${C.danger}`,
+          background: C.danger.replace(/\)$/, " / 0.12)"), borderBottom: `2px solid ${C.danger}`,
           padding: "10px 16px", display: "flex", alignItems: "center", gap: 10,
           position: "sticky", top: 0, zIndex: 300,
+          marginLeft: isDesktop ? SIDEBAR_W : 0,
         }}>
-          <IcoOffline size={20} strokeWidth={SW} color="#fca5a5" />
+          <IcoOffline size={20} strokeWidth={SW} color={C.danger} />
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: "#fca5a5" }}>Sin acceso al almacenamiento</div>
-            <div style={{ fontSize: 11, color: "#f87171", marginTop: 1 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: C.danger }}>Sin acceso al almacenamiento</div>
+            <div style={{ fontSize: 11, color: C.sub, marginTop: 1 }}>
               Los datos no se guardarán. Verificá la conexión con el sistema Antigravity.
             </div>
           </div>
-          <button type="button"onClick={() => {
+          <button type="button" onClick={() => {
             const HC = "yatasto:_hc";
             window.storage.set(HC, "1").then(() => window.storage.get(HC)).then(r => setStorageOk(!!r)).catch(() => setStorageOk(false));
           }} style={{ background: C.danger.replace(/\)$/, " / 0.15)"), border: `1px solid ${C.danger.replace(/\)$/, " / 0.4)")}`, color: C.danger, borderRadius: 8, padding: "5px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
@@ -4273,8 +4335,8 @@ export default function App() {
               placeholder="Ej: Juan García" />
           </F>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-            <button type="button"style={btnSecondary} onClick={() => setInitModal(false)}>Ahora no</button>
-            <button type="button"style={btnPrimary} onClick={guardarResponsable}>Ingresar</button>
+            <button type="button" style={btnSecondary} onClick={() => setInitModal(false)}>Ahora no</button>
+            <button type="button" style={btnPrimary} onClick={guardarResponsable}>Ingresar</button>
           </div>
         </Modal>
       )}
@@ -4297,7 +4359,7 @@ export default function App() {
                   ● SESIÓN ACTIVA
                 </div>
               </div>
-              <button type="button"style={{ ...btnSecondary, color: C.danger, borderColor: C.danger + "55", width: "100%" }} onClick={handleLogout}>
+              <button type="button" style={{ ...btnSecondary, color: C.danger, borderColor: C.danger + "55", width: "100%" }} onClick={handleLogout}>
                 Cerrar sesión
               </button>
             </div>
@@ -4334,8 +4396,8 @@ export default function App() {
                 </div>
               )}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                <button type="button"style={btnSecondary} onClick={closePerfilModal}>Cancelar</button>
-                <button type="button"style={btnPrimary} onClick={handleLogin}>Ingresar</button>
+                <button type="button" style={btnSecondary} onClick={closePerfilModal}>Cancelar</button>
+                <button type="button" style={btnPrimary} onClick={handleLogin}>Ingresar</button>
               </div>
             </div>
           )}
@@ -4351,21 +4413,29 @@ export default function App() {
         padding: "9px 14px", position: "sticky", top: 0, zIndex: 40,
         display: "flex", justifyContent: "space-between", alignItems: "center",
         boxShadow: _THEME === "light" ? "0 1px 8px rgba(0,0,0,0.07)" : "0 1px 8px rgba(0,0,0,0.4)",
+        marginLeft: isDesktop ? SIDEBAR_W : 0,
       }}>
-        {/* Left: Logo + section indicator */}
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <YataLogo compact />
-          <div style={{ width: 1, height: 26, background: C.border }} />
-          <div style={{ fontSize: 12, color: C.sub, fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}>
-            {(() => { const n = navItems.find(item => item.id === section); return n ? <n.Icon size={14} strokeWidth={SW} /> : null; })()}
-            <span>{navItems.find(n => n.id === section)?.label}</span>
+        {/* Left: Logo + section indicator (mobile only) */}
+        {!isDesktop ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <YataLogo compact />
+            <div style={{ width: 1, height: 26, background: C.border }} />
+            <div style={{ fontSize: 12, color: C.sub, fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}>
+              {(() => { const n = navItems.find(item => item.id === section); return n ? <n.Icon size={14} strokeWidth={SW} /> : null; })()}
+              <span>{navItems.find(n => n.id === section)?.label}</span>
+            </div>
           </div>
-        </div>
+        ) : (
+          <div style={{ fontSize: 13, fontWeight: 700, color: C.text, display: "flex", alignItems: "center", gap: 6 }}>
+            {(() => { const n = navItems.find(item => item.id === section); return n ? <n.Icon size={15} strokeWidth={SW} color={C.accent} /> : null; })()}
+            <span>{navItems.find(n => n.id === section)?.id === "supervisor" ? "Dashboard" : navItems.find(n => n.id === section)?.label}</span>
+          </div>
+        )}
 
         {/* Right: action buttons */}
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
           {/* Theme toggle */}
-          <button type="button"onClick={() => {
+          <button type="button" onClick={() => {
             const next = _THEME === "dark" ? "light" : "dark";
             saveSessionForReload({ section, date, perfil, nombre: initNombre });
             try { localStorage.setItem("yatasto:theme", next); } catch {}
@@ -4381,7 +4451,7 @@ export default function App() {
           }}>{_THEME === "dark" ? <ThemeLight size={16} strokeWidth={SW} /> : <ThemeDark size={16} strokeWidth={SW} />}</button>
 
           {/* Botón perfil */}
-          <button type="button"onClick={() => setPerfilModal(true)}
+          <button type="button" onClick={() => setPerfilModal(true)}
             title={perfil ? PERFILES[perfil].label : "Acceder con perfil"}
             aria-label={perfil ? `Perfil: ${PERFILES[perfil].label}` : "Acceder con perfil"}
             style={{
@@ -4397,37 +4467,39 @@ export default function App() {
             )}
           </button>
 
-          <button type="button"onClick={() => setInforme(true)} title="Informe del día" aria-label="Ver informe del día" style={{
+          <button type="button" onClick={() => setInforme(true)} title="Informe del día" aria-label="Ver informe del día" style={{
             background: C.card, border: `1px solid ${C.border}`,
             borderRadius: 9, color: C.sub, width: 34, height: 34,
             cursor: "pointer", fontSize: 15,
             display: "flex", alignItems: "center", justifyContent: "center",
           }}><IcoInforme size={16} strokeWidth={SW} /></button>
 
-          <button type="button"onClick={() => setDatePicker(!datePicker)} style={{
-            background: isToday ? C.card : C.accentDim,
-            border: `1px solid ${isToday ? C.border : C.accentDark}`,
-            borderRadius: 9, color: isToday ? C.text : C.accent,
-            padding: "0 10px", height: 34, cursor: "pointer",
-            fontSize: 12, fontFamily: "'Courier New',monospace", fontWeight: 700,
-            display: "flex", alignItems: "center", gap: 4,
-          }}>
-            <IcoDate size={13} strokeWidth={SW} />
-            <span>{isToday ? "Hoy" : fmtDate(date)}</span>
-          </button>
+          {!isDesktop && (
+            <button type="button" onClick={() => setDatePicker(!datePicker)} style={{
+              background: isToday ? C.card : C.accentDim,
+              border: `1px solid ${isToday ? C.border : C.accentDark}`,
+              borderRadius: 9, color: isToday ? C.text : C.accent,
+              padding: "0 10px", height: 34, cursor: "pointer",
+              fontSize: 12, fontFamily: FONT_MONO, fontWeight: 700,
+              display: "flex", alignItems: "center", gap: 4,
+            }}>
+              <IcoDate size={13} strokeWidth={SW} />
+              <span>{isToday ? "Hoy" : fmtDate(date)}</span>
+            </button>
+          )}
         </div>
       </div>
 
       {/* Date picker */}
       {datePicker && (
-        <div style={{ background: C.card, borderBottom: `1px solid ${C.border}`, padding: "12px 16px", display: "flex", gap: 8 }}>
+        <div style={{ background: C.card, borderBottom: `1px solid ${C.border}`, padding: "12px 16px", display: "flex", gap: 8, marginLeft: isDesktop ? SIDEBAR_W : 0 }}>
           <input type="date" value={date} onChange={e => { setDate(e.target.value); setDatePicker(false); }} style={{ ...inp, flex: 1 }} />
-          <button type="button"onClick={() => { setDate(getToday()); setDatePicker(false); }} style={{ ...btnPrimary, width: "auto", padding: "10px 16px", whiteSpace: "nowrap" }}>Hoy</button>
+          <button type="button" onClick={() => { setDate(getToday()); setDatePicker(false); }} style={{ ...btnPrimary, width: "auto", padding: "10px 16px", whiteSpace: "nowrap" }}>Hoy</button>
         </div>
       )}
 
       {/* Content */}
-      <div style={{ padding: "12px 16px 0" }}>
+      <div style={{ padding: isDesktop ? "16px 24px 24px" : "12px 16px 0", marginLeft: isDesktop ? SIDEBAR_W : 0 }}>
         {section === "ingresos" && <SecIngresos date={date} syncKey={syncKey} />}
         {section === "cip" && <SecCIP date={date} syncKey={syncKey} />}
         {section === "carga" && <SecCarga date={date} syncKey={syncKey} />}
@@ -4437,8 +4509,8 @@ export default function App() {
         {section === "supervisor" && perfil && <SecDashboard date={date} perfil={perfil} perfilLabel={PERFILES[perfil]?.label || ""} syncKey={syncKey} />}
       </div>
 
-      {/* Bottom nav */}
-      <div style={{
+      {/* Bottom nav — mobile only */}
+      {!isDesktop && <div style={{
         position: "fixed", bottom: 0, left: 0, right: 0,
         background: C.surface, borderTop: `1px solid ${C.border}`,
         display: "grid", gridTemplateColumns: `repeat(${navItems.length},1fr)`,
@@ -4448,7 +4520,7 @@ export default function App() {
         {navItems.map(n => {
           const active = section === n.id;
           return (
-            <button type="button"key={n.id} onClick={() => setSection(n.id)} style={{
+            <button type="button" key={n.id} onClick={() => setSection(n.id)} style={{
               background: "none", border: "none", cursor: "pointer", padding: "10px 0 13px",
               display: "flex", flexDirection: "column", alignItems: "center", gap: 2,
               borderTop: active ? `2.5px solid ${C.accent}` : "2.5px solid transparent",
@@ -4469,7 +4541,7 @@ export default function App() {
             </button>
           );
         })}
-      </div>
+      </div>}
     </div>
   );
 }
