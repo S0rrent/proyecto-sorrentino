@@ -498,11 +498,11 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
 
       {/* Badge que distingue el formulario */}
       {isConcentrado && (
-        <div style={{ background: "#1e3a5f", border: "1px solid #3b82f644", borderRadius: 10, padding: "8px 12px", marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
-          <IcoCalidad size={16} strokeWidth={SW} color="#60a5fa" />
+        <div style={{ background: C.accentDim, border: `1px solid ${C.border}`, borderRadius: 10, padding: "8px 12px", marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
+          <IcoCalidad size={16} strokeWidth={SW} color={C.accent} />
           <div>
-            <div style={{ fontSize: 11, fontWeight: 700, color: "#60a5fa" }}>Formulario simplificado — Producto concentrado</div>
-            <div style={{ fontSize: 10, color: C.sub }}>Solo se requieren los parámetros esenciales para este tipo de producto.</div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: C.accent }}>Formulario simplificado — Producto concentrado</div>
+            <div style={{ fontSize: 11, color: C.sub }}>Solo se requieren los parámetros esenciales para este tipo de producto.</div>
           </div>
         </div>
       )}
@@ -516,7 +516,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
             <F label="Litros"><Inp type="number" value={f.litrosFca} onChange={set("litrosFca")} placeholder="0" /></F>
             <F label="Temperatura llegada (°C)">
               <Inp type="number" value={f.tC} onChange={set("tC")} step="0.1" placeholder="°C" />
-              <div style={{ fontSize: 10, color: C.sub, marginTop: 3 }}>Ref: 3 – 8 °C</div>
+              <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>Ref: 3 – 8 °C</div>
             </F>
           </div>
           <div style={panel}>
@@ -524,11 +524,11 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
               <F label="Acidez">
                 <Inp type="number" value={f.acidezFca} onChange={set("acidezFca")} step="0.1" />
-                <div style={{ fontSize: 10, color: C.sub, marginTop: 3 }}>Ref: 14 – 18 °D</div>
+                <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>Ref: 14 – 18 °D</div>
               </F>
               <F label="pH">
                 <Inp type="number" value={f.phFca} onChange={set("phFca")} step="0.01" />
-                <div style={{ fontSize: 10, color: C.sub, marginTop: 3 }}>Ref: 6.6 – 6.8</div>
+                <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>Ref: 6.6 – 6.8</div>
               </F>
             </div>
             <F label="°BRIX"><Inp type="number" value={f.brix || ""} onChange={set("brix")} step="0.1" placeholder="°Brix" /></F>
@@ -549,7 +549,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
             <F label="Destino — Silo"><Sel value={f.destino} onChange={set("destino")} options={SILOS} placeholder="Seleccionar silo..." /></F>
             <F label="Temperatura llegada (°C)">
               <Inp type="number" value={f.tC} onChange={set("tC")} step="0.1" placeholder="°C" />
-              <div style={{ fontSize: 10, color: C.sub, marginTop: 3 }}>Ref: 3 – 8 °C</div>
+              <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>Ref: 3 – 8 °C</div>
             </F>
           </div>
           <div style={panel}>
@@ -557,11 +557,11 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
               <F label="Acidez Fca.">
                 <Inp type="number" value={f.acidezFca} onChange={set("acidezFca")} step="0.1" />
-                <div style={{ fontSize: 10, color: C.sub, marginTop: 3 }}>Ref: 14 – 18 °D</div>
+                <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>Ref: 14 – 18 °D</div>
               </F>
               <F label="pH Fca.">
                 <Inp type="number" value={f.phFca} onChange={set("phFca")} step="0.01" />
-                <div style={{ fontSize: 10, color: C.sub, marginTop: 3 }}>Ref: 6.6 – 6.8</div>
+                <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>Ref: 6.6 – 6.8</div>
               </F>
             </div>
             <Pair label="Prueba Alcohol" v1={f.alcFca} v2={f.alcTbo} on1={set("alcFca")} on2={set("alcTbo")} />
@@ -569,16 +569,16 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
           <div style={panel}>
             <div style={secTitle}>Composición</div>
             <Pair label="Grasa Butirosa (GB)" v1={f.gbFca} v2={f.gbTbo} on1={set("gbFca")} on2={set("gbTbo")} />
-            <div style={{ fontSize: 10, color: C.sub, marginTop: -8, marginBottom: 12 }}>Ref: 3.0 – 4.0 %</div>
+            <div style={{ fontSize: 11, color: C.sub, marginTop: -8, marginBottom: 12 }}>Ref: 3.0 – 4.0 %</div>
             <Pair label="Sólidos No Grasos (SNG)" v1={f.sngFca} v2={f.sngTbo} on1={set("sngFca")} on2={set("sngTbo")} />
-            <div style={{ fontSize: 10, color: C.sub, marginTop: -8, marginBottom: 12 }}>Ref: 8.0 – 8.7 %</div>
+            <div style={{ fontSize: 11, color: C.sub, marginTop: -8, marginBottom: 12 }}>Ref: 8.0 – 8.7 %</div>
             <Pair label="Densidad" v1={f.densFca} v2={f.densTbo} on1={set("densFca")} on2={set("densTbo")} />
-            <div style={{ fontSize: 10, color: C.sub, marginTop: -8, marginBottom: 12 }}>Ref: 1.028 – 1.033 g/mL</div>
+            <div style={{ fontSize: 11, color: C.sub, marginTop: -8, marginBottom: 12 }}>Ref: 1.028 – 1.033 g/mL</div>
             <Pair label="Aguado" v1={f.aguadoFca} v2={f.aguadoTbo} on1={set("aguadoFca")} on2={set("aguadoTbo")} />
-            <div style={{ fontSize: 10, color: C.danger, marginTop: -8, marginBottom: 12 }}>Debe ser exactamente 0 — indica adulteración</div>
+            <div style={{ fontSize: 11, color: C.danger, marginTop: -8, marginBottom: 12 }}>Debe ser exactamente 0 — indica adulteración</div>
             <Pair label="Leche de Descarte" v1={f.dcFca} v2={f.dcTbo} on1={set("dcFca")} on2={set("dcTbo")} />
             <Pair label="Proteína" v1={f.protFca} v2={f.protTbo} on1={set("protFca")} on2={set("protTbo")} />
-            <div style={{ fontSize: 10, color: C.sub, marginTop: -8, marginBottom: 12 }}>Ref: 2.9 – 3.5 %</div>
+            <div style={{ fontSize: 11, color: C.sub, marginTop: -8, marginBottom: 12 }}>Ref: 2.9 – 3.5 %</div>
             <F label="ATM"><Sel value={f.atm || ""} onChange={set("atm")} options={["Sí", "No"]} placeholder="ATM..." /></F>
           </div>
         </>
@@ -654,13 +654,13 @@ const SecIngresos = ({ date, syncKey = 0 }) => {
     <div>
       <div style={{ ...card, display: "flex", justifyContent: "space-between", alignItems: "center", borderColor: C.accentDark }}>
         <div>
-          <div style={{ fontSize: 10, color: C.sub, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 2 }}>Total del día</div>
+          <div style={{ fontSize: 11, color: C.sub, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 2 }}>Total del día</div>
           <div style={{ fontSize: 30, fontWeight: 700, color: C.accent, fontFamily: "'Courier New',monospace", lineHeight: 1 }}>
             {totalFca.toLocaleString("es-AR")} <span style={{ fontSize: 16 }}>L</span>
           </div>
         </div>
         <div style={{ textAlign: "right" }}>
-          <div style={{ fontSize: 10, color: C.sub, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 2 }}>Camiones</div>
+          <div style={{ fontSize: 11, color: C.sub, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 2 }}>Camiones</div>
           <div style={{ fontSize: 30, fontWeight: 700, color: C.text, lineHeight: 1 }}>{list.length}</div>
         </div>
       </div>
@@ -1068,10 +1068,10 @@ const SecCarga = ({ date, syncKey = 0 }) => {
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
             <span style={{ fontSize: 15, color: C.text }}>{c.destino || "Sin destino"}</span>
-            {c.producto && <span style={{ fontSize: 11, background: "#1e3a5f", color: "#60a5fa", borderRadius: 6, padding: "2px 8px", fontWeight: 700, border: "1px solid #3b82f644" }}>{c.producto}</span>}
+            {c.producto && <span style={{ fontSize: 11, background: C.accentDim, color: C.accent, borderRadius: 6, padding: "2px 8px", fontWeight: 700, border: `1px solid ${C.border}` }}>{c.producto}</span>}
           </div>
           {c.transportista && (
-            <div style={{ fontSize: 12, color: "#60a5fa", marginBottom: 2, display: "flex", alignItems: "center", gap: 4 }}><CamionIcon size={12} strokeWidth={SW} />{c.transportista}</div>
+            <div style={{ fontSize: 12, color: C.sub, marginBottom: 2, display: "flex", alignItems: "center", gap: 4 }}><CamionIcon size={12} strokeWidth={SW} />{c.transportista}</div>
           )}
           <div style={{ fontSize: 13, color: C.sub }}>
             {c.siloProveniente && <span>Desde {c.siloProveniente} </span>}
@@ -1340,7 +1340,7 @@ const SecStock = ({ date, syncKey = 0 }) => {
             <button key={t} onClick={() => setTurno(t)} style={{ ...(turno === t ? btnPrimary : btnSecondary), padding: "8px 4px", position: "relative" }}>
               {isActive && <span style={{ position: "absolute", top: 4, right: 6, width: 6, height: 6, borderRadius: 3, background: turno === t ? "#000" : "#22c55e", display: "inline-block" }} />}
               <div style={{ fontSize: 13, fontWeight: 700 }}>{TURNO_LABELS[t]}</div>
-              <div style={{ fontSize: 10, opacity: 0.7 }}>{t}–{TURNO_CIERRE[t]} hs.</div>
+              <div style={{ fontSize: 11, opacity: 0.7 }}>{t}–{TURNO_CIERRE[t]} hs.</div>
               <div style={{ fontSize: 9, marginTop: 2, color: turno === t ? "#000a" : "#22c55e88" }}>
                 {filled > 0 ? `✓ ${filled} silos` : "Sin datos"}
               </div>
@@ -1386,7 +1386,7 @@ const SecStock = ({ date, syncKey = 0 }) => {
               <div>
                 {/* Barra de nivel */}
                 <div style={{ marginBottom: 8 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: C.sub, marginBottom: 4 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: C.sub, marginBottom: 4 }}>
                     <span style={{ textTransform: "uppercase", letterSpacing: "0.08em" }}>Nivel</span>
                     <span style={{ fontWeight: 700, color: litrosAuto > 0 ? C.text : C.sub }}>{pct}%</span>
                   </div>
@@ -1597,15 +1597,15 @@ const SecFortificados = ({ date, syncKey = 0 }) => {
   return (
     <div>
       {list.length > 0 && (
-        <div style={{ ...card, display: "flex", justifyContent: "space-between", alignItems: "center", borderColor: "#0d5c30", marginBottom: 12 }}>
+        <div style={{ ...card, display: "flex", justifyContent: "space-between", alignItems: "center", borderColor: C.success.replace(/\)$/, " / 0.35)"), marginBottom: 12 }}>
           <div>
-            <div style={{ fontSize: 10, color: C.sub, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 2 }}>Total del día</div>
-            <div style={{ fontSize: 26, fontWeight: 700, color: "#27ae60", fontFamily: "'Courier New',monospace", lineHeight: 1 }}>
+            <div style={{ fontSize: 11, color: C.sub, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 2 }}>Total del día</div>
+            <div style={{ fontSize: 26, fontWeight: 700, color: C.success, fontFamily: FONT_MONO, lineHeight: 1 }}>
               {totalL.toLocaleString("es-AR")} <span style={{ fontSize: 14 }}>L</span>
             </div>
           </div>
           <div style={{ textAlign: "right" }}>
-            <div style={{ fontSize: 10, color: C.sub, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 2 }}>Lotes</div>
+            <div style={{ fontSize: 11, color: C.sub, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 2 }}>Lotes</div>
             <div style={{ fontSize: 26, fontWeight: 700, color: C.text, lineHeight: 1 }}>{list.length}</div>
           </div>
         </div>
@@ -1707,7 +1707,7 @@ const InformeModal = ({ date, onClose }) => {
       <div style={{ ...card, borderColor: C.accentDark, marginBottom: 14 }}>
         <Fila lbl="Total ingresado" val={`${totalIng.toLocaleString("es-AR")} L`} color={C.accent} />
         <Fila lbl="Total cargado (salidas)" val={`${totalCarg.toLocaleString("es-AR")} L`} />
-        <Fila lbl="Total fortificado" val={`${totalFort.toLocaleString("es-AR")} L`} color="#27ae60" />
+        <Fila lbl="Total fortificado" val={`${totalFort.toLocaleString("es-AR")} L`} color={C.success} />
         <Fila lbl="Camiones ingresados" val={String(d.ing.length)} />
         <Fila lbl="Movimientos entre silos" val={String((d.mov.movs || []).length)} />
         {resps.length > 0 && <Fila lbl="Responsables del día" val={resps.join(" · ")} />}
@@ -1722,7 +1722,7 @@ const InformeModal = ({ date, onClose }) => {
             const col = l <= 0 ? C.danger : l / cap > 0.8 ? C.success : C.text;
             return (
               <div key={s} style={{ background: C.surface, borderRadius: 8, padding: "8px 10px", border: `1px solid ${l <= 0 ? C.danger + "55" : C.border}` }}>
-                <div style={{ fontSize: 10, color: C.sub, marginBottom: 2 }}>{s}</div>
+                <div style={{ fontSize: 11, color: C.sub, marginBottom: 2 }}>{s}</div>
                 <div style={{ fontSize: 13, fontWeight: 700, color: col, fontFamily: "monospace" }}>
                   {l <= 0 ? "VACÍO" : `${l.toLocaleString("es-AR")} L`}
                 </div>
@@ -1773,7 +1773,7 @@ const InformeModal = ({ date, onClose }) => {
         <Blk title={`Fortificados (${totalFort.toLocaleString("es-AR")} L)`}>
           {d.fort.map(f => (
             <div key={f.id}>
-              <Fila lbl={`${f.hora}  ${f.paraQue || ""}  ${f.siloOrigen || "?"}→${f.siloDestino || "?"}`} val={`${parseFloat(f.litrosBase || 0).toLocaleString("es-AR")} L`} color="#27ae60" />
+              <Fila lbl={`${f.hora}  ${f.paraQue || ""}  ${f.siloOrigen || "?"}→${f.siloDestino || "?"}`} val={`${parseFloat(f.litrosBase || 0).toLocaleString("es-AR")} L`} color={C.success} />
               {f.obs && <div style={{ fontSize: 11, color: C.sub, padding: "2px 0 4px 8px", borderBottom: `1px solid ${C.border}22`, fontStyle: "italic" }}>{f.obs}</div>}
             </div>
           ))}
@@ -1990,7 +1990,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
   });
 
   const TIPO_LABEL = { ingreso: "Ingreso", carga: "Carga", movimiento: "Movimiento", control: "Control Silo", fortificado: "Fortificado" };
-  const TIPO_COL = { ingreso: C.accent, carga: "#60a5fa", movimiento: "#a78bfa", control: "#34d399", fortificado: "#27ae60" };
+  const TIPO_COL = { ingreso: C.accent, carga: "#60a5fa", movimiento: "#a78bfa", control: "#34d399", fortificado: C.success };
 
   // ── Componentes visuales ─────────────────────────────────────
   const StatCard = ({ Icon: StatIcon, label, value, unit, color, sub, trend }) => {
@@ -2014,12 +2014,12 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
         </div>
         <div style={{ fontSize: 22, fontWeight: 800, color: col, fontFamily: "monospace", lineHeight: 1, position: "relative" }}>
           {typeof value === "number" ? value.toLocaleString("es-AR") : value}
-          {unit && <span style={{ fontSize: 10, fontWeight: 400, color: C.sub, marginLeft: 3 }}>{unit}</span>}
+          {unit && <span style={{ fontSize: 11, fontWeight: 400, color: C.sub, marginLeft: 3 }}>{unit}</span>}
         </div>
         <div style={{ fontSize: 9, color: C.sub, textTransform: "uppercase", letterSpacing: "0.1em", marginTop: 5, fontWeight: 700 }}>{label}</div>
-        {sub && <div style={{ fontSize: 10, color: C.muted, marginTop: 2 }}>{sub}</div>}
+        {sub && <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{sub}</div>}
         {trend !== undefined && (
-          <div style={{ fontSize: 10, color: trend >= 0 ? C.success : C.danger, marginTop: 3, fontWeight: 700 }}>
+          <div style={{ fontSize: 11, color: trend >= 0 ? C.success : C.danger, marginTop: 3, fontWeight: 700 }}>
             {trend >= 0 ? "▲" : "▼"} {Math.abs(trend).toFixed(1)}%
           </div>
         )}
@@ -2067,10 +2067,10 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
           }} />
         </div>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span style={{ fontSize: 10, color: isEmpty ? C.danger : C.sub, fontWeight: isEmpty ? 700 : 400 }}>
+          <span style={{ fontSize: 11, color: isEmpty ? C.danger : C.sub, fontWeight: isEmpty ? 700 : 400 }}>
             {isEmpty ? "Sin contenido" : prod || "Sin producto"}
           </span>
-          <span style={{ fontSize: 10, color: C.muted, fontFamily: "monospace" }}>
+          <span style={{ fontSize: 11, color: C.muted, fontFamily: "monospace" }}>
             {pct.toFixed(1)}% <span style={{ color: C.border }}>·</span> {(cap / 1000).toFixed(0)}k cap.
           </span>
         </div>
@@ -3387,7 +3387,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
               border: `1px solid ${C.accent}33`,
             }}><CowIcon size={30} /></div>
             {users.length > 0 && (
-              <div style={{ fontSize: 10, color: C.success, marginTop: 5, fontWeight: 700 }}>
+              <div style={{ fontSize: 11, color: C.success, marginTop: 5, fontWeight: 700 }}>
                 ● {users.length} online
               </div>
             )}
@@ -3398,7 +3398,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
           <div style={{ marginTop: 12, display: "flex", flexWrap: "wrap", gap: 4, position: "relative" }}>
             {users.map(u => (
               <span key={u.id} style={{
-                fontSize: 10, background: C.accent + "18",
+                fontSize: 11, background: C.accent + "18",
                 border: `1px solid ${C.accent}30`, borderRadius: 20,
                 padding: "3px 10px", color: C.accent, fontWeight: 600,
               }}>
@@ -3572,7 +3572,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                       <span style={{ fontSize: 12, color: C.sub, fontWeight: 700 }}>{label}</span>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        {ref && <span style={{ fontSize: 10, color: ok ? C.success : C.danger, fontWeight: 700 }}>{ok ? "OK" : "Fuera"}</span>}
+                        {ref && <span style={{ fontSize: 11, color: ok ? C.success : C.danger, fontWeight: 700 }}>{ok ? "OK" : "Fuera"}</span>}
                         <span style={{ fontSize: 20, fontWeight: 900, color: ok ? C.accent : C.danger, fontFamily: "monospace" }}>{v.avg.toFixed(3)}</span>
                       </div>
                     </div>
@@ -3580,9 +3580,9 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
                       <div style={{ width: `${barW}%`, height: "100%", background: `linear-gradient(90deg, ${barColor}88, ${barColor})`, transition: "width 0.7s", borderRadius: 6 }} />
                     </div>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <span style={{ fontSize: 10, color: C.muted }}>mín <b style={{ color: C.text }}>{v.min.toFixed(3)}</b></span>
-                      <span style={{ fontSize: 10, color: C.sub }}>n={v.n}</span>
-                      <span style={{ fontSize: 10, color: C.muted }}>máx <b style={{ color: C.text }}>{v.max.toFixed(3)}</b></span>
+                      <span style={{ fontSize: 11, color: C.muted }}>mín <b style={{ color: C.text }}>{v.min.toFixed(3)}</b></span>
+                      <span style={{ fontSize: 11, color: C.sub }}>n={v.n}</span>
+                      <span style={{ fontSize: 11, color: C.muted }}>máx <b style={{ color: C.text }}>{v.max.toFixed(3)}</b></span>
                     </div>
                     {ref && (
                       <div style={{ marginTop: 6, fontSize: 9, color: ok ? C.muted : C.danger, borderTop: `1px solid ${C.border}44`, paddingTop: 5 }}>
@@ -3628,7 +3628,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
                 ].map(({ lbl, val, col }) => (
                   <div key={lbl} style={{ flex: 1, minWidth: 60, textAlign: "center", background: col + "18", borderRadius: 10, padding: "8px 6px", border: `1px solid ${col}33` }}>
                     <div style={{ fontSize: 20, fontWeight: 800, color: col }}>{val}</div>
-                    <div style={{ fontSize: 10, color: C.sub, marginTop: 1 }}>{lbl}</div>
+                    <div style={{ fontSize: 11, color: C.sub, marginTop: 1 }}>{lbl}</div>
                   </div>
                 ))}
               </div>
@@ -3640,7 +3640,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
             </div>
 
             {/* Umbral de referencia */}
-            <div style={{ fontSize: 10, color: C.muted, marginBottom: 10, padding: "6px 10px", background: C.card, borderRadius: 8, border: `1px solid ${C.border}` }}>
+            <div style={{ fontSize: 11, color: C.muted, marginBottom: 10, padding: "6px 10px", background: C.card, borderRadius: 8, border: `1px solid ${C.border}` }}>
               <b style={{ color: C.sub }}>Umbrales de alerta:</b>{" "}
               Litros ±100 L · GB ±0.25 · SNG ±0.25 · Densidad ±0.003 · <b style={{ color: "#fca5a5" }}>Aguado &gt;0 = CRÍTICO</b> · Proteína ±0.2 · Alcohol ±1
             </div>
@@ -3673,7 +3673,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
                   {/* Tabla de parámetros con desvío */}
                   {flaggedDiffs.length > 0 && (
                     <div style={{ marginBottom: 8 }}>
-                      <div style={{ fontSize: 10, color: sev.text, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 5, fontWeight: 700 }}>
+                      <div style={{ fontSize: 11, color: sev.text, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 5, fontWeight: 700 }}>
                         ⚠ {flaggedDiffs.length} parámetro{flaggedDiffs.length > 1 ? "s" : ""} fuera de rango
                       </div>
                       <div style={{ display: "grid", gridTemplateColumns: "auto 1fr 1fr 1fr 1fr", gap: "3px 8px", alignItems: "center" }}>
@@ -3707,14 +3707,14 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
                   {severity === "ok" && okDiffs.length > 0 && (
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                       {okDiffs.map((df, i) => (
-                        <span key={i} style={{ fontSize: 10, background: "#16a34a22", color: "#4ade80", borderRadius: 5, padding: "2px 7px" }}>
+                        <span key={i} style={{ fontSize: 11, background: "#16a34a22", color: "#4ade80", borderRadius: 5, padding: "2px 7px" }}>
                           ✓ {df.label}
                         </span>
                       ))}
                     </div>
                   )}
                   {severity !== "ok" && okDiffs.length > 0 && (
-                    <div style={{ fontSize: 10, color: C.muted, marginTop: 6 }}>
+                    <div style={{ fontSize: 11, color: C.muted, marginTop: 6 }}>
                       Sin desvío: {okDiffs.map(df => df.label).join(", ")}
                     </div>
                   )}
@@ -3733,7 +3733,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
               <div key={lbl} style={{ ...card, textAlign: "center", padding: "12px 8px" }}>
                 <div style={{ display: "flex", justifyContent: "center", marginBottom: 2, color: C.sub }}><Ico size={20} strokeWidth={SW} /></div>
                 <div style={{ fontSize: 22, fontWeight: 800, color: C.accent }}>{cnt}</div>
-                <div style={{ fontSize: 10, color: C.sub, textTransform: "uppercase" }}>{lbl}</div>
+                <div style={{ fontSize: 11, color: C.sub, textTransform: "uppercase" }}>{lbl}</div>
               </div>
             ))}
           </div>
@@ -3743,7 +3743,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
           ) : d.historial.slice(0, 30).map((e, i) => (
             <div key={i} style={{ ...card, padding: 10, marginBottom: 6 }}>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
-                <span style={{ fontSize: 10, background: TIPO_COL[e.tipo] + "22", color: TIPO_COL[e.tipo], borderRadius: 4, padding: "2px 7px", fontWeight: 700, textTransform: "uppercase" }}>
+                <span style={{ fontSize: 11, background: TIPO_COL[e.tipo] + "22", color: TIPO_COL[e.tipo], borderRadius: 4, padding: "2px 7px", fontWeight: 700, textTransform: "uppercase" }}>
                   {TIPO_LABEL[e.tipo] || e.tipo}
                 </span>
                 <span style={{ fontSize: 11, color: C.muted, fontFamily: "monospace" }}>{e.fecha} {e.hora}</span>
@@ -3788,17 +3788,17 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
 
           <div style={{ ...secTitle }}>Formato de exportación</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 10 }}>
-            <button onClick={doExportCSV} disabled={exporting} style={{ background: "#064e3b", color: "#34d399", border: "1px solid #34d39944", borderRadius: 12, padding: "16px 18px", cursor: "pointer", textAlign: "left", opacity: exporting ? 0.6 : 1 }}>
+            <button onClick={doExportCSV} disabled={exporting} style={{ background: C.success.replace(/\)$/, " / 0.12)"), color: C.success, border: `1px solid ${C.success.replace(/\)$/, " / 0.35)")}`, borderRadius: 12, padding: "16px 18px", cursor: "pointer", textAlign: "left", opacity: exporting ? 0.6 : 1 }}>
               <div style={{ fontSize: 17, marginBottom: 3, fontWeight: 700 }}>Exportar CSV</div>
-              <div style={{ fontSize: 11, color: "#6ee7b7" }}>Ingresos · Cargas · Movimientos — Compatible con Excel, Google Sheets y cualquier planilla</div>
+              <div style={{ fontSize: 11, color: C.sub }}>Ingresos · Cargas · Movimientos — Compatible con Excel, Google Sheets y cualquier planilla</div>
             </button>
-            <button onClick={doExportXLS} disabled={exporting} style={{ background: "#1e3a5f", color: "#60a5fa", border: "1px solid #60a5fa44", borderRadius: 12, padding: "16px 18px", cursor: "pointer", textAlign: "left", opacity: exporting ? 0.6 : 1 }}>
+            <button onClick={doExportXLS} disabled={exporting} style={{ background: C.accentDim, color: C.accent, border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 18px", cursor: "pointer", textAlign: "left", opacity: exporting ? 0.6 : 1 }}>
               <div style={{ fontSize: 17, marginBottom: 3, fontWeight: 700 }}>Exportar Excel (.xls)</div>
-              <div style={{ fontSize: 11, color: "#93c5fd" }}>Tabla formateada lista para abrir en Microsoft Excel</div>
+              <div style={{ fontSize: 11, color: C.sub }}>Tabla formateada lista para abrir en Microsoft Excel</div>
             </button>
-            <button onClick={doExportPDF} disabled={exporting} style={{ background: "#4a1942", color: "#e879f9", border: "1px solid #e879f944", borderRadius: 12, padding: "16px 18px", cursor: "pointer", textAlign: "left", opacity: exporting ? 0.6 : 1 }}>
+            <button onClick={doExportPDF} disabled={exporting} style={{ background: C.danger.replace(/\)$/, " / 0.10)"), color: C.danger, border: `1px solid ${C.danger.replace(/\)$/, " / 0.30)")}`, borderRadius: 12, padding: "16px 18px", cursor: "pointer", textAlign: "left", opacity: exporting ? 0.6 : 1 }}>
               <div style={{ fontSize: 17, marginBottom: 3, fontWeight: 700 }}>Ver / Imprimir PDF</div>
-              <div style={{ fontSize: 11, color: "#f0abfc" }}>Abre una vista de impresión — guardá como PDF desde el navegador</div>
+              <div style={{ fontSize: 11, color: C.sub }}>Abre una vista de impresión — guardá como PDF desde el navegador</div>
             </button>
           </div>
           {exporting && <div style={{ textAlign: "center", marginTop: 14, color: C.accent, fontSize: 13 }}>Preparando exportación...</div>}
@@ -3928,7 +3928,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
                 padding: "10px 14px", gap: 6, alignItems: "center",
                 background: C.muted, borderTop: `1px solid ${C.border}`,
               }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: C.sub, textTransform: "uppercase" }}>Total</div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: C.sub, textTransform: "uppercase" }}>Total</div>
                 <div style={{ textAlign: "center" }}>
                   <div style={{ fontSize: 13, fontWeight: 800, fontFamily: "monospace", color: C.accent }}>
                     {totalSem >= 1000 ? `${(totalSem / 1000).toFixed(1)}k` : totalSem}
@@ -4074,7 +4074,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
                   {/* Tabla expandida */}
                   {isOpen && (
                     <div style={{ marginTop: 14, borderTop: `1px solid ${C.border}`, paddingTop: 12 }}>
-                      <div style={{ fontSize: 10, color: C.sub, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700, marginBottom: 8 }}>
+                      <div style={{ fontSize: 11, color: C.sub, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700, marginBottom: 8 }}>
                         Historial de entregas
                       </div>
                       {/* Header */}
