@@ -130,7 +130,7 @@ const inp = {
 };
 const lbl = { fontSize: 12, color: C.sub, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4, display: "block", fontWeight: 600 };
 const secTitle = { fontSize: 12, fontWeight: 700, color: C.accent, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 };
-const btnPrimary = { background: C.accent, color: _THEME === "light" ? "#fff" : "#000", border: "none", borderRadius: 10, padding: "13px 20px", fontSize: 15, fontWeight: 700, cursor: "pointer", width: "100%" };
+const btnPrimary = { background: C.accent, color: "#000", border: "none", borderRadius: 10, padding: "13px 20px", fontSize: 15, fontWeight: 700, cursor: "pointer", width: "100%" };
 const btnSecondary = { background: C.card, color: C.text, border: `1px solid ${C.border}`, borderRadius: 10, padding: "13px 20px", fontSize: 15, fontWeight: 600, cursor: "pointer", width: "100%" };
 const card = { background: C.card, borderRadius: 12, padding: 14, marginBottom: 8, border: `1px solid ${C.border}` };
 const panel = { background: C.surface, borderRadius: 10, padding: 12, marginBottom: 12 };
@@ -3362,7 +3362,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
               border: active ? "none" : `1px solid ${C.border}`,
               borderRadius: 12, padding: "9px 5px",
               flex: 1, minWidth: 0, cursor: "pointer",
-              color: active ? (_THEME === "light" ? "#fff" : "#000") : C.sub,
+              color: active ? "#000" : C.sub,
               fontWeight: active ? 800 : 500,
               boxShadow: active ? `0 4px 14px ${C.accent}44` : "none",
               transition: "all 0.18s",
@@ -4281,7 +4281,9 @@ export default function App() {
             saveSessionForReload({ section, date, perfil, nombre: initNombre });
             try { localStorage.setItem("yatasto:theme", next); } catch {}
             window.location.reload();
-          }} title={_THEME === "dark" ? "Modo Yatasto (claro)" : "Modo oscuro"} style={{
+          }} title={_THEME === "dark" ? "Modo Yatasto (claro)" : "Modo oscuro"}
+             aria-label={_THEME === "dark" ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}
+             style={{
             background: C.card, border: `1px solid ${C.border}`,
             borderRadius: 9, color: C.sub, width: 34, height: 34,
             cursor: "pointer", fontSize: 15,
@@ -4290,7 +4292,10 @@ export default function App() {
           }}>{_THEME === "dark" ? <ThemeLight size={16} strokeWidth={SW} /> : <ThemeDark size={16} strokeWidth={SW} />}</button>
 
           {/* Botón perfil */}
-          <button onClick={() => setPerfilModal(true)} title={perfil ? PERFILES[perfil].label : "Acceder con perfil"} style={{
+          <button onClick={() => setPerfilModal(true)}
+            title={perfil ? PERFILES[perfil].label : "Acceder con perfil"}
+            aria-label={perfil ? `Perfil: ${PERFILES[perfil].label}` : "Acceder con perfil"}
+            style={{
             background: perfil ? C.accentDim : C.card,
             border: `1px solid ${perfil ? C.accentDark : C.border}`,
             borderRadius: 9,
@@ -4303,7 +4308,7 @@ export default function App() {
             )}
           </button>
 
-          <button onClick={() => setInforme(true)} title="Informe del día" style={{
+          <button onClick={() => setInforme(true)} title="Informe del día" aria-label="Ver informe del día" style={{
             background: C.card, border: `1px solid ${C.border}`,
             borderRadius: 9, color: C.sub, width: 34, height: 34,
             cursor: "pointer", fontSize: 15,

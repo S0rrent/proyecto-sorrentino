@@ -204,21 +204,28 @@ CREATE TABLE IF NOT EXISTS config (
 ALTER TABLE yatasto_storage ENABLE ROW LEVEL SECURITY;
 
 -- Política: acceso total con anon key (ajustar para producción)
--- En producción reemplazar con autenticación real:
+-- DROP + CREATE hace el script re-ejecutable (evita error 42710 "policy already exists")
+DROP POLICY IF EXISTS "acceso_total_anon" ON yatasto_storage;
 CREATE POLICY "acceso_total_anon" ON yatasto_storage
   FOR ALL
   USING (true)
   WITH CHECK (true);
 
 -- Habilitar RLS en tablas relacionales
-ALTER TABLE ingresos    ENABLE ROW LEVEL SECURITY;
-ALTER TABLE cargas      ENABLE ROW LEVEL SECURITY;
-ALTER TABLE movimientos ENABLE ROW LEVEL SECURITY;
+ALTER TABLE ingresos     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE cargas       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE movimientos  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE stock_turnos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE cip_registros ENABLE ROW LEVEL SECURITY;
 ALTER TABLE fortificados ENABLE ROW LEVEL SECURITY;
 
 -- Políticas permisivas para anon (red local de planta)
+DROP POLICY IF EXISTS "acceso_anon_ingresos"    ON ingresos;
+DROP POLICY IF EXISTS "acceso_anon_cargas"      ON cargas;
+DROP POLICY IF EXISTS "acceso_anon_movimientos" ON movimientos;
+DROP POLICY IF EXISTS "acceso_anon_stock"       ON stock_turnos;
+DROP POLICY IF EXISTS "acceso_anon_cip"         ON cip_registros;
+DROP POLICY IF EXISTS "acceso_anon_fort"        ON fortificados;
 CREATE POLICY "acceso_anon_ingresos"    ON ingresos    FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "acceso_anon_cargas"      ON cargas      FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "acceso_anon_movimientos" ON movimientos FOR ALL USING (true) WITH CHECK (true);
@@ -286,14 +293,17 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trig_yatasto_storage_updated ON yatasto_storage;
 CREATE TRIGGER trig_yatasto_storage_updated
   BEFORE UPDATE ON yatasto_storage
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
+DROP TRIGGER IF EXISTS trig_saldo_silos_updated ON saldo_silos;
 CREATE TRIGGER trig_saldo_silos_updated
   BEFORE UPDATE ON saldo_silos
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
+DROP TRIGGER IF EXISTS trig_config_updated ON config;
 CREATE TRIGGER trig_config_updated
   BEFORE UPDATE ON config
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
