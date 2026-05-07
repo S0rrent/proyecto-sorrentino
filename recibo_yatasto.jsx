@@ -1,5 +1,6 @@
 import { useState, useEffect, Fragment } from "react";
 import { DARK, LIGHT, FONT_SANS, FONT_MONO, EASE_OUT, DUR } from "./tokens.js";
+import { useViewport } from "./hooks.js";
 import {
   Ingresos as IcoIngresos, Movimientos as IcoMovimientos, Carga as IcoCarga,
   Fortificados as IcoFortificados, CIP as IcoCIP, Stock as IcoStock,
@@ -109,6 +110,7 @@ const PRODS_CONCENTRADOS = ["Lactosa", "Suero", "Concentrado"];
 const getToday = () => new Date().toISOString().split("T")[0];
 const getPreviousDate = (dateStr) => { const d = new Date(dateStr + "T00:00:00"); d.setDate(d.getDate() - 1); return d.toISOString().split("T")[0]; };
 const getLastNDays = (n) => { const days = []; for (let i = n - 1; i >= 0; i--) { const d = new Date(); d.setDate(d.getDate() - i); days.push(d.toISOString().split("T")[0]); } return days; };
+const getDaysInRange = (from, to) => { const days = []; const cur = new Date(from + "T00:00:00"); const end = new Date(to + "T00:00:00"); while (cur <= end && days.length < 90) { days.push(cur.toISOString().slice(0, 10)); cur.setDate(cur.getDate() + 1); } return days; };
 const DIAS_ES = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
 const getNow = () => { const d = new Date(); return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
 const getCurrentTurno = () => { const h = new Date().getHours(); return h >= 7 && h < 14 ? "07:00" : h >= 14 && h < 21 ? "14:00" : "21:00"; };
@@ -130,7 +132,7 @@ const inp = {
 };
 const lbl = { fontSize: 12, color: C.sub, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4, display: "block", fontWeight: 600 };
 const secTitle = { fontSize: 12, fontWeight: 700, color: C.accent, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 };
-const btnPrimary = { background: C.accent, color: _THEME === "light" ? "#fff" : "#000", border: "none", borderRadius: 10, padding: "13px 20px", fontSize: 15, fontWeight: 700, cursor: "pointer", width: "100%" };
+const btnPrimary = { background: C.accent, color: "#000", border: "none", borderRadius: 10, padding: "13px 20px", fontSize: 15, fontWeight: 700, cursor: "pointer", width: "100%" };
 const btnSecondary = { background: C.card, color: C.text, border: `1px solid ${C.border}`, borderRadius: 10, padding: "13px 20px", fontSize: 15, fontWeight: 600, cursor: "pointer", width: "100%" };
 const card = { background: C.card, borderRadius: 12, padding: 14, marginBottom: 8, border: `1px solid ${C.border}` };
 const panel = { background: C.surface, borderRadius: 10, padding: 12, marginBottom: 12 };
@@ -425,25 +427,37 @@ const Pair = ({ label, v1, v2, on1, on2 }) => (
   </div>
 );
 const FAB = ({ onClick }) => (
-  <button onClick={onClick} style={{
+  <button type="button" onClick={onClick} style={{
     position: "fixed", right: 20, bottom: 82, width: 56, height: 56, borderRadius: 28,
     background: C.accent, border: "none", color: "#000", fontSize: 28, fontWeight: 700,
     cursor: "pointer", boxShadow: `0 4px 24px ${C.accent}55`,
     display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50,
   }}>+</button>
 );
-const Modal = ({ title, onClose, children, zIndex = 100 }) => (
-  <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)", zIndex, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
-    <div style={{ background: C.bg, borderRadius: "20px 20px 0 0", padding: 20, maxHeight: "93vh", overflowY: "auto", border: `1px solid ${C.border}`, borderBottom: "none" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
-        <span style={{ fontWeight: 700, fontSize: 18, color: C.text }}>{title}</span>
-        <button onClick={onClose} style={{ background: C.card, border: "none", color: C.sub, borderRadius: 8, width: 36, height: 36, cursor: "pointer", fontSize: 20 }}>×</button>
+const Modal = ({ title, onClose, children, zIndex = 100 }) => {
+  const isDesktop = typeof window !== "undefined" && window.innerWidth >= 1024;
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)", zIndex, display: "flex", alignItems: isDesktop ? "center" : "flex-end", justifyContent: "center" }}>
+      <div style={{
+        background: C.bg, padding: 20, overflowY: "auto",
+        border: `1px solid ${C.border}`,
+        ...(isDesktop ? {
+          borderRadius: 16, width: "min(580px, 90vw)", maxHeight: "85vh",
+          boxShadow: "0 24px 48px rgba(0,0,0,0.45)",
+        } : {
+          borderRadius: "20px 20px 0 0", width: "100%", maxHeight: "93vh", borderBottom: "none",
+        }),
+      }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+          <span style={{ fontWeight: 700, fontSize: 18, color: C.text }}>{title}</span>
+          <button type="button" onClick={onClose} aria-label="Cerrar" style={{ background: C.card, border: "none", color: C.sub, borderRadius: 8, width: 36, height: 36, cursor: "pointer", fontSize: 20 }}>×</button>
+        </div>
+        {children}
+        <div style={{ height: 20 }} />
       </div>
-      {children}
-      <div style={{ height: 20 }} />
     </div>
-  </div>
-);
+  );
+};
 
 // ─── INGRESOS ────────────────────────────────────────────────
 const emptyIng = () => ({
@@ -475,7 +489,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
         <Sel value={f.tambo} onChange={pickTambo}
           options={tambos.map(t => ({ value: t.nombre, label: `${t.num} — ${t.nombre}` }))}
           placeholder="Seleccionar tambo..." />
-        <button onClick={onNuevoTambo} style={{ marginTop: 6, background: "none", border: "none", color: C.accent, fontSize: 12, cursor: "pointer", padding: "4px 0", textDecoration: "underline" }}>
+        <button type="button" onClick={onNuevoTambo} style={{ marginTop: 6, background: "none", border: "none", color: C.accent, fontSize: 12, cursor: "pointer", padding: "4px 0", textDecoration: "underline" }}>
           + Agregar nuevo tambo
         </button>
       </F>
@@ -485,11 +499,11 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
 
       {/* Badge que distingue el formulario */}
       {isConcentrado && (
-        <div style={{ background: "#1e3a5f", border: "1px solid #3b82f644", borderRadius: 10, padding: "8px 12px", marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
-          <IcoCalidad size={16} strokeWidth={SW} color="#60a5fa" />
+        <div style={{ background: C.accentDim, border: `1px solid ${C.border}`, borderRadius: 10, padding: "8px 12px", marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
+          <IcoCalidad size={16} strokeWidth={SW} color={C.accent} />
           <div>
-            <div style={{ fontSize: 11, fontWeight: 700, color: "#60a5fa" }}>Formulario simplificado — Producto concentrado</div>
-            <div style={{ fontSize: 10, color: C.sub }}>Solo se requieren los parámetros esenciales para este tipo de producto.</div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: C.accent }}>Formulario simplificado — Producto concentrado</div>
+            <div style={{ fontSize: 11, color: C.sub }}>Solo se requieren los parámetros esenciales para este tipo de producto.</div>
           </div>
         </div>
       )}
@@ -503,7 +517,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
             <F label="Litros"><Inp type="number" value={f.litrosFca} onChange={set("litrosFca")} placeholder="0" /></F>
             <F label="Temperatura llegada (°C)">
               <Inp type="number" value={f.tC} onChange={set("tC")} step="0.1" placeholder="°C" />
-              <div style={{ fontSize: 10, color: C.sub, marginTop: 3 }}>Ref: 3 – 8 °C</div>
+              <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>Ref: 3 – 8 °C</div>
             </F>
           </div>
           <div style={panel}>
@@ -511,11 +525,11 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
               <F label="Acidez">
                 <Inp type="number" value={f.acidezFca} onChange={set("acidezFca")} step="0.1" />
-                <div style={{ fontSize: 10, color: C.sub, marginTop: 3 }}>Ref: 14 – 18 °D</div>
+                <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>Ref: 14 – 18 °D</div>
               </F>
               <F label="pH">
                 <Inp type="number" value={f.phFca} onChange={set("phFca")} step="0.01" />
-                <div style={{ fontSize: 10, color: C.sub, marginTop: 3 }}>Ref: 6.6 – 6.8</div>
+                <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>Ref: 6.6 – 6.8</div>
               </F>
             </div>
             <F label="°BRIX"><Inp type="number" value={f.brix || ""} onChange={set("brix")} step="0.1" placeholder="°Brix" /></F>
@@ -536,7 +550,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
             <F label="Destino — Silo"><Sel value={f.destino} onChange={set("destino")} options={SILOS} placeholder="Seleccionar silo..." /></F>
             <F label="Temperatura llegada (°C)">
               <Inp type="number" value={f.tC} onChange={set("tC")} step="0.1" placeholder="°C" />
-              <div style={{ fontSize: 10, color: C.sub, marginTop: 3 }}>Ref: 3 – 8 °C</div>
+              <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>Ref: 3 – 8 °C</div>
             </F>
           </div>
           <div style={panel}>
@@ -544,11 +558,11 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
               <F label="Acidez Fca.">
                 <Inp type="number" value={f.acidezFca} onChange={set("acidezFca")} step="0.1" />
-                <div style={{ fontSize: 10, color: C.sub, marginTop: 3 }}>Ref: 14 – 18 °D</div>
+                <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>Ref: 14 – 18 °D</div>
               </F>
               <F label="pH Fca.">
                 <Inp type="number" value={f.phFca} onChange={set("phFca")} step="0.01" />
-                <div style={{ fontSize: 10, color: C.sub, marginTop: 3 }}>Ref: 6.6 – 6.8</div>
+                <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>Ref: 6.6 – 6.8</div>
               </F>
             </div>
             <Pair label="Prueba Alcohol" v1={f.alcFca} v2={f.alcTbo} on1={set("alcFca")} on2={set("alcTbo")} />
@@ -556,16 +570,16 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
           <div style={panel}>
             <div style={secTitle}>Composición</div>
             <Pair label="Grasa Butirosa (GB)" v1={f.gbFca} v2={f.gbTbo} on1={set("gbFca")} on2={set("gbTbo")} />
-            <div style={{ fontSize: 10, color: C.sub, marginTop: -8, marginBottom: 12 }}>Ref: 3.0 – 4.0 %</div>
+            <div style={{ fontSize: 11, color: C.sub, marginTop: -8, marginBottom: 12 }}>Ref: 3.0 – 4.0 %</div>
             <Pair label="Sólidos No Grasos (SNG)" v1={f.sngFca} v2={f.sngTbo} on1={set("sngFca")} on2={set("sngTbo")} />
-            <div style={{ fontSize: 10, color: C.sub, marginTop: -8, marginBottom: 12 }}>Ref: 8.0 – 8.7 %</div>
+            <div style={{ fontSize: 11, color: C.sub, marginTop: -8, marginBottom: 12 }}>Ref: 8.0 – 8.7 %</div>
             <Pair label="Densidad" v1={f.densFca} v2={f.densTbo} on1={set("densFca")} on2={set("densTbo")} />
-            <div style={{ fontSize: 10, color: C.sub, marginTop: -8, marginBottom: 12 }}>Ref: 1.028 – 1.033 g/mL</div>
+            <div style={{ fontSize: 11, color: C.sub, marginTop: -8, marginBottom: 12 }}>Ref: 1.028 – 1.033 g/mL</div>
             <Pair label="Aguado" v1={f.aguadoFca} v2={f.aguadoTbo} on1={set("aguadoFca")} on2={set("aguadoTbo")} />
-            <div style={{ fontSize: 10, color: C.danger, marginTop: -8, marginBottom: 12 }}>Debe ser exactamente 0 — indica adulteración</div>
+            <div style={{ fontSize: 11, color: C.danger, marginTop: -8, marginBottom: 12 }}>Debe ser exactamente 0 — indica adulteración</div>
             <Pair label="Leche de Descarte" v1={f.dcFca} v2={f.dcTbo} on1={set("dcFca")} on2={set("dcTbo")} />
             <Pair label="Proteína" v1={f.protFca} v2={f.protTbo} on1={set("protFca")} on2={set("protTbo")} />
-            <div style={{ fontSize: 10, color: C.sub, marginTop: -8, marginBottom: 12 }}>Ref: 2.9 – 3.5 %</div>
+            <div style={{ fontSize: 11, color: C.sub, marginTop: -8, marginBottom: 12 }}>Ref: 2.9 – 3.5 %</div>
             <F label="ATM"><Sel value={f.atm || ""} onChange={set("atm")} options={["Sí", "No"]} placeholder="ATM..." /></F>
           </div>
         </>
@@ -575,8 +589,8 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
         <textarea style={{ ...inp, minHeight: 60, resize: "vertical" }} value={f.obs} onChange={e => set("obs")(e.target.value)} placeholder="Observaciones..." />
       </F>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-        <button style={btnSecondary} onClick={onClose}>Cancelar</button>
-        <button style={btnPrimary} onClick={() => {
+        <button type="button" style={btnSecondary} onClick={onClose}>Cancelar</button>
+        <button type="button" style={btnPrimary} onClick={() => {
           let req;
           if (isConcentrado) {
             req = [["tambo", "Tambo"], ["litrosFca", "Litros"], ["destino", "Destino"],
@@ -591,7 +605,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
           onSave(f);
         }}>Guardar</button>
       </div>
-      {onDelete && <button style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar este ingreso</button>}
+      {onDelete && <button type="button" style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar este ingreso</button>}
     </div>
   );
 };
@@ -641,13 +655,13 @@ const SecIngresos = ({ date, syncKey = 0 }) => {
     <div>
       <div style={{ ...card, display: "flex", justifyContent: "space-between", alignItems: "center", borderColor: C.accentDark }}>
         <div>
-          <div style={{ fontSize: 10, color: C.sub, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 2 }}>Total del día</div>
-          <div style={{ fontSize: 30, fontWeight: 700, color: C.accent, fontFamily: "'Courier New',monospace", lineHeight: 1 }}>
+          <div style={{ fontSize: 11, color: C.sub, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 2 }}>Total del día</div>
+          <div style={{ fontSize: 30, fontWeight: 700, color: C.accent, fontFamily: FONT_MONO, lineHeight: 1 }}>
             {totalFca.toLocaleString("es-AR")} <span style={{ fontSize: 16 }}>L</span>
           </div>
         </div>
         <div style={{ textAlign: "right" }}>
-          <div style={{ fontSize: 10, color: C.sub, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 2 }}>Camiones</div>
+          <div style={{ fontSize: 11, color: C.sub, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 2 }}>Camiones</div>
           <div style={{ fontSize: 30, fontWeight: 700, color: C.text, lineHeight: 1 }}>{list.length}</div>
         </div>
       </div>
@@ -663,7 +677,7 @@ const SecIngresos = ({ date, syncKey = 0 }) => {
             onChange={e => setFiltro(e.target.value)}
           />
           {filtro && (
-            <button onClick={() => setFiltro("")} style={{
+            <button type="button" onClick={() => setFiltro("")} style={{
               position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)",
               background: C.muted, border: "none", color: C.sub, cursor: "pointer",
               borderRadius: "50%", width: 20, height: 20, fontSize: 13,
@@ -691,7 +705,7 @@ const SecIngresos = ({ date, syncKey = 0 }) => {
           <div style={{ textAlign: "center", padding: "32px 24px", color: C.sub }}>
             <div style={{ marginBottom: 8, display: "flex", justifyContent: "center", opacity: 0.35 }}><IcoBuscar size={32} strokeWidth={1} /></div>
             <div style={{ fontSize: 14 }}>Sin resultados para "{filtro}"</div>
-            <button onClick={() => setFiltro("")} style={{ marginTop: 10, background: "none", border: `1px solid ${C.border}`, color: C.sub, borderRadius: 8, padding: "6px 14px", fontSize: 12, cursor: "pointer" }}>
+            <button type="button" onClick={() => setFiltro("")} style={{ marginTop: 10, background: "none", border: `1px solid ${C.border}`, color: C.sub, borderRadius: 8, padding: "6px 14px", fontSize: 12, cursor: "pointer" }}>
               Limpiar búsqueda
             </button>
           </div>
@@ -699,7 +713,7 @@ const SecIngresos = ({ date, syncKey = 0 }) => {
         return vista.map(ing => (
           <div key={ing.id} onClick={() => setModal(ing)} style={{ ...card, cursor: "pointer" }}>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-              <span style={{ fontFamily: "'Courier New',monospace", fontWeight: 700, color: C.accent, fontSize: 17 }}>{ing.hora}</span>
+              <span style={{ fontFamily: FONT_MONO, fontWeight: 700, color: C.accent, fontSize: 17 }}>{ing.hora}</span>
               <span style={{ background: C.accentDim, color: C.accent, borderRadius: 6, padding: "2px 10px", fontSize: 12, fontWeight: 700 }}>{ing.destino || "Sin destino"}</span>
             </div>
             <div style={{ fontWeight: 700, fontSize: 16, color: C.text, marginBottom: 4 }}>[{ing.num}] {ing.tambo || "—"}</div>
@@ -735,8 +749,8 @@ const SecIngresos = ({ date, syncKey = 0 }) => {
               onChange={e => setNewTambo(p => ({ ...p, num: e.target.value }))} placeholder="Ej: 99" />
           </F>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-            <button style={btnSecondary} onClick={() => setTamboModal(false)}>Cancelar</button>
-            <button style={btnPrimary} onClick={saveNuevoTambo}>Guardar</button>
+            <button type="button" style={btnSecondary} onClick={() => setTamboModal(false)}>Cancelar</button>
+            <button type="button" style={btnPrimary} onClick={saveNuevoTambo}>Guardar</button>
           </div>
         </Modal>
       )}
@@ -755,7 +769,7 @@ const CIPRow = ({ nombre, tipo, data, onChange }) => {
         <span style={{ fontWeight: 700, fontSize: 15, color: C.text }}>{tipo} {nombre}</span>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {hasData && <span style={{ width: 8, height: 8, borderRadius: 4, background: C.success, display: "inline-block" }} />}
-          {data?.hora && <span style={{ fontSize: 12, color: C.success, fontFamily: "monospace" }}>{data.hora}</span>}
+          {data?.hora && <span style={{ fontSize: 12, color: C.success, fontFamily: FONT_MONO }}>{data.hora}</span>}
           <span style={{ color: C.sub }}>{open ? "▲" : "▼"}</span>
         </div>
       </div>
@@ -845,7 +859,7 @@ const SecCIP = ({ date, syncKey = 0 }) => {
     <div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
         {[["silos", "Silos / Líneas"], ["camiones", "Camiones"]].map(([t, l]) => (
-          <button key={t} onClick={() => setTab(t)} style={{ ...(tab === t ? btnPrimary : btnSecondary), padding: "10px 6px" }}>{l}</button>
+          <button type="button" key={t} onClick={() => setTab(t)} style={{ ...(tab === t ? btnPrimary : btnSecondary), padding: "10px 6px" }}>{l}</button>
         ))}
       </div>
       {tab === "silos" && (
@@ -866,7 +880,7 @@ const SecCIP = ({ date, syncKey = 0 }) => {
       {tab === "camiones" && (
         <>
           {camiones.map(c => <CIPRow key={c} nombre={c} tipo="CAMIÓN" data={(data.camiones || {})[c] || {}} onChange={v => updateCamion(c, v)} />)}
-          <button onClick={() => setCamionModal(true)} style={{ ...btnSecondary, marginTop: 8, borderStyle: "dashed", color: C.accent, borderColor: C.accentDark }}>
+          <button type="button" onClick={() => setCamionModal(true)} style={{ ...btnSecondary, marginTop: 8, borderStyle: "dashed", color: C.accent, borderColor: C.accentDark }}>
             + Agregar nuevo camión
           </button>
         </>
@@ -878,8 +892,8 @@ const SecCIP = ({ date, syncKey = 0 }) => {
               onChange={e => setNewCamion(e.target.value)} placeholder="Ej: MARTINEZ" />
           </F>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-            <button style={btnSecondary} onClick={() => setCamionModal(false)}>Cancelar</button>
-            <button style={btnPrimary} onClick={saveNuevoCamion}>Guardar</button>
+            <button type="button" style={btnSecondary} onClick={() => setCamionModal(false)}>Cancelar</button>
+            <button type="button" style={btnPrimary} onClick={saveNuevoCamion}>Guardar</button>
           </div>
         </Modal>
       )}
@@ -933,7 +947,7 @@ const CargaForm = ({ initial, onSave, onClose, onDelete }) => {
     <div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 6, marginBottom: 12 }}>
         {["CARGA 1", "CARGA 2", "CARGA 3"].map(l => (
-          <button key={l} onClick={() => set("label")(l)} style={{ ...(f.label === l ? btnPrimary : btnSecondary), padding: "10px 6px", fontSize: 13 }}>{l}</button>
+          <button type="button" key={l} onClick={() => set("label")(l)} style={{ ...(f.label === l ? btnPrimary : btnSecondary), padding: "10px 6px", fontSize: 13 }}>{l}</button>
         ))}
       </div>
       <F label="Destino"><Inp value={f.destino} onChange={set("destino")} placeholder="Destino de la carga..." /></F>
@@ -945,7 +959,7 @@ const CargaForm = ({ initial, onSave, onClose, onDelete }) => {
           <div style={{ flex: 1 }}>
             <Sel value={f.producto || ""} onChange={set("producto")} options={cargaProductos} placeholder="Seleccionar producto..." />
           </div>
-          <button onClick={() => setProdModal(true)} style={{
+          <button type="button" onClick={() => setProdModal(true)} style={{
             background: C.card, border: `1px solid ${C.accentDark}`, color: C.accent,
             borderRadius: 8, padding: "11px 14px", cursor: "pointer", fontSize: 13, fontWeight: 700,
             whiteSpace: "nowrap",
@@ -960,7 +974,7 @@ const CargaForm = ({ initial, onSave, onClose, onDelete }) => {
           <div style={{ flex: 1 }}>
             <Sel value={f.transportista || ""} onChange={set("transportista")} options={transportistas} placeholder="Seleccionar transportista..." />
           </div>
-          <button onClick={() => setTransModal(true)} style={{
+          <button type="button" onClick={() => setTransModal(true)} style={{
             background: C.card, border: `1px solid ${C.accentDark}`, color: C.accent,
             borderRadius: 8, padding: "11px 14px", cursor: "pointer", fontSize: 13, fontWeight: 700,
             whiteSpace: "nowrap",
@@ -985,8 +999,8 @@ const CargaForm = ({ initial, onSave, onClose, onDelete }) => {
       </div>
       <F label="Observaciones"><textarea style={{ ...inp, minHeight: 48, resize: "vertical" }} value={f.obs} onChange={e => set("obs")(e.target.value)} /></F>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-        <button style={btnSecondary} onClick={onClose}>Cancelar</button>
-        <button style={btnPrimary} onClick={() => {
+        <button type="button" style={btnSecondary} onClick={onClose}>Cancelar</button>
+        <button type="button" style={btnPrimary} onClick={() => {
           const req = [["destino", "Destino"], ["siloProveniente", "Silo Proveniente"], ["limpCisterna", "Limpieza Cisterna"],
           ["litros", "Litros"], ["hora", "Hora"], ["responsable", "Responsable"],
           ["T", "T"], ["gC", "°C"], ["pH", "pH"], ["A", "A"], ["gD", "°D"]];
@@ -995,7 +1009,7 @@ const CargaForm = ({ initial, onSave, onClose, onDelete }) => {
           onSave(f);
         }}>Guardar</button>
       </div>
-      {onDelete && <button style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar</button>}
+      {onDelete && <button type="button" style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar</button>}
 
       {transModal && (
         <Modal title="Agregar Transportista" onClose={() => setTransModal(false)}>
@@ -1006,8 +1020,8 @@ const CargaForm = ({ initial, onSave, onClose, onDelete }) => {
               placeholder="Ej: MARTINEZ" />
           </F>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-            <button style={btnSecondary} onClick={() => setTransModal(false)}>Cancelar</button>
-            <button style={btnPrimary} onClick={saveNuevoTrans}>Guardar</button>
+            <button type="button" style={btnSecondary} onClick={() => setTransModal(false)}>Cancelar</button>
+            <button type="button" style={btnPrimary} onClick={saveNuevoTrans}>Guardar</button>
           </div>
         </Modal>
       )}
@@ -1020,8 +1034,8 @@ const CargaForm = ({ initial, onSave, onClose, onDelete }) => {
               placeholder="Ej: Leche Parcialmente Descremada" />
           </F>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-            <button style={btnSecondary} onClick={() => setProdModal(false)}>Cancelar</button>
-            <button style={btnPrimary} onClick={saveNuevoProd}>Guardar</button>
+            <button type="button" style={btnSecondary} onClick={() => setProdModal(false)}>Cancelar</button>
+            <button type="button" style={btnPrimary} onClick={saveNuevoProd}>Guardar</button>
           </div>
         </Modal>
       )}
@@ -1050,15 +1064,15 @@ const SecCarga = ({ date, syncKey = 0 }) => {
       ) : list.map(c => (
         <div key={c.id} onClick={() => setModal(c)} style={{ ...card, cursor: "pointer" }}>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-            <span style={{ fontFamily: "monospace", fontWeight: 700, color: C.accent, fontSize: 16 }}>{c.hora}</span>
+            <span style={{ fontFamily: FONT_MONO, fontWeight: 700, color: C.accent, fontSize: 16 }}>{c.hora}</span>
             <span style={{ background: C.accentDim, color: C.accent, borderRadius: 6, padding: "2px 10px", fontSize: 12, fontWeight: 700 }}>{c.label}</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
             <span style={{ fontSize: 15, color: C.text }}>{c.destino || "Sin destino"}</span>
-            {c.producto && <span style={{ fontSize: 11, background: "#1e3a5f", color: "#60a5fa", borderRadius: 6, padding: "2px 8px", fontWeight: 700, border: "1px solid #3b82f644" }}>{c.producto}</span>}
+            {c.producto && <span style={{ fontSize: 11, background: C.accentDim, color: C.accent, borderRadius: 6, padding: "2px 8px", fontWeight: 700, border: `1px solid ${C.border}` }}>{c.producto}</span>}
           </div>
           {c.transportista && (
-            <div style={{ fontSize: 12, color: "#60a5fa", marginBottom: 2, display: "flex", alignItems: "center", gap: 4 }}><CamionIcon size={12} strokeWidth={SW} />{c.transportista}</div>
+            <div style={{ fontSize: 12, color: C.sub, marginBottom: 2, display: "flex", alignItems: "center", gap: 4 }}><CamionIcon size={12} strokeWidth={SW} />{c.transportista}</div>
           )}
           <div style={{ fontSize: 13, color: C.sub }}>
             {c.siloProveniente && <span>Desde {c.siloProveniente} </span>}
@@ -1098,15 +1112,15 @@ const MovForm = ({ initial, onSave, onClose, onDelete }) => {
       <F label="Motivo"><Inp value={f.motivo || ""} onChange={set("motivo")} placeholder="Ej: Trasvase, Mezcla, etc." /></F>
       <F label="Responsable"><Inp value={f.resp} onChange={set("resp")} /></F>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-        <button style={btnSecondary} onClick={onClose}>Cancelar</button>
-        <button style={btnPrimary} onClick={() => {
+        <button type="button" style={btnSecondary} onClick={onClose}>Cancelar</button>
+        <button type="button" style={btnPrimary} onClick={() => {
           const req = [["litros", "Litros"], ["desde", "Desde"], ["hasta", "Hasta"], ["motivo", "Motivo"], ["resp", "Responsable"]];
           const miss = req.filter(([k]) => !String(f[k] || "").trim()).map(([, v]) => v);
           if (miss.length) { alert("Campos obligatorios sin completar:\n• " + miss.join("\n• ")); return; }
           onSave(f);
         }}>Guardar</button>
       </div>
-      {onDelete && <button style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar</button>}
+      {onDelete && <button type="button" style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar</button>}
     </div>
   );
 };
@@ -1125,15 +1139,15 @@ const CtrlForm = ({ initial, onSave, onClose, onDelete }) => {
       </div>
       <F label="Responsable"><Inp value={f.resp} onChange={set("resp")} /></F>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-        <button style={btnSecondary} onClick={onClose}>Cancelar</button>
-        <button style={btnPrimary} onClick={() => {
+        <button type="button" style={btnSecondary} onClick={onClose}>Cancelar</button>
+        <button type="button" style={btnPrimary} onClick={() => {
           const req = [["silo", "Silo"], ["ph", "pH"], ["gD", "°D"], ["gC", "°C"], ["alc", "Alc."], ["mg", "MG"], ["sng", "SNG"], ["dens", "Densidad"], ["fp", "FP"], ["prot", "Proteína"], ["resp", "Responsable"]];
           const miss = req.filter(([k]) => !String(f[k] || "").trim()).map(([, v]) => v);
           if (miss.length) { alert("Campos obligatorios sin completar:\n• " + miss.join("\n• ")); return; }
           onSave(f);
         }}>Guardar</button>
       </div>
-      {onDelete && <button style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar</button>}
+      {onDelete && <button type="button" style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar</button>}
     </div>
   );
 };
@@ -1168,7 +1182,7 @@ const SecMovimientos = ({ date, syncKey = 0 }) => {
     <div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
         {[["movs", "Movimientos"], ["ctrls", "Control Silos"]].map(([t, l]) => (
-          <button key={t} onClick={() => setTab(t)} style={{ ...(tab === t ? btnPrimary : btnSecondary), padding: "10px 6px" }}>{l}</button>
+          <button type="button" key={t} onClick={() => setTab(t)} style={{ ...(tab === t ? btnPrimary : btnSecondary), padding: "10px 6px" }}>{l}</button>
         ))}
       </div>
       {tab === "movs" && (
@@ -1178,7 +1192,7 @@ const SecMovimientos = ({ date, syncKey = 0 }) => {
           ) : data.movs.map(m => (
             <div key={m.id} onClick={() => setModal({ type: "mov", item: m })} style={{ ...card, cursor: "pointer" }}>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                <span style={{ fontFamily: "monospace", color: C.accent, fontWeight: 700, fontSize: 16 }}>{m.hora}</span>
+                <span style={{ fontFamily: FONT_MONO, color: C.accent, fontWeight: 700, fontSize: 16 }}>{m.hora}</span>
                 {m.litros && <span style={{ color: C.text, fontWeight: 600 }}>{parseFloat(m.litros).toLocaleString("es-AR")} L</span>}
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
@@ -1203,7 +1217,7 @@ const SecMovimientos = ({ date, syncKey = 0 }) => {
           ) : data.ctrls.map(c => (
             <div key={c.id} onClick={() => setModal({ type: "ctrl", item: c })} style={{ ...card, cursor: "pointer" }}>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                <span style={{ fontFamily: "monospace", color: C.accent, fontWeight: 700, fontSize: 16 }}>{c.hora}</span>
+                <span style={{ fontFamily: FONT_MONO, color: C.accent, fontWeight: 700, fontSize: 16 }}>{c.hora}</span>
                 <span style={{ background: C.accentDim, color: C.accent, borderRadius: 6, padding: "2px 10px", fontSize: 12, fontWeight: 700 }}>SILO {c.silo || "—"}</span>
               </div>
               <div style={{ display: "flex", gap: 10, fontSize: 12, color: C.sub, flexWrap: "wrap" }}>
@@ -1307,14 +1321,14 @@ const SecStock = ({ date, syncKey = 0 }) => {
     <div>
       {/* Banner silos vaciados */}
       {silosVaciados.length > 0 && (
-        <div style={{ ...card, borderColor: C.danger, background: "#1a0808", marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ ...card, borderColor: C.danger.replace(/\)$/, " / 0.5)"), background: C.danger.replace(/\)$/, " / 0.10)"), marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
             <div style={{ fontSize: 11, color: C.danger, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 2 }}>
               <span style={{ display: "flex", alignItems: "center", gap: 5 }}><AlertaError size={11} strokeWidth={SW} />Silos vaciados — requieren lavado CIP</span>
             </div>
             <div style={{ fontSize: 13, color: C.text }}>{silosVaciados.join(", ")} → marcados como Sucio (vacío)</div>
           </div>
-          <button onClick={() => setSilosVaciados([])} style={{ background: "none", border: "none", color: C.sub, fontSize: 22, cursor: "pointer", padding: "0 4px" }}>×</button>
+          <button type="button" onClick={() => setSilosVaciados([])} style={{ background: "none", border: "none", color: C.sub, fontSize: 22, cursor: "pointer", padding: "0 4px" }}>×</button>
         </div>
       )}
 
@@ -1324,11 +1338,11 @@ const SecStock = ({ date, syncKey = 0 }) => {
           const filled = Object.values((data[t] || {}).silos || {}).filter(s => s.ph && s.grasa).length;
           const isActive = t === getCurrentTurno() && date === getToday();
           return (
-            <button key={t} onClick={() => setTurno(t)} style={{ ...(turno === t ? btnPrimary : btnSecondary), padding: "8px 4px", position: "relative" }}>
-              {isActive && <span style={{ position: "absolute", top: 4, right: 6, width: 6, height: 6, borderRadius: 3, background: turno === t ? "#000" : "#22c55e", display: "inline-block" }} />}
+            <button type="button" key={t} onClick={() => setTurno(t)} style={{ ...(turno === t ? btnPrimary : btnSecondary), padding: "8px 4px", position: "relative" }}>
+              {isActive && <span style={{ position: "absolute", top: 4, right: 6, width: 6, height: 6, borderRadius: 3, background: turno === t ? C.bg : C.success, display: "inline-block" }} />}
               <div style={{ fontSize: 13, fontWeight: 700 }}>{TURNO_LABELS[t]}</div>
-              <div style={{ fontSize: 10, opacity: 0.7 }}>{t}–{TURNO_CIERRE[t]} hs.</div>
-              <div style={{ fontSize: 9, marginTop: 2, color: turno === t ? "#000a" : "#22c55e88" }}>
+              <div style={{ fontSize: 11, opacity: 0.7 }}>{t}–{TURNO_CIERRE[t]} hs.</div>
+              <div style={{ fontSize: 10, marginTop: 2, color: turno === t ? C.text.replace(/\)$/, " / 0.6)") : C.success.replace(/\)$/, " / 0.55)") }}>
                 {filled > 0 ? `✓ ${filled} silos` : "Sin datos"}
               </div>
             </button>
@@ -1360,8 +1374,8 @@ const SecStock = ({ date, syncKey = 0 }) => {
                 {silo.startsWith("TQ") ? "TQ" : "SILO"} {silo.replace("TQ", "")}
               </span>
               <div style={{ textAlign: "right" }}>
-                <div style={{ fontSize: 9, color: C.sub, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 1 }}>Acumulado del día</div>
-                <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: 16, color: litrosAuto > 0 ? C.accent : C.sub }}>
+                <div style={{ fontSize: 10, color: C.sub, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 1 }}>Acumulado del día</div>
+                <span style={{ fontFamily: FONT_MONO, fontWeight: 700, fontSize: 16, color: litrosAuto > 0 ? C.accent : C.sub }}>
                   {litrosAuto.toLocaleString("es-AR")} L
                 </span>
               </div>
@@ -1373,7 +1387,7 @@ const SecStock = ({ date, syncKey = 0 }) => {
               <div>
                 {/* Barra de nivel */}
                 <div style={{ marginBottom: 8 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: C.sub, marginBottom: 4 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: C.sub, marginBottom: 4 }}>
                     <span style={{ textTransform: "uppercase", letterSpacing: "0.08em" }}>Nivel</span>
                     <span style={{ fontWeight: 700, color: litrosAuto > 0 ? C.text : C.sub }}>{pct}%</span>
                   </div>
@@ -1390,7 +1404,7 @@ const SecStock = ({ date, syncKey = 0 }) => {
 
                 {/* Litros en silo / capacidad */}
                 <div style={{ fontSize: 11, color: C.sub, marginBottom: 10 }}>
-                  <span style={{ color: litrosAuto > 0 ? C.text : C.sub, fontFamily: "monospace", fontWeight: 600 }}>
+                  <span style={{ color: litrosAuto > 0 ? C.text : C.sub, fontFamily: FONT_MONO, fontWeight: 600 }}>
                     {litrosAuto.toLocaleString("es-AR")}
                   </span>
                   <span style={{ color: C.muted }}> / {cap.toLocaleString("es-AR")} L</span>
@@ -1515,12 +1529,12 @@ const FortForm = ({ initial, onSave, onClose, onDelete }) => {
               {UNIDADES_FORT.map(u => <option key={u} value={u}>{u}</option>)}
             </select>
             {idx >= 3
-              ? <button onClick={() => delAdicion(a.id)} style={{ background: "none", border: `1px solid ${C.danger}55`, borderRadius: 6, color: C.danger, cursor: "pointer", height: 42, width: 28, fontSize: 18, padding: 0, lineHeight: 1 }}>×</button>
+              ? <button type="button" onClick={() => delAdicion(a.id)} style={{ background: "none", border: `1px solid ${C.danger}55`, borderRadius: 6, color: C.danger, cursor: "pointer", height: 42, width: 28, fontSize: 18, padding: 0, lineHeight: 1 }}>×</button>
               : <div />
             }
           </div>
         ))}
-        <button onClick={addAdicion} style={{ ...btnSecondary, marginTop: 6, borderStyle: "dashed", color: C.accent, borderColor: C.accentDark, fontSize: 13, padding: "9px 12px" }}>
+        <button type="button" onClick={addAdicion} style={{ ...btnSecondary, marginTop: 6, borderStyle: "dashed", color: C.accent, borderColor: C.accentDark, fontSize: 13, padding: "9px 12px" }}>
           + Agregar producto
         </button>
       </div>
@@ -1539,8 +1553,8 @@ const FortForm = ({ initial, onSave, onClose, onDelete }) => {
         <textarea style={{ ...inp, minHeight: 56, resize: "vertical" }} value={f.obs} onChange={e => set("obs")(e.target.value)} placeholder="Obs..." />
       </F>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-        <button style={btnSecondary} onClick={onClose}>Cancelar</button>
-        <button style={btnPrimary} onClick={() => {
+        <button type="button" style={btnSecondary} onClick={onClose}>Cancelar</button>
+        <button type="button" style={btnPrimary} onClick={() => {
           const req = [["siloOrigen", "Silo Origen"], ["litrosBase", "Litros base"], ["siloDestino", "Silo Destino"], ["responsable", "Responsable"]];
           const miss = req.filter(([k]) => !String(f[k] || "").trim()).map(([, v]) => v);
           const sinCant = f.adiciones.filter(a => !String(a.cantidad || "").trim()).map(a => a.producto || "Adición");
@@ -1549,7 +1563,7 @@ const FortForm = ({ initial, onSave, onClose, onDelete }) => {
           onSave(f);
         }}>Guardar</button>
       </div>
-      {onDelete && <button style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar</button>}
+      {onDelete && <button type="button" style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar</button>}
     </div>
   );
 };
@@ -1584,15 +1598,15 @@ const SecFortificados = ({ date, syncKey = 0 }) => {
   return (
     <div>
       {list.length > 0 && (
-        <div style={{ ...card, display: "flex", justifyContent: "space-between", alignItems: "center", borderColor: "#0d5c30", marginBottom: 12 }}>
+        <div style={{ ...card, display: "flex", justifyContent: "space-between", alignItems: "center", borderColor: C.success.replace(/\)$/, " / 0.35)"), marginBottom: 12 }}>
           <div>
-            <div style={{ fontSize: 10, color: C.sub, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 2 }}>Total del día</div>
-            <div style={{ fontSize: 26, fontWeight: 700, color: "#27ae60", fontFamily: "'Courier New',monospace", lineHeight: 1 }}>
+            <div style={{ fontSize: 11, color: C.sub, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 2 }}>Total del día</div>
+            <div style={{ fontSize: 26, fontWeight: 700, color: C.success, fontFamily: FONT_MONO, lineHeight: 1 }}>
               {totalL.toLocaleString("es-AR")} <span style={{ fontSize: 14 }}>L</span>
             </div>
           </div>
           <div style={{ textAlign: "right" }}>
-            <div style={{ fontSize: 10, color: C.sub, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 2 }}>Lotes</div>
+            <div style={{ fontSize: 11, color: C.sub, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 2 }}>Lotes</div>
             <div style={{ fontSize: 26, fontWeight: 700, color: C.text, lineHeight: 1 }}>{list.length}</div>
           </div>
         </div>
@@ -1604,12 +1618,12 @@ const SecFortificados = ({ date, syncKey = 0 }) => {
           <div style={{ fontSize: 13, marginTop: 6 }}>Tocá + para agregar</div>
         </div>
       ) : list.map(f => (
-        <div key={f.id} onClick={() => setModal(f)} style={{ ...card, cursor: "pointer", borderLeftWidth: 3, borderLeftColor: "#27ae60" }}>
+        <div key={f.id} onClick={() => setModal(f)} style={{ ...card, cursor: "pointer", border: `1px solid ${C.success.replace(/\)$/, " / 0.3)")}`, background: C.success.replace(/\)$/, " / 0.06)") }}>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
-            <span style={{ fontFamily: "monospace", fontWeight: 700, color: C.accent, fontSize: 17 }}>{f.hora}</span>
+            <span style={{ fontFamily: FONT_MONO, fontWeight: 700, color: C.accent, fontSize: 17 }}>{f.hora}</span>
             <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-              {f.paraQue && <span style={{ background: "#0a2218", color: "#27ae60", borderRadius: 6, padding: "2px 8px", fontSize: 11, fontWeight: 700, border: "1px solid #27ae6044" }}>{f.paraQue}</span>}
-              <span style={{ background: "#0d2b1a", color: "#27ae60", borderRadius: 6, padding: "2px 10px", fontSize: 12, fontWeight: 700 }}>
+              {f.paraQue && <span style={{ background: C.success.replace(/\)$/, " / 0.15)"), color: C.success, borderRadius: 6, padding: "2px 8px", fontSize: 11, fontWeight: 700, border: `1px solid ${C.success.replace(/\)$/, " / 0.35)")}` }}>{f.paraQue}</span>}
+              <span style={{ background: C.success.replace(/\)$/, " / 0.15)"), color: C.success, borderRadius: 6, padding: "2px 10px", fontSize: 12, fontWeight: 700 }}>
                 {f.litrosBase ? `${parseFloat(f.litrosBase).toLocaleString("es-AR")} L` : "Sin litros"}
               </span>
             </div>
@@ -1669,7 +1683,7 @@ const InformeModal = ({ date, onClose }) => {
   const Fila = ({ lbl, val, color }) => (
     <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", borderBottom: `1px solid ${C.border}44` }}>
       <span style={{ fontSize: 12, color: C.sub, flex: 1 }}>{lbl}</span>
-      <span style={{ fontSize: 12, fontWeight: 700, color: color || C.text, fontFamily: "monospace", marginLeft: 8 }}>{val}</span>
+      <span style={{ fontSize: 12, fontWeight: 700, color: color || C.text, fontFamily: FONT_MONO, marginLeft: 8 }}>{val}</span>
     </div>
   );
 
@@ -1694,7 +1708,7 @@ const InformeModal = ({ date, onClose }) => {
       <div style={{ ...card, borderColor: C.accentDark, marginBottom: 14 }}>
         <Fila lbl="Total ingresado" val={`${totalIng.toLocaleString("es-AR")} L`} color={C.accent} />
         <Fila lbl="Total cargado (salidas)" val={`${totalCarg.toLocaleString("es-AR")} L`} />
-        <Fila lbl="Total fortificado" val={`${totalFort.toLocaleString("es-AR")} L`} color="#27ae60" />
+        <Fila lbl="Total fortificado" val={`${totalFort.toLocaleString("es-AR")} L`} color={C.success} />
         <Fila lbl="Camiones ingresados" val={String(d.ing.length)} />
         <Fila lbl="Movimientos entre silos" val={String((d.mov.movs || []).length)} />
         {resps.length > 0 && <Fila lbl="Responsables del día" val={resps.join(" · ")} />}
@@ -1709,11 +1723,11 @@ const InformeModal = ({ date, onClose }) => {
             const col = l <= 0 ? C.danger : l / cap > 0.8 ? C.success : C.text;
             return (
               <div key={s} style={{ background: C.surface, borderRadius: 8, padding: "8px 10px", border: `1px solid ${l <= 0 ? C.danger + "55" : C.border}` }}>
-                <div style={{ fontSize: 10, color: C.sub, marginBottom: 2 }}>{s}</div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: col, fontFamily: "monospace" }}>
+                <div style={{ fontSize: 11, color: C.sub, marginBottom: 2 }}>{s}</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: col, fontFamily: FONT_MONO }}>
                   {l <= 0 ? "VACÍO" : `${l.toLocaleString("es-AR")} L`}
                 </div>
-                {l > 0 && <div style={{ fontSize: 9, color: C.muted }}>{pct}% de {cap.toLocaleString("es-AR")} L</div>}
+                {l > 0 && <div style={{ fontSize: 10, color: C.muted }}>{pct}% de {cap.toLocaleString("es-AR")} L</div>}
               </div>
             );
           })}
@@ -1760,7 +1774,7 @@ const InformeModal = ({ date, onClose }) => {
         <Blk title={`Fortificados (${totalFort.toLocaleString("es-AR")} L)`}>
           {d.fort.map(f => (
             <div key={f.id}>
-              <Fila lbl={`${f.hora}  ${f.paraQue || ""}  ${f.siloOrigen || "?"}→${f.siloDestino || "?"}`} val={`${parseFloat(f.litrosBase || 0).toLocaleString("es-AR")} L`} color="#27ae60" />
+              <Fila lbl={`${f.hora}  ${f.paraQue || ""}  ${f.siloOrigen || "?"}→${f.siloDestino || "?"}`} val={`${parseFloat(f.litrosBase || 0).toLocaleString("es-AR")} L`} color={C.success} />
               {f.obs && <div style={{ fontSize: 11, color: C.sub, padding: "2px 0 4px 8px", borderBottom: `1px solid ${C.border}22`, fontStyle: "italic" }}>{f.obs}</div>}
             </div>
           ))}
@@ -1781,14 +1795,14 @@ const InformeModal = ({ date, onClose }) => {
 
       {/* Pendientes */}
       {(vacios.length > 0 || silosPend.length > 0 || camsPend.length > 0) ? (
-        <div style={{ ...card, borderColor: C.danger + "66", background: _THEME === "light" ? "#fef2f2" : "#160808", marginBottom: 8 }}>
+        <div style={{ ...card, borderColor: C.danger.replace(/\)$/, " / 0.4)"), background: C.danger.replace(/\)$/, " / 0.07)"), marginBottom: 8 }}>
           <div style={{ ...secTitle, color: C.danger }}>Pendientes</div>
           {vacios.length > 0 && <div style={{ fontSize: 12, color: C.danger, marginBottom: 6 }}>Silos vacíos (requieren CIP): {vacios.join(", ")}</div>}
           {silosPend.length > 0 && <div style={{ fontSize: 12, color: C.accent, marginBottom: 4 }}>CIP silos sin registrar: {silosPend.join(", ")}</div>}
           {camsPend.length > 0 && <div style={{ fontSize: 12, color: C.accent }}>CIP camiones sin registrar: {camsPend.join(", ")}</div>}
         </div>
       ) : d.ing.length > 0 && (
-        <div style={{ ...card, borderColor: C.success + "55", background: _THEME === "light" ? "#f0fdf4" : "#081608", textAlign: "center", padding: 16 }}>
+        <div style={{ ...card, borderColor: C.success.replace(/\)$/, " / 0.35)"), background: C.success.replace(/\)$/, " / 0.08)"), textAlign: "center", padding: 16 }}>
           <div style={{ marginBottom: 4, display: "flex", justifyContent: "center", color: C.success }}><AlertaOk size={22} strokeWidth={1.5} /></div>
           <div style={{ fontSize: 13, color: C.success, fontWeight: 700 }}>Todo en orden</div>
           <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>Sin pendientes registrados</div>
@@ -1866,20 +1880,21 @@ const DonutChart = ({ pct = 0, color, size = 74, label }) => {
           stroke={color || C.accent} strokeWidth={sw}
           strokeDasharray={`${dash} ${circ}`}
           strokeLinecap="round"
-          style={{ transform: "rotate(-90deg)", transformOrigin: `${cx}px ${cy}px`, transition: "stroke-dasharray 1.2s cubic-bezier(0.34,1.1,0.64,1)" }}
+          style={{ transform: "rotate(-90deg)", transformOrigin: `${cx}px ${cy}px`, transition: `stroke-dasharray 0.6s ${EASE_OUT}` }}
         />
       )}
       {label !== undefined && (
         <text x={cx} y={cy + 5} textAnchor="middle" fontSize={13}
-          fontWeight="800" fill={C.text} fontFamily="monospace">{label}</text>
+          fontWeight="800" fill={C.text} fontFamily={FONT_MONO}>{label}</text>
       )}
     </svg>
   );
 };
 
-const Sparkline = ({ values, color = "#f59e0b", w = 64, h = 24 }) => {
+const Sparkline = ({ values, color, w = 64, h = 24 }) => {
+  const sparkColor = color || C.accent;
   const clean = (values || []).filter(v => v != null && !isNaN(v) && v > 0);
-  if (clean.length < 2) return <span style={{ fontSize: 9, color: "#2d3a55" }}>—</span>;
+  if (clean.length < 2) return <span style={{ fontSize: 9, color: C.muted }}>—</span>;
   const lo = Math.min(...clean), hi = Math.max(...clean), span = hi - lo || 0.001;
   const pts = clean.map((v, i) => {
     const x = 2 + (i / (clean.length - 1)) * (w - 4);
@@ -1889,9 +1904,9 @@ const Sparkline = ({ values, color = "#f59e0b", w = 64, h = 24 }) => {
   const [lx, ly] = pts[pts.length - 1].split(",");
   return (
     <svg width={w} height={h} style={{ display: "block", overflow: "visible" }}>
-      <polyline points={pts.join(" ")} fill="none" stroke={color} strokeWidth="1.6"
+      <polyline points={pts.join(" ")} fill="none" stroke={sparkColor} strokeWidth="1.6"
         strokeLinecap="round" strokeLinejoin="round" opacity="0.9" />
-      <circle cx={lx} cy={ly} r="2.2" fill={color} />
+      <circle cx={lx} cy={ly} r="2.2" fill={sparkColor} />
     </svg>
   );
 };
@@ -1900,14 +1915,16 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
   const [tab, setTab] = useState("resumen");
   const [d, setD] = useState(null);
   const [users, setUsers] = useState([]);
-  const [exportDate, setExportDate] = useState(date);
+  const [exportFrom, setExportFrom] = useState(date);
+  const [exportTo, setExportTo] = useState(date);
   const [exporting, setExporting] = useState(false);
   const [weekData, setWeekData] = useState(null);
   const [loadingWeek, setLoadingWeek] = useState(false);
   const [tamboSel, setTamboSel] = useState(null);
 
   useEffect(() => {
-    setExportDate(date);
+    setExportFrom(date);
+    setExportTo(date);
     Promise.all([
       load(date, "ingresos", []),
       load(date, "carga", []),
@@ -1975,7 +1992,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
   });
 
   const TIPO_LABEL = { ingreso: "Ingreso", carga: "Carga", movimiento: "Movimiento", control: "Control Silo", fortificado: "Fortificado" };
-  const TIPO_COL = { ingreso: C.accent, carga: "#60a5fa", movimiento: "#a78bfa", control: "#34d399", fortificado: "#27ae60" };
+  const TIPO_COL = { ingreso: C.accent, carga: C.sub, movimiento: C.muted, control: C.success, fortificado: C.success };
 
   // ── Componentes visuales ─────────────────────────────────────
   const StatCard = ({ Icon: StatIcon, label, value, unit, color, sub, trend }) => {
@@ -1997,14 +2014,14 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
         <div style={{ marginBottom: 5, position: "relative", display: "flex", justifyContent: "center", color: col }}>
           {StatIcon && <StatIcon size={20} strokeWidth={SW} />}
         </div>
-        <div style={{ fontSize: 22, fontWeight: 800, color: col, fontFamily: "monospace", lineHeight: 1, position: "relative" }}>
+        <div style={{ fontSize: 22, fontWeight: 800, color: col, fontFamily: FONT_MONO, lineHeight: 1, position: "relative" }}>
           {typeof value === "number" ? value.toLocaleString("es-AR") : value}
-          {unit && <span style={{ fontSize: 10, fontWeight: 400, color: C.sub, marginLeft: 3 }}>{unit}</span>}
+          {unit && <span style={{ fontSize: 11, fontWeight: 400, color: C.sub, marginLeft: 3 }}>{unit}</span>}
         </div>
         <div style={{ fontSize: 9, color: C.sub, textTransform: "uppercase", letterSpacing: "0.1em", marginTop: 5, fontWeight: 700 }}>{label}</div>
-        {sub && <div style={{ fontSize: 10, color: C.muted, marginTop: 2 }}>{sub}</div>}
+        {sub && <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{sub}</div>}
         {trend !== undefined && (
-          <div style={{ fontSize: 10, color: trend >= 0 ? C.success : C.danger, marginTop: 3, fontWeight: 700 }}>
+          <div style={{ fontSize: 11, color: trend >= 0 ? C.success : C.danger, marginTop: 3, fontWeight: 700 }}>
             {trend >= 0 ? "▲" : "▼"} {Math.abs(trend).toFixed(1)}%
           </div>
         )}
@@ -2037,7 +2054,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
             <span style={{ fontSize: 13, fontWeight: 700, color: C.text }}>Silo {silo}</span>
             {isAlert && <span style={{ fontSize: 9, background: C.accent + "22", color: C.accent, borderRadius: 5, padding: "1px 6px", fontWeight: 700, letterSpacing: "0.05em" }}>⚠ LLENO</span>}
           </div>
-          <span style={{ fontSize: 15, fontFamily: "monospace", fontWeight: 800, color: isEmpty ? C.danger : C.accent }}>
+          <span style={{ fontSize: 15, fontFamily: FONT_MONO, fontWeight: 800, color: isEmpty ? C.danger : C.accent }}>
             {isEmpty ? "—" : litros >= 1000 ? `${(litros / 1000).toFixed(1)}k` : litros.toLocaleString("es-AR")}
             {!isEmpty && <span style={{ fontSize: 9, fontWeight: 400, color: C.sub, marginLeft: 2 }}>L</span>}
           </span>
@@ -2047,15 +2064,15 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
           <div style={{
             width: `${Math.max(pct, isEmpty ? 0 : 1)}%`, height: "100%",
             background: isEmpty ? C.danger + "44" : `linear-gradient(90deg, ${statusColor}aa, ${statusColor})`,
-            borderRadius: 8, transition: "width 0.8s cubic-bezier(0.34,1.1,0.64,1)",
+            borderRadius: 8, transition: `width 0.6s ${EASE_OUT}`,
             boxShadow: pct > 5 ? `0 0 8px ${statusColor}44` : "none",
           }} />
         </div>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span style={{ fontSize: 10, color: isEmpty ? C.danger : C.sub, fontWeight: isEmpty ? 700 : 400 }}>
+          <span style={{ fontSize: 11, color: isEmpty ? C.danger : C.sub, fontWeight: isEmpty ? 700 : 400 }}>
             {isEmpty ? "Sin contenido" : prod || "Sin producto"}
           </span>
-          <span style={{ fontSize: 10, color: C.muted, fontFamily: "monospace" }}>
+          <span style={{ fontSize: 11, color: C.muted, fontFamily: FONT_MONO }}>
             {pct.toFixed(1)}% <span style={{ color: C.border }}>·</span> {(cap / 1000).toFixed(0)}k cap.
           </span>
         </div>
@@ -2067,21 +2084,42 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
   const doExportCSV = async () => {
     setExporting(true);
     try {
-      const [ing, cargas, movData] = await Promise.all([
-        load(exportDate, "ingresos", []),
-        load(exportDate, "carga", []),
-        load(exportDate, "movimientos", { movs: [] }),
-      ]);
-      let csv = `YATASTO - INFORME DIARIO - ${fmtDate(exportDate)}\n\n`;
-      csv += "INGRESOS\nHora,Tambo,Litros,Destino,pH,Acidez,GB,SNG,Densidad,Proteína,Responsable\n";
-      ing.forEach(i => { csv += `${i.hora || ""},${i.tambo || ""},${i.litrosFca || ""},${i.destino || ""},${i.phFca || ""},${i.acidezFca || ""},${i.gbFca || ""},${i.sngFca || ""},${i.densFca || ""},${i.protFca || ""},${i.responsable || ""}\n`; });
-      csv += "\nCARGAS\nHora,Label,Destino,Transportista,Silo,Litros,pH,Temp,Responsable\n";
-      cargas.forEach(c => { csv += `${c.hora || ""},${c.label || ""},${c.destino || ""},${c.transportista || ""},${c.siloProveniente || ""},${c.litros || ""},${c.pH || ""},${c.gC || ""},${c.responsable || ""}\n`; });
-      csv += "\nMOVIMIENTOS\nHora,Desde,Hasta,Litros,Motivo,Responsable\n";
-      (movData.movs || []).forEach(m => { csv += `${m.hora || ""},${m.desde || ""},${m.hasta || ""},${m.litros || ""},${m.motivo || ""},${m.resp || ""}\n`; });
+      const days = getDaysInRange(exportFrom, exportTo);
+      const multiDay = days.length > 1;
+      const diffVal = (fca, tbo) => { const f = parseFloat(fca), t = parseFloat(tbo); return (!isNaN(f) && !isNaN(t)) ? (f - t).toFixed(3) : ""; };
+      const rangeLabel = multiDay ? `${fmtDate(exportFrom)} al ${fmtDate(exportTo)}` : fmtDate(exportFrom);
+      let csv = `YATASTO - INFORME - ${rangeLabel}\n\n`;
+      csv += "INGRESOS\n";
+      csv += `${multiDay ? "Fecha," : ""}Hora,Tambo,LitrosFca,LitrosTbo,ΔLitros,Destino,pH,Acidez,GBFca,GBTbo,ΔGB,SNGFca,SNGTbo,ΔSNG,DensFca,DensTbo,ΔDens,AguadoFca,AguadoTbo,ΔAguado,ProtFca,ProtTbo,ΔProt,AlcFca,AlcTbo,ΔAlc,Responsable\n`;
+      for (const day of days) {
+        const ing = await load(day, "ingresos", []);
+        ing.forEach(i => {
+          const prefix = multiDay ? `${fmtDate(day)},` : "";
+          csv += `${prefix}${i.hora || ""},${i.tambo || ""},${i.litrosFca || ""},${i.litrosTbo || ""},${diffVal(i.litrosFca, i.litrosTbo)},${i.destino || ""},${i.phFca || ""},${i.acidezFca || ""},${i.gbFca || ""},${i.gbTbo || ""},${diffVal(i.gbFca, i.gbTbo)},${i.sngFca || ""},${i.sngTbo || ""},${diffVal(i.sngFca, i.sngTbo)},${i.densFca || ""},${i.densTbo || ""},${diffVal(i.densFca, i.densTbo)},${i.aguadoFca || ""},${i.aguadoTbo || ""},${diffVal(i.aguadoFca, i.aguadoTbo)},${i.protFca || ""},${i.protTbo || ""},${diffVal(i.protFca, i.protTbo)},${i.alcFca || ""},${i.alcTbo || ""},${diffVal(i.alcFca, i.alcTbo)},${i.responsable || ""}\n`;
+        });
+      }
+      csv += "\nCARGAS\n";
+      csv += `${multiDay ? "Fecha," : ""}Hora,Label,Destino,Transportista,Silo,Litros,pH,Temp,Responsable\n`;
+      for (const day of days) {
+        const cargas = await load(day, "carga", []);
+        cargas.forEach(c => {
+          const prefix = multiDay ? `${fmtDate(day)},` : "";
+          csv += `${prefix}${c.hora || ""},${c.label || ""},${c.destino || ""},${c.transportista || ""},${c.siloProveniente || ""},${c.litros || ""},${c.pH || ""},${c.gC || ""},${c.responsable || ""}\n`;
+        });
+      }
+      csv += "\nMOVIMIENTOS\n";
+      csv += `${multiDay ? "Fecha," : ""}Hora,Desde,Hasta,Litros,Motivo,Responsable\n`;
+      for (const day of days) {
+        const movData = await load(day, "movimientos", { movs: [] });
+        (movData.movs || []).forEach(m => {
+          const prefix = multiDay ? `${fmtDate(day)},` : "";
+          csv += `${prefix}${m.hora || ""},${m.desde || ""},${m.hasta || ""},${m.litros || ""},${m.motivo || ""},${m.resp || ""}\n`;
+        });
+      }
+      const fname = multiDay ? `yatasto_${exportFrom}_${exportTo}.csv` : `yatasto_${exportFrom}.csv`;
       const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
       const url = URL.createObjectURL(blob);
-      const a = document.createElement("a"); a.href = url; a.download = `yatasto_${exportDate}.csv`; a.click();
+      const a = document.createElement("a"); a.href = url; a.download = fname; a.click();
       URL.revokeObjectURL(url);
     } finally { setExporting(false); }
   };
@@ -2089,14 +2127,21 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
   const doExportXLS = async () => {
     setExporting(true);
     try {
-      const [ing, cargas, movData, stk, forts] = await Promise.all([
-        load(exportDate, "ingresos", []),
-        load(exportDate, "carga", []),
-        load(exportDate, "movimientos", { movs: [] }),
-        load(exportDate, "stock", {}),
-        load(exportDate, "fortificados", []),
-      ]);
-      const autoL = await calcAutoLitros(exportDate);
+      const xlsDays = getDaysInRange(exportFrom, exportTo);
+      const xlsMulti = xlsDays.length > 1;
+      const allDayData = await Promise.all(xlsDays.map(async day => {
+        const [ing, cargas, movData, stk, forts] = await Promise.all([
+          load(day, "ingresos", []),
+          load(day, "carga", []),
+          load(day, "movimientos", { movs: [] }),
+          load(day, "stock", {}),
+          load(day, "fortificados", []),
+        ]);
+        const autoL = await calcAutoLitros(day);
+        return { day, ing, cargas, movData, stk, forts, autoL };
+      }));
+      const { ing, cargas, movData, stk, forts, autoL } = allDayData[0];
+      const exportDate = exportFrom;
 
       // ── KPIs ─────────────────────────────────────────────────
       const totIng   = ing.reduce((s, i) => s + (parseFloat(i.litrosFca) || 0), 0);
@@ -2461,73 +2506,93 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
             <span class="table-card-badge">Total: ${fmtN(totIng)} L</span>
           </div>
           <table><thead><tr>
-            <th>Hora</th><th>Tambo</th><th class="r">Litros Fca</th><th class="r">Litros Tbo</th>
+            ${xlsMulti ? `<th>Fecha</th>` : ""}<th>Hora</th><th>Tambo</th><th class="r">Litros Fca</th><th class="r">Litros Tbo</th><th class="r">ΔLitros</th>
             <th>Destino</th><th class="r">pH</th><th class="r">Acidez</th>
-            <th class="r">GB%</th><th class="r">SNG%</th><th class="r">Densidad</th>
-            <th class="r">Aguado</th><th>Responsable</th>
+            <th class="r">GBFca</th><th class="r">GBTbo</th><th class="r">ΔGB</th>
+            <th class="r">SNGFca</th><th class="r">SNGTbo</th><th class="r">ΔSNG</th>
+            <th class="r">DensFca</th><th class="r">DensTbo</th><th class="r">ΔDens</th>
+            <th class="r">AguFca</th><th class="r">AguTbo</th><th class="r">ΔAgu</th>
+            <th class="r">ProtFca</th><th class="r">ProtTbo</th><th class="r">ΔProt</th>
+            <th>Responsable</th>
           </tr></thead><tbody>
       `;
-      if (ing.length === 0) {
-        H += `<tr><td colspan="12" style="text-align:center;color:#94a3b8;padding:24px">Sin ingresos registrados para esta fecha</td></tr>`;
+      const xlsDiffVal = (fca, tbo) => { const f = parseFloat(fca), t = parseFloat(tbo); return (!isNaN(f) && !isNaN(t)) ? (f - t).toFixed(3) : "—"; };
+      const xlsIngRows = xlsMulti ? allDayData.flatMap(dd => dd.ing.map(i => ({ ...i, _day: dd.day }))) : ing.map(i => ({ ...i, _day: exportDate }));
+      if (xlsIngRows.length === 0) {
+        H += `<tr><td colspan="${xlsMulti ? 25 : 24}" style="text-align:center;color:#94a3b8;padding:24px">Sin ingresos registrados para este período</td></tr>`;
       } else {
-        ing.forEach(i => {
-          const lFca  = parseFloat(i.litrosFca) || 0;
-          const lTbo  = parseFloat(i.litrosTbo) || 0;
-          const difL  = Math.abs(lFca - lTbo);
-          const agu   = parseFloat(i.aguadoFca);
+        xlsIngRows.forEach(i => {
+          const lFca = parseFloat(i.litrosFca) || 0;
+          const lTbo = parseFloat(i.litrosTbo) || 0;
+          const difL = lFca - lTbo;
+          const agu  = parseFloat(i.aguadoFca);
           const aguHTML = isNaN(agu) || agu === 0
             ? `<span class="badge ok">0.000</span>`
             : `<span class="badge err">${agu.toFixed(3)} ⚠</span>`;
-          const difHTML = difL > 150
-            ? ` <span class="badge warn">Δ${fmtN(Math.round(difL))}L</span>` : "";
+          const difHTML = Math.abs(difL) > 150 ? ` <span class="badge warn">Δ${fmtN(Math.round(Math.abs(difL)))}L</span>` : "";
           H += `<tr>
+            ${xlsMulti ? `<td class="td-muted">${fmtDate(i._day)}</td>` : ""}
             <td class="td-mono">${i.hora || "—"}</td>
             <td class="td-bold">${i.tambo || "—"}</td>
             <td class="r td-bold">${lFca ? fmtN(lFca) : "—"}${difHTML}</td>
             <td class="r td-muted">${lTbo ? fmtN(lTbo) : "—"}</td>
+            <td class="r">${xlsDiffVal(i.litrosFca, i.litrosTbo)}</td>
             <td>${i.destino || "—"}</td>
             <td class="r">${i.phFca || "—"}</td>
             <td class="r">${i.acidezFca || "—"}</td>
             <td class="r">${i.gbFca || "—"}</td>
+            <td class="r">${i.gbTbo || "—"}</td>
+            <td class="r">${xlsDiffVal(i.gbFca, i.gbTbo)}</td>
             <td class="r">${i.sngFca || "—"}</td>
+            <td class="r">${i.sngTbo || "—"}</td>
+            <td class="r">${xlsDiffVal(i.sngFca, i.sngTbo)}</td>
             <td class="r">${i.densFca || "—"}</td>
+            <td class="r">${i.densTbo || "—"}</td>
+            <td class="r">${xlsDiffVal(i.densFca, i.densTbo)}</td>
             <td class="r">${aguHTML}</td>
+            <td class="r">${i.aguadoTbo || "—"}</td>
+            <td class="r">${xlsDiffVal(i.aguadoFca, i.aguadoTbo)}</td>
+            <td class="r">${i.protFca || "—"}</td>
+            <td class="r">${i.protTbo || "—"}</td>
+            <td class="r">${xlsDiffVal(i.protFca, i.protTbo)}</td>
             <td class="td-muted">${i.responsable || "—"}</td>
           </tr>`;
         });
-        const tFca = ing.reduce((s, i) => s + (parseFloat(i.litrosFca) || 0), 0);
-        const tTbo = ing.reduce((s, i) => s + (parseFloat(i.litrosTbo) || 0), 0);
+        const tFca = xlsIngRows.reduce((s, i) => s + (parseFloat(i.litrosFca) || 0), 0);
+        const tTbo = xlsIngRows.reduce((s, i) => s + (parseFloat(i.litrosTbo) || 0), 0);
         H += `<tr class="total-row">
-          <td></td><td class="td-bold">TOTAL</td>
+          ${xlsMulti ? "<td></td>" : ""}<td></td><td class="td-bold">TOTAL</td>
           <td class="r">${fmtN(tFca)} L</td>
           <td class="r">${fmtN(tTbo)} L</td>
-          <td colspan="8"></td>
+          <td colspan="20"></td>
         </tr>`;
       }
       H += `</tbody></table></div>`;
 
       // ── CARGAS ────────────────────────────────────────────────
+      const xlsCargRows = xlsMulti ? allDayData.flatMap(dd => dd.cargas.map(c => ({ ...c, _day: dd.day }))) : cargas.map(c => ({ ...c, _day: exportDate }));
       H += `
         <div class="sec-head">
           <span class="sec-head-title">Cargas Despachadas</span>
           <div class="sec-head-line"></div>
-          <span class="sec-head-pill">${cargas.length} registros</span>
+          <span class="sec-head-pill">${xlsCargRows.length} registros</span>
         </div>
         <div class="table-card">
           <div class="table-card-head">
             <span class="table-card-title">Detalle de Despachos</span>
-            <span class="table-card-badge">Total: ${fmtN(totCarg)} L</span>
+            <span class="table-card-badge">Total: ${fmtN(xlsCargRows.reduce((s,c)=>s+(parseFloat(c.litros)||0),0))} L</span>
           </div>
           <table><thead><tr>
-            <th>Hora</th><th>Denominación</th><th>Destino</th><th>Transportista</th>
+            ${xlsMulti ? `<th>Fecha</th>` : ""}<th>Hora</th><th>Denominación</th><th>Destino</th><th>Transportista</th>
             <th>Silo Origen</th><th class="r">Litros</th><th class="r">pH</th><th class="r">Temp°C</th><th>Responsable</th>
           </tr></thead><tbody>
       `;
-      if (cargas.length === 0) {
-        H += `<tr><td colspan="9" style="text-align:center;color:#94a3b8;padding:24px">Sin cargas registradas para esta fecha</td></tr>`;
+      if (xlsCargRows.length === 0) {
+        H += `<tr><td colspan="${xlsMulti ? 10 : 9}" style="text-align:center;color:#94a3b8;padding:24px">Sin cargas registradas para este período</td></tr>`;
       } else {
-        cargas.forEach(c => {
+        xlsCargRows.forEach(c => {
           H += `<tr>
+            ${xlsMulti ? `<td class="td-muted">${fmtDate(c._day)}</td>` : ""}
             <td class="td-mono">${c.hora || "—"}</td>
             <td class="td-bold">${c.label || "—"}</td>
             <td>${c.destino || "—"}</td>
@@ -2539,33 +2604,34 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
             <td class="td-muted">${c.responsable || "—"}</td>
           </tr>`;
         });
-        const tC = cargas.reduce((s, c) => s + (parseFloat(c.litros) || 0), 0);
+        const tC = xlsCargRows.reduce((s, c) => s + (parseFloat(c.litros) || 0), 0);
         H += `<tr class="total-row">
-          <td></td><td class="td-bold">TOTAL</td><td></td><td></td><td></td>
+          ${xlsMulti ? "<td></td>" : ""}<td></td><td class="td-bold">TOTAL</td><td></td><td></td><td></td>
           <td class="r">${fmtN(tC)} L</td><td colspan="3"></td>
         </tr>`;
       }
       H += `</tbody></table></div>`;
 
       // ── MOVIMIENTOS (si hay) ──────────────────────────────────
-      const movs = movData.movs || [];
-      if (movs.length > 0) {
+      const xlsMovRows = xlsMulti ? allDayData.flatMap(dd => (dd.movData.movs||[]).map(m => ({ ...m, _day: dd.day }))) : (movData.movs||[]).map(m => ({ ...m, _day: exportDate }));
+      if (xlsMovRows.length > 0) {
         H += `
           <div class="sec-head">
             <span class="sec-head-title">Movimientos entre Silos</span>
             <div class="sec-head-line"></div>
-            <span class="sec-head-pill">${movs.length} registros</span>
+            <span class="sec-head-pill">${xlsMovRows.length} registros</span>
           </div>
           <div class="table-card">
             <div class="table-card-head">
               <span class="table-card-title">Transferencias internas</span>
             </div>
             <table><thead><tr>
-              <th>Hora</th><th>Desde</th><th>Hasta</th><th class="r">Litros</th><th>Motivo</th><th>Responsable</th>
+              ${xlsMulti ? `<th>Fecha</th>` : ""}<th>Hora</th><th>Desde</th><th>Hasta</th><th class="r">Litros</th><th>Motivo</th><th>Responsable</th>
             </tr></thead><tbody>
         `;
-        movs.forEach(m => {
+        xlsMovRows.forEach(m => {
           H += `<tr>
+            ${xlsMulti ? `<td class="td-muted">${fmtDate(m._day)}</td>` : ""}
             <td class="td-mono">${m.hora || "—"}</td>
             <td>${m.desde || "—"}</td><td>${m.hasta || "—"}</td>
             <td class="r td-bold">${m.litros ? fmtN(parseFloat(m.litros)) : "—"}</td>
@@ -2577,25 +2643,27 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
       }
 
       // ── FORTIFICADOS (si hay) ─────────────────────────────────
-      if (forts.length > 0) {
+      const xlsFortRows = xlsMulti ? allDayData.flatMap(dd => dd.forts.map(f => ({ ...f, _day: dd.day }))) : forts.map(f => ({ ...f, _day: exportDate }));
+      if (xlsFortRows.length > 0) {
         H += `
           <div class="sec-head">
             <span class="sec-head-title">Lotes Fortificados</span>
             <div class="sec-head-line"></div>
-            <span class="sec-head-pill">${forts.length} lotes</span>
+            <span class="sec-head-pill">${xlsFortRows.length} lotes</span>
           </div>
           <div class="table-card">
             <div class="table-card-head">
               <span class="table-card-title">Producción Especial</span>
             </div>
             <table><thead><tr>
-              <th>Hora</th><th>Lote</th><th>Producto</th><th class="r">Litros</th>
+              ${xlsMulti ? `<th>Fecha</th>` : ""}<th>Hora</th><th>Lote</th><th>Producto</th><th class="r">Litros</th>
               <th>Tanque</th><th>Adiciones</th><th>Responsable</th>
             </tr></thead><tbody>
         `;
-        forts.forEach(f => {
+        xlsFortRows.forEach(f => {
           const adic = (f.adiciones || []).map(a => `${a.producto} ${a.cantidad}${a.unidad}`).join(" · ") || "—";
           H += `<tr>
+            ${xlsMulti ? `<td class="td-muted">${fmtDate(f._day)}</td>` : ""}
             <td class="td-mono">${f.hora || "—"}</td>
             <td class="td-bold">${f.lote || "—"}</td>
             <td>${f.producto || "—"}</td>
@@ -2609,10 +2677,11 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
       }
 
       // ── FOOTER ────────────────────────────────────────────────
+      const xlsRangeLabel = xlsMulti ? `${fmtDate(exportFrom)} al ${fmtDate(exportTo)}` : fmtDate(exportDate);
       H += `
         <div class="footer">
           <span class="footer-brand">Lacteos Yatasto SA · Sistema de Gestión v2.0</span>
-          <span>Generado: ${ts} &nbsp;·&nbsp; Fecha informe: ${fmtDate(exportDate)}</span>
+          <span>Generado: ${ts} &nbsp;·&nbsp; Período: ${xlsRangeLabel}</span>
         </div>
       `;
 
@@ -2632,7 +2701,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
       const url  = URL.createObjectURL(blob);
       const a    = document.createElement("a");
       a.href     = url;
-      a.download = `yatasto_informe_${exportDate}.xls`;
+      a.download = xlsMulti ? `yatasto_informe_${exportFrom}_${exportTo}.xls` : `yatasto_informe_${exportDate}.xls`;
       a.click();
       URL.revokeObjectURL(url);
     } finally { setExporting(false); }
@@ -2642,6 +2711,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
   const doExportPDF = async () => {
     setExporting(true);
     try {
+      const exportDate = exportFrom;
       const [ing, cargas, movData, stk, forts] = await Promise.all([
         load(exportDate, "ingresos", []),
         load(exportDate, "carga", []),
@@ -3193,7 +3263,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
             <span class="print-bar-brand">YATASTO</span>
             <span class="print-bar-sub">Informe Ejecutivo · ${fmtDate(exportDate)}</span>
           </div>
-          <button class="print-btn" onclick="window.print()">🖨 Imprimir / Guardar PDF</button>
+          <button type="button" class="print-btn" onclick="window.print()">🖨 Imprimir / Guardar PDF</button>
         </div>
       `;
 
@@ -3319,7 +3389,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
               border: `1px solid ${C.accent}33`,
             }}><CowIcon size={30} /></div>
             {users.length > 0 && (
-              <div style={{ fontSize: 10, color: C.success, marginTop: 5, fontWeight: 700 }}>
+              <div style={{ fontSize: 11, color: C.success, marginTop: 5, fontWeight: 700 }}>
                 ● {users.length} online
               </div>
             )}
@@ -3330,7 +3400,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
           <div style={{ marginTop: 12, display: "flex", flexWrap: "wrap", gap: 4, position: "relative" }}>
             {users.map(u => (
               <span key={u.id} style={{
-                fontSize: 10, background: C.accent + "18",
+                fontSize: 11, background: C.accent + "18",
                 border: `1px solid ${C.accent}30`, borderRadius: 20,
                 padding: "3px 10px", color: C.accent, fontWeight: 600,
               }}>
@@ -3355,14 +3425,14 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
         ].map(([t, TabIcon, lbl]) => {
           const active = tab === t;
           return (
-            <button key={t} onClick={() => setTab(t)} style={{
+            <button type="button" key={t} onClick={() => setTab(t)} style={{
               background: active
                 ? `linear-gradient(145deg, ${C.accent}, ${C.accent}cc)`
                 : (_THEME === "light" ? "#fff" : C.card),
               border: active ? "none" : `1px solid ${C.border}`,
               borderRadius: 12, padding: "9px 5px",
               flex: 1, minWidth: 0, cursor: "pointer",
-              color: active ? (_THEME === "light" ? "#fff" : "#000") : C.sub,
+              color: active ? "#000" : C.sub,
               fontWeight: active ? 800 : 500,
               boxShadow: active ? `0 4px 14px ${C.accent}44` : "none",
               transition: "all 0.18s",
@@ -3399,7 +3469,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
               <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
                 <DonutChart pct={capPct} color={capColor} size={78} label={`${capPct.toFixed(0)}%`} />
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 26, fontWeight: 900, color: capColor, fontFamily: "monospace", lineHeight: 1 }}>
+                  <div style={{ fontSize: 26, fontWeight: 900, color: capColor, fontFamily: FONT_MONO, lineHeight: 1 }}>
                     {(totalStock / 1000).toFixed(1)}
                     <span style={{ fontSize: 13, fontWeight: 400, color: C.sub, marginLeft: 4 }}>k L</span>
                   </div>
@@ -3420,14 +3490,14 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
             {/* KPI grid */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
               <StatCard Icon={IcoLeche}       label="Ingresados" value={totalIngresados} unit="L" color={C.accent} />
-              <StatCard Icon={IcoCarga}       label="Cargados"   value={totalCargados}   unit="L" color="#60a5fa" />
+              <StatCard Icon={IcoCarga}       label="Cargados"   value={totalCargados}   unit="L" color={C.sub} />
               <StatCard Icon={IcoBalance}     label="Balance"    value={balance}         unit="L" color={balColor} />
               <StatCard Icon={CamionIcon}     label="Camiones"   value={d.ing.length}    color={C.text} sub={`${tambosUnicos} tambos`} />
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8, marginBottom: 14 }}>
               <StatCard Icon={IcoDestino}      label="Cargas"  value={d.cargas.length}           color={C.text} />
-              <StatCard Icon={IcoFortificados} label="Fort."   value={d.forts.length}            color="#22c55e" />
-              <StatCard Icon={IcoMovimientos}  label="Movim."  value={(d.movData.movs || []).length} color="#a78bfa" />
+              <StatCard Icon={IcoFortificados} label="Fort."   value={d.forts.length}            color={C.success} />
+              <StatCard Icon={IcoMovimientos}  label="Movim."  value={(d.movData.movs || []).length} color={C.sub} />
             </div>
 
             {/* Alerts */}
@@ -3504,17 +3574,17 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                       <span style={{ fontSize: 12, color: C.sub, fontWeight: 700 }}>{label}</span>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        {ref && <span style={{ fontSize: 10, color: ok ? C.success : C.danger, fontWeight: 700 }}>{ok ? "OK" : "Fuera"}</span>}
-                        <span style={{ fontSize: 20, fontWeight: 900, color: ok ? C.accent : C.danger, fontFamily: "monospace" }}>{v.avg.toFixed(3)}</span>
+                        {ref && <span style={{ fontSize: 11, color: ok ? C.success : C.danger, fontWeight: 700 }}>{ok ? "OK" : "Fuera"}</span>}
+                        <span style={{ fontSize: 20, fontWeight: 900, color: ok ? C.accent : C.danger, fontFamily: FONT_MONO }}>{v.avg.toFixed(3)}</span>
                       </div>
                     </div>
                     <div style={{ background: C.muted, borderRadius: 6, height: 7, overflow: "hidden", marginBottom: 8 }}>
                       <div style={{ width: `${barW}%`, height: "100%", background: `linear-gradient(90deg, ${barColor}88, ${barColor})`, transition: "width 0.7s", borderRadius: 6 }} />
                     </div>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <span style={{ fontSize: 10, color: C.muted }}>mín <b style={{ color: C.text }}>{v.min.toFixed(3)}</b></span>
-                      <span style={{ fontSize: 10, color: C.sub }}>n={v.n}</span>
-                      <span style={{ fontSize: 10, color: C.muted }}>máx <b style={{ color: C.text }}>{v.max.toFixed(3)}</b></span>
+                      <span style={{ fontSize: 11, color: C.muted }}>mín <b style={{ color: C.text }}>{v.min.toFixed(3)}</b></span>
+                      <span style={{ fontSize: 11, color: C.sub }}>n={v.n}</span>
+                      <span style={{ fontSize: 11, color: C.muted }}>máx <b style={{ color: C.text }}>{v.max.toFixed(3)}</b></span>
                     </div>
                     {ref && (
                       <div style={{ marginTop: 6, fontSize: 9, color: ok ? C.muted : C.danger, borderTop: `1px solid ${C.border}44`, paddingTop: 5 }}>
@@ -3560,7 +3630,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
                 ].map(({ lbl, val, col }) => (
                   <div key={lbl} style={{ flex: 1, minWidth: 60, textAlign: "center", background: col + "18", borderRadius: 10, padding: "8px 6px", border: `1px solid ${col}33` }}>
                     <div style={{ fontSize: 20, fontWeight: 800, color: col }}>{val}</div>
-                    <div style={{ fontSize: 10, color: C.sub, marginTop: 1 }}>{lbl}</div>
+                    <div style={{ fontSize: 11, color: C.sub, marginTop: 1 }}>{lbl}</div>
                   </div>
                 ))}
               </div>
@@ -3572,7 +3642,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
             </div>
 
             {/* Umbral de referencia */}
-            <div style={{ fontSize: 10, color: C.muted, marginBottom: 10, padding: "6px 10px", background: C.card, borderRadius: 8, border: `1px solid ${C.border}` }}>
+            <div style={{ fontSize: 11, color: C.muted, marginBottom: 10, padding: "6px 10px", background: C.card, borderRadius: 8, border: `1px solid ${C.border}` }}>
               <b style={{ color: C.sub }}>Umbrales de alerta:</b>{" "}
               Litros ±100 L · GB ±0.25 · SNG ±0.25 · Densidad ±0.003 · <b style={{ color: "#fca5a5" }}>Aguado &gt;0 = CRÍTICO</b> · Proteína ±0.2 · Alcohol ±1
             </div>
@@ -3605,7 +3675,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
                   {/* Tabla de parámetros con desvío */}
                   {flaggedDiffs.length > 0 && (
                     <div style={{ marginBottom: 8 }}>
-                      <div style={{ fontSize: 10, color: sev.text, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 5, fontWeight: 700 }}>
+                      <div style={{ fontSize: 11, color: sev.text, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 5, fontWeight: 700 }}>
                         ⚠ {flaggedDiffs.length} parámetro{flaggedDiffs.length > 1 ? "s" : ""} fuera de rango
                       </div>
                       <div style={{ display: "grid", gridTemplateColumns: "auto 1fr 1fr 1fr 1fr", gap: "3px 8px", alignItems: "center" }}>
@@ -3624,10 +3694,10 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
                           return (
                             <Fragment key={i}>
                               <div style={{ fontSize: 11, fontWeight: 700, color: rowCol }}>{df.label}{df.critical ? " !" : ""}</div>
-                              <div style={{ fontSize: 11, color: C.text, fontFamily: "monospace" }}>{df.label === "Litros" ? (df.vTbo || 0).toLocaleString("es-AR") : df.vTbo.toFixed(3)}</div>
-                              <div style={{ fontSize: 11, color: C.text, fontFamily: "monospace" }}>{df.label === "Litros" ? (df.vFca || 0).toLocaleString("es-AR") : df.vFca.toFixed(3)}</div>
-                              <div style={{ fontSize: 11, color: rowCol, fontFamily: "monospace", fontWeight: 600 }}>{diffStr}</div>
-                              <div style={{ fontSize: 11, color: df.pctDiff !== null && Math.abs(df.pctDiff) > 5 ? rowCol : C.muted, fontFamily: "monospace" }}>{pctStr}</div>
+                              <div style={{ fontSize: 11, color: C.text, fontFamily: FONT_MONO }}>{df.label === "Litros" ? (df.vTbo || 0).toLocaleString("es-AR") : df.vTbo.toFixed(3)}</div>
+                              <div style={{ fontSize: 11, color: C.text, fontFamily: FONT_MONO }}>{df.label === "Litros" ? (df.vFca || 0).toLocaleString("es-AR") : df.vFca.toFixed(3)}</div>
+                              <div style={{ fontSize: 11, color: rowCol, fontFamily: FONT_MONO, fontWeight: 600 }}>{diffStr}</div>
+                              <div style={{ fontSize: 11, color: df.pctDiff !== null && Math.abs(df.pctDiff) > 5 ? rowCol : C.muted, fontFamily: FONT_MONO }}>{pctStr}</div>
                             </Fragment>
                           );
                         })}
@@ -3639,14 +3709,14 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
                   {severity === "ok" && okDiffs.length > 0 && (
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                       {okDiffs.map((df, i) => (
-                        <span key={i} style={{ fontSize: 10, background: "#16a34a22", color: "#4ade80", borderRadius: 5, padding: "2px 7px" }}>
+                        <span key={i} style={{ fontSize: 11, background: "#16a34a22", color: "#4ade80", borderRadius: 5, padding: "2px 7px" }}>
                           ✓ {df.label}
                         </span>
                       ))}
                     </div>
                   )}
                   {severity !== "ok" && okDiffs.length > 0 && (
-                    <div style={{ fontSize: 10, color: C.muted, marginTop: 6 }}>
+                    <div style={{ fontSize: 11, color: C.muted, marginTop: 6 }}>
                       Sin desvío: {okDiffs.map(df => df.label).join(", ")}
                     </div>
                   )}
@@ -3665,7 +3735,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
               <div key={lbl} style={{ ...card, textAlign: "center", padding: "12px 8px" }}>
                 <div style={{ display: "flex", justifyContent: "center", marginBottom: 2, color: C.sub }}><Ico size={20} strokeWidth={SW} /></div>
                 <div style={{ fontSize: 22, fontWeight: 800, color: C.accent }}>{cnt}</div>
-                <div style={{ fontSize: 10, color: C.sub, textTransform: "uppercase" }}>{lbl}</div>
+                <div style={{ fontSize: 11, color: C.sub, textTransform: "uppercase" }}>{lbl}</div>
               </div>
             ))}
           </div>
@@ -3675,10 +3745,10 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
           ) : d.historial.slice(0, 30).map((e, i) => (
             <div key={i} style={{ ...card, padding: 10, marginBottom: 6 }}>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
-                <span style={{ fontSize: 10, background: TIPO_COL[e.tipo] + "22", color: TIPO_COL[e.tipo], borderRadius: 4, padding: "2px 7px", fontWeight: 700, textTransform: "uppercase" }}>
+                <span style={{ fontSize: 11, background: TIPO_COL[e.tipo] + "22", color: TIPO_COL[e.tipo], borderRadius: 4, padding: "2px 7px", fontWeight: 700, textTransform: "uppercase" }}>
                   {TIPO_LABEL[e.tipo] || e.tipo}
                 </span>
-                <span style={{ fontSize: 11, color: C.muted, fontFamily: "monospace" }}>{e.fecha} {e.hora}</span>
+                <span style={{ fontSize: 11, color: C.muted, fontFamily: FONT_MONO }}>{e.fecha} {e.hora}</span>
               </div>
               <div style={{ fontSize: 12, color: C.sub, marginTop: 2 }}>{e.resumen}</div>
             </div>
@@ -3690,27 +3760,47 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
       {tab === "exportar" && (
         <div>
           <div style={{ ...panel, marginBottom: 14 }}>
-            <div style={secTitle}>Seleccionar fecha</div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <input type="date" value={exportDate} onChange={e => setExportDate(e.target.value)} style={{ ...inp, flex: 1 }} />
-              <button onClick={() => setExportDate(date)} style={{ ...btnSecondary, width: "auto", padding: "10px 14px", whiteSpace: "nowrap" }}>Hoy</button>
+            <div style={secTitle}>Rango de fechas</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+              <div>
+                <div style={{ fontSize: 11, color: C.sub, marginBottom: 4 }}>Desde</div>
+                <input type="date" value={exportFrom} onChange={e => { setExportFrom(e.target.value); if (e.target.value > exportTo) setExportTo(e.target.value); }} style={{ ...inp, width: "100%" }} />
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: C.sub, marginBottom: 4 }}>Hasta</div>
+                <input type="date" value={exportTo} onChange={e => { setExportTo(e.target.value); if (e.target.value < exportFrom) setExportFrom(e.target.value); }} style={{ ...inp, width: "100%" }} />
+              </div>
             </div>
-            <div style={{ fontSize: 11, color: C.sub, marginTop: 8, textAlign: "center" }}>Exportando datos del {fmtDate(exportDate)}</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {[
+                { label: "Hoy", fn: () => { setExportFrom(date); setExportTo(date); } },
+                { label: "7 días", fn: () => { const d7 = getLastNDays(7); setExportFrom(d7[0]); setExportTo(date); } },
+                { label: "14 días", fn: () => { const d14 = getLastNDays(14); setExportFrom(d14[0]); setExportTo(date); } },
+                { label: "30 días", fn: () => { const d30 = getLastNDays(30); setExportFrom(d30[0]); setExportTo(date); } },
+              ].map(({ label, fn }) => (
+                <button type="button" key={label} onClick={fn} style={{ ...btnSecondary, width: "auto", padding: "6px 12px", fontSize: 12 }}>{label}</button>
+              ))}
+            </div>
+            <div style={{ fontSize: 11, color: C.sub, marginTop: 8, textAlign: "center" }}>
+              {exportFrom === exportTo
+                ? `Exportando datos del ${fmtDate(exportFrom)}`
+                : `Exportando del ${fmtDate(exportFrom)} al ${fmtDate(exportTo)} (${getDaysInRange(exportFrom, exportTo).length} días)`}
+            </div>
           </div>
 
           <div style={{ ...secTitle }}>Formato de exportación</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 10 }}>
-            <button onClick={doExportCSV} disabled={exporting} style={{ background: "#064e3b", color: "#34d399", border: "1px solid #34d39944", borderRadius: 12, padding: "16px 18px", cursor: "pointer", textAlign: "left", opacity: exporting ? 0.6 : 1 }}>
+            <button type="button" onClick={doExportCSV} disabled={exporting} style={{ background: C.success.replace(/\)$/, " / 0.12)"), color: C.success, border: `1px solid ${C.success.replace(/\)$/, " / 0.35)")}`, borderRadius: 12, padding: "16px 18px", cursor: "pointer", textAlign: "left", opacity: exporting ? 0.6 : 1 }}>
               <div style={{ fontSize: 17, marginBottom: 3, fontWeight: 700 }}>Exportar CSV</div>
-              <div style={{ fontSize: 11, color: "#6ee7b7" }}>Ingresos · Cargas · Movimientos — Compatible con Excel, Google Sheets y cualquier planilla</div>
+              <div style={{ fontSize: 11, color: C.sub }}>Ingresos · Cargas · Movimientos — Compatible con Excel, Google Sheets y cualquier planilla</div>
             </button>
-            <button onClick={doExportXLS} disabled={exporting} style={{ background: "#1e3a5f", color: "#60a5fa", border: "1px solid #60a5fa44", borderRadius: 12, padding: "16px 18px", cursor: "pointer", textAlign: "left", opacity: exporting ? 0.6 : 1 }}>
+            <button type="button" onClick={doExportXLS} disabled={exporting} style={{ background: C.accentDim, color: C.accent, border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 18px", cursor: "pointer", textAlign: "left", opacity: exporting ? 0.6 : 1 }}>
               <div style={{ fontSize: 17, marginBottom: 3, fontWeight: 700 }}>Exportar Excel (.xls)</div>
-              <div style={{ fontSize: 11, color: "#93c5fd" }}>Tabla formateada lista para abrir en Microsoft Excel</div>
+              <div style={{ fontSize: 11, color: C.sub }}>Tabla formateada lista para abrir en Microsoft Excel</div>
             </button>
-            <button onClick={doExportPDF} disabled={exporting} style={{ background: "#4a1942", color: "#e879f9", border: "1px solid #e879f944", borderRadius: 12, padding: "16px 18px", cursor: "pointer", textAlign: "left", opacity: exporting ? 0.6 : 1 }}>
+            <button type="button" onClick={doExportPDF} disabled={exporting} style={{ background: C.danger.replace(/\)$/, " / 0.10)"), color: C.danger, border: `1px solid ${C.danger.replace(/\)$/, " / 0.30)")}`, borderRadius: 12, padding: "16px 18px", cursor: "pointer", textAlign: "left", opacity: exporting ? 0.6 : 1 }}>
               <div style={{ fontSize: 17, marginBottom: 3, fontWeight: 700 }}>Ver / Imprimir PDF</div>
-              <div style={{ fontSize: 11, color: "#f0abfc" }}>Abre una vista de impresión — guardá como PDF desde el navegador</div>
+              <div style={{ fontSize: 11, color: C.sub }}>Abre una vista de impresión — guardá como PDF desde el navegador</div>
             </button>
           </div>
           {exporting && <div style={{ textAlign: "center", marginTop: 14, color: C.accent, fontSize: 13 }}>Preparando exportación...</div>}
@@ -3754,7 +3844,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
                   const dayDate = new Date(dy + "T00:00:00");
                   return (
                     <div key={dy} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", height: "100%" }}>
-                      <div style={{ fontSize: 8, color: ingresados > 0 ? (isHoy ? C.accent : C.sub) : "transparent", fontFamily: "monospace", marginBottom: 3 }}>
+                      <div style={{ fontSize: 8, color: ingresados > 0 ? (isHoy ? C.accent : C.sub) : "transparent", fontFamily: FONT_MONO, marginBottom: 3 }}>
                         {ingresados >= 1000 ? `${(ingresados / 1000).toFixed(1)}k` : ingresados || ""}
                       </div>
                       <div style={{ flex: 1, width: "100%", background: C.muted, borderRadius: "4px 4px 0 0", position: "relative", overflow: "hidden" }}>
@@ -3763,7 +3853,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
                           height: `${Math.max(pct, ingresados > 0 ? 3 : 0)}%`,
                           background: barCol,
                           borderRadius: "3px 3px 0 0",
-                          transition: "height 0.9s cubic-bezier(0.34,1.1,0.64,1)",
+                          transition: `height 0.6s ${EASE_OUT}`,
                           boxShadow: isHoy ? `0 0 12px ${C.accent}66` : "none",
                         }} />
                       </div>
@@ -3811,22 +3901,22 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
                       <div style={{ fontSize: 11, fontWeight: 700, color: isHoy ? C.accent : C.text }}>
                         {DIAS_ES[dayDate.getDay()]}
                       </div>
-                      <div style={{ fontSize: 9, color: C.muted, fontFamily: "monospace" }}>{dd}/{mm}</div>
+                      <div style={{ fontSize: 9, color: C.muted, fontFamily: FONT_MONO }}>{dd}/{mm}</div>
                     </div>
                     <div style={{ textAlign: "center" }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, fontFamily: "monospace", color: sinData ? C.muted : C.text }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, fontFamily: FONT_MONO, color: sinData ? C.muted : C.text }}>
                         {sinData ? "—" : ingresados >= 1000 ? `${(ingresados / 1000).toFixed(1)}k` : ingresados}
                       </div>
                       <div style={{ fontSize: 9, color: C.sub }}>Ingresos L</div>
                     </div>
                     <div style={{ textAlign: "center" }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, fontFamily: "monospace", color: sinData ? C.muted : C.text }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, fontFamily: FONT_MONO, color: sinData ? C.muted : C.text }}>
                         {sinData ? "—" : camiones}
                       </div>
                       <div style={{ fontSize: 9, color: C.sub }}>Camiones</div>
                     </div>
                     <div style={{ textAlign: "center" }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, fontFamily: "monospace", color: sinData ? C.muted : (bal >= 0 ? C.success : C.danger) }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, fontFamily: FONT_MONO, color: sinData ? C.muted : (bal >= 0 ? C.success : C.danger) }}>
                         {sinData ? "—" : (bal >= 0 ? "+" : "") + (Math.abs(bal) >= 1000 ? `${(bal / 1000).toFixed(1)}k` : bal)}
                       </div>
                       <div style={{ fontSize: 9, color: C.sub }}>Balance L</div>
@@ -3840,18 +3930,18 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
                 padding: "10px 14px", gap: 6, alignItems: "center",
                 background: C.muted, borderTop: `1px solid ${C.border}`,
               }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: C.sub, textTransform: "uppercase" }}>Total</div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: C.sub, textTransform: "uppercase" }}>Total</div>
                 <div style={{ textAlign: "center" }}>
-                  <div style={{ fontSize: 13, fontWeight: 800, fontFamily: "monospace", color: C.accent }}>
+                  <div style={{ fontSize: 13, fontWeight: 800, fontFamily: FONT_MONO, color: C.accent }}>
                     {totalSem >= 1000 ? `${(totalSem / 1000).toFixed(1)}k` : totalSem}
                   </div>
                 </div>
                 <div style={{ textAlign: "center" }}>
-                  <div style={{ fontSize: 13, fontWeight: 800, fontFamily: "monospace", color: C.text }}>{totalCam}</div>
+                  <div style={{ fontSize: 13, fontWeight: 800, fontFamily: FONT_MONO, color: C.text }}>{totalCam}</div>
                 </div>
                 <div style={{ textAlign: "center" }}>
                   {(() => { const b = totalSem - totalCarg; return (
-                    <div style={{ fontSize: 13, fontWeight: 800, fontFamily: "monospace", color: b >= 0 ? C.success : C.danger }}>
+                    <div style={{ fontSize: 13, fontWeight: 800, fontFamily: FONT_MONO, color: b >= 0 ? C.success : C.danger }}>
                       {(b >= 0 ? "+" : "") + (Math.abs(b) >= 1000 ? `${(b / 1000).toFixed(1)}k` : b)}
                     </div>
                   ); })()}
@@ -3915,9 +4005,9 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
         );
 
         const PARAM_DEFS = [
-          { key: "acidez", label: "Acidez", ref: QUALITY_REFS["Acidez"],   col: "#f59e0b" },
-          { key: "ph",     label: "pH",     ref: QUALITY_REFS["pH"],       col: "#60a5fa" },
-          { key: "gb",     label: "GB %",   ref: QUALITY_REFS["GB"],       col: "#34d399" },
+          { key: "acidez", label: "Acidez", ref: QUALITY_REFS["Acidez"],   col: C.accent },
+          { key: "ph",     label: "pH",     ref: QUALITY_REFS["pH"],       col: C.sub },
+          { key: "gb",     label: "GB %",   ref: QUALITY_REFS["GB"],       col: C.success },
         ];
 
         return (
@@ -3946,11 +4036,11 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
                     <div>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <span style={{ fontSize: 14, fontWeight: 700, color: C.text }}>{nombre}</span>
-                        {anyAlert && <span style={{ fontSize: 11, background: "#f59e0b22", color: C.accent, borderRadius: 6, padding: "1px 7px", fontWeight: 700 }}>⚠ Fuera de ref.</span>}
+                        {anyAlert && <span style={{ fontSize: 11, background: C.accentDim, color: C.accent, borderRadius: 6, padding: "1px 7px", fontWeight: 700 }}>⚠ Fuera de ref.</span>}
                       </div>
                       <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>
                         {entregas.length} entrega{entregas.length !== 1 ? "s" : ""} ·{" "}
-                        <span style={{ fontFamily: "monospace", color: C.accent }}>
+                        <span style={{ fontFamily: FONT_MONO, color: C.accent }}>
                           {(totalLitros / 1000).toFixed(1)}k L
                         </span>
                         {lastDate && <span style={{ marginLeft: 6, color: C.muted }}>· último {fmtDate(lastDate)}</span>}
@@ -3968,8 +4058,8 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
                       const chipBdr = !ok ? C.danger + "55" : C.border;
                       return (
                         <div key={key} style={{ background: chipBg, border: `1px solid ${chipBdr}`, borderRadius: 8, padding: "7px 8px" }}>
-                          <div style={{ fontSize: 9, color: C.sub, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 2 }}>{label}</div>
-                          <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "monospace", color: v > 0 ? (ok ? col : C.danger) : C.muted, marginBottom: 4 }}>
+                          <div style={{ fontSize: 10, color: C.sub, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 2 }}>{label}</div>
+                          <div style={{ fontSize: 15, fontWeight: 700, fontFamily: FONT_MONO, color: v > 0 ? (ok ? col : C.danger) : C.muted, marginBottom: 4 }}>
                             {v > 0 ? v.toFixed(2) : "—"}
                           </div>
                           <Sparkline values={entregas.map(e => e[key])} color={v > 0 ? (ok ? col : C.danger) : C.muted} w={54} h={20} />
@@ -3986,7 +4076,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
                   {/* Tabla expandida */}
                   {isOpen && (
                     <div style={{ marginTop: 14, borderTop: `1px solid ${C.border}`, paddingTop: 12 }}>
-                      <div style={{ fontSize: 10, color: C.sub, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700, marginBottom: 8 }}>
+                      <div style={{ fontSize: 11, color: C.sub, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700, marginBottom: 8 }}>
                         Historial de entregas
                       </div>
                       {/* Header */}
@@ -4010,17 +4100,17 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
                             gap: 3, padding: "5px 0",
                             borderBottom: i < entregas.length - 1 ? `1px solid ${C.border}22` : "none",
                           }}>
-                            <div style={{ fontSize: 11, fontFamily: "monospace", color: e.date === getToday() ? C.accent : C.sub }}>
+                            <div style={{ fontSize: 11, fontFamily: FONT_MONO, color: e.date === getToday() ? C.accent : C.sub }}>
                               {fmtDate(e.date)}
                             </div>
-                            <div style={{ fontSize: 11, fontFamily: "monospace", fontWeight: 600, color: C.accent }}>
+                            <div style={{ fontSize: 11, fontFamily: FONT_MONO, fontWeight: 600, color: C.accent }}>
                               {e.litros > 0 ? e.litros.toLocaleString("es-AR") : "—"}
                             </div>
                             {fieldDefs.map(({ v, ref: r }, j) => {
                               const valid = !isNaN(v) && v > 0;
                               const outRef = valid && r && (v < r.min || v > r.max);
                               return (
-                                <div key={j} style={{ fontSize: 11, fontFamily: "monospace", color: outRef ? C.danger : valid ? C.text : C.muted }}>
+                                <div key={j} style={{ fontSize: 11, fontFamily: FONT_MONO, color: outRef ? C.danger : valid ? C.text : C.muted }}>
                                   {valid ? (j === 4 ? v.toFixed(3) : v.toFixed(2)) : "—"}{outRef ? " ⚠" : ""}
                                 </div>
                               );
@@ -4041,8 +4131,11 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
 };
 
 // ─── APP PRINCIPAL ────────────────────────────────────────────
+const SIDEBAR_W = 220;
+
 export default function App() {
   // Restaura sección/fecha/perfil guardados justo antes de recargar para cambio de tema
+  const { isDesktop } = useViewport();
   const [section, setSection] = useState(_restoredSession?.section || "ingresos");
   const [date, setDate]       = useState(_restoredSession?.date    || getToday());
   const [datePicker, setDatePicker] = useState(false);
@@ -4146,26 +4239,84 @@ export default function App() {
   };
 
   return (
-    <div style={{ background: C.bg, minHeight: "100vh", color: C.text, fontFamily: FONT_SANS, paddingBottom: 72 }}>
+    <div style={{ background: C.bg, minHeight: "100vh", color: C.text, fontFamily: FONT_SANS, paddingBottom: isDesktop ? 0 : 72 }}>
+
+      {/* Sidebar — desktop only */}
+      {isDesktop && (
+        <div style={{
+          position: "fixed", top: 0, left: 0, bottom: 0, width: SIDEBAR_W,
+          background: C.surface, borderRight: `1px solid ${C.border}`,
+          display: "flex", flexDirection: "column", zIndex: 50,
+          boxShadow: _THEME === "light" ? "2px 0 12px rgba(0,0,0,0.06)" : "2px 0 12px rgba(0,0,0,0.3)",
+        }}>
+          {/* Sidebar header — logo */}
+          <div style={{ padding: "18px 16px 14px", borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
+            <YataLogo />
+            <div style={{ fontSize: 10, color: C.muted, marginTop: 6, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+              Lacteos Yatasto SA
+            </div>
+          </div>
+
+          {/* Nav items */}
+          <div style={{ flex: 1, overflowY: "auto", padding: "6px 0" }}>
+            {navItems.map(n => {
+              const active = section === n.id;
+              return (
+                <button type="button" key={n.id} onClick={() => setSection(n.id)} style={{
+                  width: "100%", border: "none", cursor: "pointer", textAlign: "left",
+                  background: active ? C.accentDim : "none",
+                  color: active ? C.accent : C.sub,
+                  padding: "10px 16px",
+                  display: "flex", alignItems: "center", gap: 10,
+                  borderLeft: active ? `3px solid ${C.accent}` : "3px solid transparent",
+                  transition: `background ${DUR.fast}, color ${DUR.fast}, border-color ${DUR.fast}`,
+                }}>
+                  <n.Icon size={17} strokeWidth={SW} />
+                  <span style={{ fontSize: 13, fontWeight: active ? 700 : 500, letterSpacing: "0.01em" }}>
+                    {n.id === "supervisor" ? "Dashboard" : n.label}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Sidebar footer — date picker */}
+          <div style={{ padding: "12px 14px", borderTop: `1px solid ${C.border}`, flexShrink: 0 }}>
+            <button type="button" onClick={() => setDatePicker(!datePicker)} style={{
+              width: "100%", background: isToday ? C.card : C.accentDim,
+              border: `1px solid ${isToday ? C.border : C.accentDark}`,
+              borderRadius: 8, color: isToday ? C.text : C.accent,
+              padding: "8px 10px", cursor: "pointer", textAlign: "left",
+              display: "flex", alignItems: "center", gap: 8,
+            }}>
+              <IcoDate size={13} strokeWidth={SW} />
+              <span style={{ fontSize: 12, fontFamily: FONT_MONO, fontWeight: 700 }}>
+                {isToday ? "Hoy" : fmtDate(date)}
+              </span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Banner offline — almacenamiento no disponible */}
       {!storageOk && (
         <div style={{
-          background: _THEME === "light" ? "#fef2f2" : "#450a0a", borderBottom: `2px solid ${C.danger}`,
+          background: C.danger.replace(/\)$/, " / 0.12)"), borderBottom: `2px solid ${C.danger}`,
           padding: "10px 16px", display: "flex", alignItems: "center", gap: 10,
           position: "sticky", top: 0, zIndex: 300,
+          marginLeft: isDesktop ? SIDEBAR_W : 0,
         }}>
-          <IcoOffline size={20} strokeWidth={SW} color="#fca5a5" />
+          <IcoOffline size={20} strokeWidth={SW} color={C.danger} />
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: "#fca5a5" }}>Sin acceso al almacenamiento</div>
-            <div style={{ fontSize: 11, color: "#f87171", marginTop: 1 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: C.danger }}>Sin acceso al almacenamiento</div>
+            <div style={{ fontSize: 11, color: C.sub, marginTop: 1 }}>
               Los datos no se guardarán. Verificá la conexión con el sistema Antigravity.
             </div>
           </div>
-          <button onClick={() => {
+          <button type="button" onClick={() => {
             const HC = "yatasto:_hc";
             window.storage.set(HC, "1").then(() => window.storage.get(HC)).then(r => setStorageOk(!!r)).catch(() => setStorageOk(false));
-          }} style={{ background: "#ef4444", border: "none", color: "#fff", borderRadius: 8, padding: "5px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
+          }} style={{ background: C.danger.replace(/\)$/, " / 0.15)"), border: `1px solid ${C.danger.replace(/\)$/, " / 0.4)")}`, color: C.danger, borderRadius: 8, padding: "5px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
             Reintentar
           </button>
         </div>
@@ -4184,8 +4335,8 @@ export default function App() {
               placeholder="Ej: Juan García" />
           </F>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-            <button style={btnSecondary} onClick={() => setInitModal(false)}>Ahora no</button>
-            <button style={btnPrimary} onClick={guardarResponsable}>Ingresar</button>
+            <button type="button" style={btnSecondary} onClick={() => setInitModal(false)}>Ahora no</button>
+            <button type="button" style={btnPrimary} onClick={guardarResponsable}>Ingresar</button>
           </div>
         </Modal>
       )}
@@ -4208,7 +4359,7 @@ export default function App() {
                   ● SESIÓN ACTIVA
                 </div>
               </div>
-              <button style={{ ...btnSecondary, color: C.danger, borderColor: C.danger + "55", width: "100%" }} onClick={handleLogout}>
+              <button type="button" style={{ ...btnSecondary, color: C.danger, borderColor: C.danger + "55", width: "100%" }} onClick={handleLogout}>
                 Cerrar sesión
               </button>
             </div>
@@ -4240,13 +4391,13 @@ export default function App() {
                   placeholder="Contraseña" />
               </F>
               {loginError && (
-                <div style={{ color: C.danger, fontSize: 12, marginBottom: 12, padding: "8px 12px", background: _THEME === "light" ? "#fef2f2" : "#ef444418", borderRadius: 8, border: `1px solid ${C.danger}33` }}>
+                <div style={{ color: C.danger, fontSize: 12, marginBottom: 12, padding: "8px 12px", background: C.danger.replace(/\)$/, " / 0.08)"), borderRadius: 8, border: `1px solid ${C.danger.replace(/\)$/, " / 0.3)")}` }}>
                   {loginError}
                 </div>
               )}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                <button style={btnSecondary} onClick={closePerfilModal}>Cancelar</button>
-                <button style={btnPrimary} onClick={handleLogin}>Ingresar</button>
+                <button type="button" style={btnSecondary} onClick={closePerfilModal}>Cancelar</button>
+                <button type="button" style={btnPrimary} onClick={handleLogin}>Ingresar</button>
               </div>
             </div>
           )}
@@ -4262,26 +4413,36 @@ export default function App() {
         padding: "9px 14px", position: "sticky", top: 0, zIndex: 40,
         display: "flex", justifyContent: "space-between", alignItems: "center",
         boxShadow: _THEME === "light" ? "0 1px 8px rgba(0,0,0,0.07)" : "0 1px 8px rgba(0,0,0,0.4)",
+        marginLeft: isDesktop ? SIDEBAR_W : 0,
       }}>
-        {/* Left: Logo + section indicator */}
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <YataLogo compact />
-          <div style={{ width: 1, height: 26, background: C.border }} />
-          <div style={{ fontSize: 12, color: C.sub, fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}>
-            {(() => { const n = navItems.find(item => item.id === section); return n ? <n.Icon size={14} strokeWidth={SW} /> : null; })()}
-            <span>{navItems.find(n => n.id === section)?.label}</span>
+        {/* Left: Logo + section indicator (mobile only) */}
+        {!isDesktop ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <YataLogo compact />
+            <div style={{ width: 1, height: 26, background: C.border }} />
+            <div style={{ fontSize: 12, color: C.sub, fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}>
+              {(() => { const n = navItems.find(item => item.id === section); return n ? <n.Icon size={14} strokeWidth={SW} /> : null; })()}
+              <span>{navItems.find(n => n.id === section)?.label}</span>
+            </div>
           </div>
-        </div>
+        ) : (
+          <div style={{ fontSize: 13, fontWeight: 700, color: C.text, display: "flex", alignItems: "center", gap: 6 }}>
+            {(() => { const n = navItems.find(item => item.id === section); return n ? <n.Icon size={15} strokeWidth={SW} color={C.accent} /> : null; })()}
+            <span>{navItems.find(n => n.id === section)?.id === "supervisor" ? "Dashboard" : navItems.find(n => n.id === section)?.label}</span>
+          </div>
+        )}
 
         {/* Right: action buttons */}
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
           {/* Theme toggle */}
-          <button onClick={() => {
+          <button type="button" onClick={() => {
             const next = _THEME === "dark" ? "light" : "dark";
             saveSessionForReload({ section, date, perfil, nombre: initNombre });
             try { localStorage.setItem("yatasto:theme", next); } catch {}
             window.location.reload();
-          }} title={_THEME === "dark" ? "Modo Yatasto (claro)" : "Modo oscuro"} style={{
+          }} title={_THEME === "dark" ? "Modo Yatasto (claro)" : "Modo oscuro"}
+             aria-label={_THEME === "dark" ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}
+             style={{
             background: C.card, border: `1px solid ${C.border}`,
             borderRadius: 9, color: C.sub, width: 34, height: 34,
             cursor: "pointer", fontSize: 15,
@@ -4290,7 +4451,10 @@ export default function App() {
           }}>{_THEME === "dark" ? <ThemeLight size={16} strokeWidth={SW} /> : <ThemeDark size={16} strokeWidth={SW} />}</button>
 
           {/* Botón perfil */}
-          <button onClick={() => setPerfilModal(true)} title={perfil ? PERFILES[perfil].label : "Acceder con perfil"} style={{
+          <button type="button" onClick={() => setPerfilModal(true)}
+            title={perfil ? PERFILES[perfil].label : "Acceder con perfil"}
+            aria-label={perfil ? `Perfil: ${PERFILES[perfil].label}` : "Acceder con perfil"}
+            style={{
             background: perfil ? C.accentDim : C.card,
             border: `1px solid ${perfil ? C.accentDark : C.border}`,
             borderRadius: 9,
@@ -4303,37 +4467,40 @@ export default function App() {
             )}
           </button>
 
-          <button onClick={() => setInforme(true)} title="Informe del día" style={{
+          <button type="button" onClick={() => setInforme(true)} title="Informe del día" aria-label="Ver informe del día" style={{
             background: C.card, border: `1px solid ${C.border}`,
             borderRadius: 9, color: C.sub, width: 34, height: 34,
             cursor: "pointer", fontSize: 15,
             display: "flex", alignItems: "center", justifyContent: "center",
           }}><IcoInforme size={16} strokeWidth={SW} /></button>
 
-          <button onClick={() => setDatePicker(!datePicker)} style={{
-            background: isToday ? C.card : C.accentDim,
-            border: `1px solid ${isToday ? C.border : C.accentDark}`,
-            borderRadius: 9, color: isToday ? C.text : C.accent,
-            padding: "0 10px", height: 34, cursor: "pointer",
-            fontSize: 12, fontFamily: "'Courier New',monospace", fontWeight: 700,
-            display: "flex", alignItems: "center", gap: 4,
-          }}>
-            <IcoDate size={13} strokeWidth={SW} />
-            <span>{isToday ? "Hoy" : fmtDate(date)}</span>
-          </button>
+          {!isDesktop && (
+            <button type="button" onClick={() => setDatePicker(!datePicker)} style={{
+              background: isToday ? C.card : C.accentDim,
+              border: `1px solid ${isToday ? C.border : C.accentDark}`,
+              borderRadius: 9, color: isToday ? C.text : C.accent,
+              padding: "0 10px", height: 34, cursor: "pointer",
+              fontSize: 12, fontFamily: FONT_MONO, fontWeight: 700,
+              display: "flex", alignItems: "center", gap: 4,
+            }}>
+              <IcoDate size={13} strokeWidth={SW} />
+              <span>{isToday ? "Hoy" : fmtDate(date)}</span>
+            </button>
+          )}
         </div>
       </div>
 
       {/* Date picker */}
       {datePicker && (
-        <div style={{ background: C.card, borderBottom: `1px solid ${C.border}`, padding: "12px 16px", display: "flex", gap: 8 }}>
+        <div style={{ background: C.card, borderBottom: `1px solid ${C.border}`, padding: "12px 16px", display: "flex", gap: 8, marginLeft: isDesktop ? SIDEBAR_W : 0 }}>
           <input type="date" value={date} onChange={e => { setDate(e.target.value); setDatePicker(false); }} style={{ ...inp, flex: 1 }} />
-          <button onClick={() => { setDate(getToday()); setDatePicker(false); }} style={{ ...btnPrimary, width: "auto", padding: "10px 16px", whiteSpace: "nowrap" }}>Hoy</button>
+          <button type="button" onClick={() => { setDate(getToday()); setDatePicker(false); }} style={{ ...btnPrimary, width: "auto", padding: "10px 16px", whiteSpace: "nowrap" }}>Hoy</button>
         </div>
       )}
 
       {/* Content */}
-      <div style={{ padding: "12px 16px 0" }}>
+      <div style={{ padding: isDesktop ? "16px 24px 24px" : "12px 16px 0", marginLeft: isDesktop ? SIDEBAR_W : 0 }}>
+        <div style={{ maxWidth: isDesktop ? 960 : "100%", margin: isDesktop ? "0 auto" : undefined }}>
         {section === "ingresos" && <SecIngresos date={date} syncKey={syncKey} />}
         {section === "cip" && <SecCIP date={date} syncKey={syncKey} />}
         {section === "carga" && <SecCarga date={date} syncKey={syncKey} />}
@@ -4341,10 +4508,11 @@ export default function App() {
         {section === "stock" && <SecStock date={date} syncKey={syncKey} />}
         {section === "fortificados" && <SecFortificados date={date} syncKey={syncKey} />}
         {section === "supervisor" && perfil && <SecDashboard date={date} perfil={perfil} perfilLabel={PERFILES[perfil]?.label || ""} syncKey={syncKey} />}
+        </div>
       </div>
 
-      {/* Bottom nav */}
-      <div style={{
+      {/* Bottom nav — mobile only */}
+      {!isDesktop && <div style={{
         position: "fixed", bottom: 0, left: 0, right: 0,
         background: C.surface, borderTop: `1px solid ${C.border}`,
         display: "grid", gridTemplateColumns: `repeat(${navItems.length},1fr)`,
@@ -4354,7 +4522,7 @@ export default function App() {
         {navItems.map(n => {
           const active = section === n.id;
           return (
-            <button key={n.id} onClick={() => setSection(n.id)} style={{
+            <button type="button" key={n.id} onClick={() => setSection(n.id)} style={{
               background: "none", border: "none", cursor: "pointer", padding: "10px 0 13px",
               display: "flex", flexDirection: "column", alignItems: "center", gap: 2,
               borderTop: active ? `2.5px solid ${C.accent}` : "2.5px solid transparent",
@@ -4375,7 +4543,7 @@ export default function App() {
             </button>
           );
         })}
-      </div>
+      </div>}
     </div>
   );
 }

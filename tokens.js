@@ -4,7 +4,8 @@
 
 // ─── COLOR ────────────────────────────────────────────────────────────────────
 // OKLCH(L C H): L=luminosidad 0-1, C=croma, H=hue en grados.
-// Hue ámbar unificado (~60-70°) en ambos modos — la identidad no cambia de color.
+// Dark mode: ámbar (~70°) — legible sobre fondos oscuros.
+// Light mode: rojo brand (~22°) tenue — texto negro sobre él da ≥7:1 de contraste.
 
 export const DARK = {
   bg:          "oklch(0.09 0.030 258)",
@@ -23,17 +24,17 @@ export const DARK = {
 
 export const LIGHT = {
   bg:          "oklch(0.97 0.005 250)",
-  surface:     "oklch(0.995 0.002 70)",  // tinte brand sutil
-  card:        "oklch(0.99 0.003 70)",
+  surface:     "oklch(0.995 0.002 22)",  // tinte rojo brand, imperceptible
+  card:        "oklch(0.99 0.003 22)",
   border:      "oklch(0.88 0.010 250)",
-  accent:      "oklch(0.62 0.16 60)",   // ámbar oscuro — mismo hue que dark
-  accentDim:   "oklch(0.96 0.040 78)",  // fondo chips activos
-  accentDark:  "oklch(0.50 0.14 62)",   // hover / pressed
+  accent:      "oklch(0.60 0.14 22)",   // rojo brand tenue — negro sobre él: 7.4:1
+  accentDim:   "oklch(0.96 0.028 22)",  // fondo chips — rosado muy suave
+  accentDark:  "oklch(0.48 0.17 22)",   // hover / pressed
   text:        "oklch(0.18 0.012 250)",
   sub:         "oklch(0.50 0.025 250)",
   muted:       "oklch(0.78 0.010 250)",
   success:     "oklch(0.56 0.17 149)",
-  danger:      "oklch(0.55 0.22 25)",
+  danger:      "oklch(0.55 0.22 25)",   // más saturado que accent → diferenciable
 };
 
 // ─── TIPOGRAFÍA ───────────────────────────────────────────────────────────────
