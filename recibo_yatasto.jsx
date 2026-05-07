@@ -1,6 +1,7 @@
 import { useState, useEffect, Fragment } from "react";
 import { DARK, LIGHT, FONT_SANS, FONT_MONO, EASE_OUT, DUR } from "./tokens.js";
 import { useViewport } from "./hooks.js";
+import { db } from "./db-adapter.js";
 import {
   Ingresos as IcoIngresos, Movimientos as IcoMovimientos, Carga as IcoCarga,
   Fortificados as IcoFortificados, CIP as IcoCIP, Stock as IcoStock,
@@ -139,26 +140,26 @@ const panel = { background: C.surface, borderRadius: 10, padding: 12, marginBott
 
 // ─── STORAGE ─────────────────────────────────────────────────
 async function load(date, sec, def) {
-  try { const r = await window.storage.get(sKey(date, sec)); return r ? JSON.parse(r.value) : def; }
+  try { const r = await db.get(sKey(date, sec)); return r ? JSON.parse(r.value) : def; }
   catch { return def; }
 }
 async function save(date, sec, data) {
-  try { await window.storage.set(sKey(date, sec), JSON.stringify(data)); } catch (e) { console.error(e); }
+  try { await db.set(sKey(date, sec), JSON.stringify(data)); } catch (e) { console.error(e); }
 }
 async function loadCfg() {
   const def = { tambosCustom: [], camionesCustom: [], transportistas: [], cargaProductosCustom: [] };
-  try { const r = await window.storage.get(CFG_KEY); return r ? { ...def, ...JSON.parse(r.value) } : def; }
+  try { const r = await db.get(CFG_KEY); return r ? { ...def, ...JSON.parse(r.value) } : def; }
   catch { return def; }
 }
 // Saldo de silos entre días
 async function loadSaldo() {
-  try { const r = await window.storage.get(SALDO_KEY); return r ? JSON.parse(r.value) : null; } catch { return null; }
+  try { const r = await db.get(SALDO_KEY); return r ? JSON.parse(r.value) : null; } catch { return null; }
 }
 async function saveSaldo(data, fromDate) {
-  try { await window.storage.set(SALDO_KEY, JSON.stringify({ data, fromDate })); } catch { }
+  try { await db.set(SALDO_KEY, JSON.stringify({ data, fromDate })); } catch { }
 }
 async function saveCfg(data) {
-  try { await window.storage.set(CFG_KEY, JSON.stringify(data)); } catch (e) { console.error(e); }
+  try { await db.set(CFG_KEY, JSON.stringify(data)); } catch (e) { console.error(e); }
 }
 const ELIM_KEY   = "yatasto:eliminados";
 const USERS_KEY  = "yatasto:usuarios";
@@ -210,17 +211,17 @@ const DIFF_FIELDS = [
 
 async function updateHeartbeat(nombre, rol) {
   try {
-    const r = await window.storage.get(USERS_KEY);
+    const r = await db.get(USERS_KEY);
     const users = r ? JSON.parse(r.value) : [];
     const now = Date.now();
     const filtered = users.filter(u => u.id !== SESSION_ID && now - u.ts < 120000);
     filtered.push({ id: SESSION_ID, nombre: nombre || "Operario", rol: rol || "Operario", ts: now });
-    await window.storage.set(USERS_KEY, JSON.stringify(filtered));
+    await db.set(USERS_KEY, JSON.stringify(filtered));
   } catch { }
 }
 async function getActiveUsers() {
   try {
-    const r = await window.storage.get(USERS_KEY);
+    const r = await db.get(USERS_KEY);
     if (!r) return [];
     const now = Date.now();
     return (JSON.parse(r.value) || []).filter(u => now - u.ts < 120000);
@@ -237,10 +238,10 @@ function buildResumen(tipo, item) {
 }
 async function logDelete(tipo, item) {
   try {
-    const r = await window.storage.get(ELIM_KEY);
+    const r = await db.get(ELIM_KEY);
     const log = r ? JSON.parse(r.value) : [];
     log.unshift({ fecha: getToday(), hora: getNow(), tipo, resumen: buildResumen(tipo, item) });
-    await window.storage.set(ELIM_KEY, JSON.stringify(log.slice(0, 300)));
+    await db.set(ELIM_KEY, JSON.stringify(log.slice(0, 300)));
   } catch { }
 }
 
@@ -1933,7 +1934,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
       load(date, "fortificados", []),
       load(date, "cip", {}),
       calcAutoLitros(date),
-      window.storage.get(ELIM_KEY).then(r => r ? JSON.parse(r.value) : []).catch(() => []),
+      db.get(ELIM_KEY).then(r => r ? JSON.parse(r.value) : []).catch(() => []),
       getActiveUsers(),
     ]).then(([ing, cargas, movData, stock, forts, cip, autoLitros, historial, activeUsers]) => {
       setD({ ing, cargas, movData, stock, forts, cip, autoLitros, historial });
@@ -4158,8 +4159,8 @@ export default function App() {
   // Verificar disponibilidad del storage al iniciar
   useEffect(() => {
     const HC = "yatasto:_hc";
-    window.storage.set(HC, "1")
-      .then(() => window.storage.get(HC))
+    db.set(HC, "1")
+      .then(() => db.get(HC))
       .then(r => setStorageOk(!!r))
       .catch(() => setStorageOk(false));
   }, []);
@@ -4315,7 +4316,7 @@ export default function App() {
           </div>
           <button type="button" onClick={() => {
             const HC = "yatasto:_hc";
-            window.storage.set(HC, "1").then(() => window.storage.get(HC)).then(r => setStorageOk(!!r)).catch(() => setStorageOk(false));
+            db.set(HC, "1").then(() => db.get(HC)).then(r => setStorageOk(!!r)).catch(() => setStorageOk(false));
           }} style={{ background: C.danger.replace(/\)$/, " / 0.15)"), border: `1px solid ${C.danger.replace(/\)$/, " / 0.4)")}`, color: C.danger, borderRadius: 8, padding: "5px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
             Reintentar
           </button>
