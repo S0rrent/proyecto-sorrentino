@@ -1,7 +1,7 @@
 import { useState, useEffect, Fragment } from "react";
 import { DARK, LIGHT, FONT_SANS, FONT_MONO, EASE_OUT, DUR } from "./tokens.js";
 import { useViewport } from "./hooks.js";
-import { db } from "./db-adapter.js";
+import { db, onWriteQueueChange } from "./db-adapter.js";
 import {
   Ingresos as IcoIngresos, Movimientos as IcoMovimientos, Carga as IcoCarga,
   Fortificados as IcoFortificados, CIP as IcoCIP, Stock as IcoStock,
@@ -13,6 +13,7 @@ import {
   Balance as IcoBalance, AlertaError, AlertaWarn, AlertaOk, CheckMark,
   Eliminar as IcoEliminar, TabResumen, TabSilos, TabCalidad, TabDifs,
   TabSemana, TabHistorial, TabExportar, CamionIcon, UsuariosOnline,
+  DiaCerrado as IcoCerrado, DiaAbierto as IcoAbierto, SyncError as IcoSyncError, Syncing as IcoSyncing,
   SW,
 } from "./icons.js";
 
@@ -175,6 +176,23 @@ const ELIM_KEY   = "yatasto:eliminados";
 const USERS_KEY  = "yatasto:usuarios";
 const SALDO_KEY  = "yatasto:saldo-silos";
 const SR_KEY     = "yatasto:session-restore";  // sesión guardada antes de recargar tema
+const estadoKey  = d => `yatasto:${d}:estado`;
+const auditKey   = d => `yatasto:audit:${d}`;
+
+async function loadEstado(d) {
+  try { const r = await db.get(estadoKey(d)); return r ? JSON.parse(r.value) : null; } catch { return null; }
+}
+async function saveEstado(d, est) {
+  try { await db.set(estadoKey(d), JSON.stringify(est)); } catch { }
+}
+async function logAudit(d, action, tipo, resumen, by) {
+  try {
+    const r = await db.get(auditKey(d));
+    const log = r ? JSON.parse(r.value) : [];
+    log.push({ ts: new Date().toISOString(), action, tipo, resumen, by: by || "Operario" });
+    await db.set(auditKey(d), JSON.stringify(log));
+  } catch { }
+}
 
 function saveSessionForReload(state) {
   try { localStorage.setItem(SR_KEY, JSON.stringify(state)); } catch {}
@@ -246,13 +264,17 @@ function buildResumen(tipo, item) {
   if (tipo === "fortificado") return `${item.siloOrigen || "?"}→${item.siloDestino || "?"} — ${item.litrosBase || 0} L${item.paraQue ? " (" + item.paraQue + ")" : ""}`;
   return String(item.id || "");
 }
-async function logDelete(tipo, item) {
+async function logDelete(tipo, item, by) {
+  const resumen = buildResumen(tipo, item);
+  // Registro global (para dashboard de historial)
   try {
     const r = await db.get(ELIM_KEY);
     const log = r ? JSON.parse(r.value) : [];
-    log.unshift({ fecha: getToday(), hora: getNow(), tipo, resumen: buildResumen(tipo, item) });
-    await db.set(ELIM_KEY, JSON.stringify(log.slice(0, 300)));
+    log.unshift({ fecha: getToday(), hora: getNow(), tipo, resumen, by: by || "Operario" });
+    await db.set(ELIM_KEY, JSON.stringify(log.slice(0, 500)));
   } catch { }
+  // Registro por día (sin cap, consultable por fecha)
+  await logAudit(getToday(), "delete", tipo, resumen, by);
 }
 
 // Calcula litros netos por silo: saldo_anterior + ingresos + movimientos − cargas − fort_origen + fort_destino
@@ -483,6 +505,7 @@ const emptyIng = () => ({
 
 const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo }) => {
   const [f, setF] = useState(initial || emptyIng());
+  const [aguadoAlerta, setAguadoAlerta] = useState(false);
   const set = k => v => setF(p => ({ ...p, [k]: v }));
   const pickTambo = nombre => {
     const t = tambos.find(t => t.nombre === nombre);
@@ -527,7 +550,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
             <F label="Destino — Silo"><Sel value={f.destino} onChange={set("destino")} options={SILOS} placeholder="Seleccionar silo..." /></F>
             <F label="Litros"><Inp type="number" value={f.litrosFca} onChange={set("litrosFca")} placeholder="0" /></F>
             <F label="Temperatura llegada (°C)">
-              <Inp type="number" value={f.tC} onChange={set("tC")} step="0.1" placeholder="°C" />
+              <Inp type="number" value={f.tC} onChange={set("tC")} step="0.1" placeholder="°C" min="-5" max="50" />
               <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>Ref: 3 – 8 °C</div>
             </F>
           </div>
@@ -535,11 +558,11 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
             <div style={secTitle}>Parámetros</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
               <F label="Acidez">
-                <Inp type="number" value={f.acidezFca} onChange={set("acidezFca")} step="0.1" />
+                <Inp type="number" value={f.acidezFca} onChange={set("acidezFca")} step="0.1" min="0" max="100" />
                 <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>Ref: 14 – 18 °D</div>
               </F>
               <F label="pH">
-                <Inp type="number" value={f.phFca} onChange={set("phFca")} step="0.01" />
+                <Inp type="number" value={f.phFca} onChange={set("phFca")} step="0.01" min="0" max="14" />
                 <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>Ref: 6.6 – 6.8</div>
               </F>
             </div>
@@ -560,7 +583,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
             </div>
             <F label="Destino — Silo"><Sel value={f.destino} onChange={set("destino")} options={SILOS} placeholder="Seleccionar silo..." /></F>
             <F label="Temperatura llegada (°C)">
-              <Inp type="number" value={f.tC} onChange={set("tC")} step="0.1" placeholder="°C" />
+              <Inp type="number" value={f.tC} onChange={set("tC")} step="0.1" placeholder="°C" min="-5" max="50" />
               <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>Ref: 3 – 8 °C</div>
             </F>
           </div>
@@ -568,11 +591,11 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
             <div style={secTitle}>Parámetros básicos</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
               <F label="Acidez Fca.">
-                <Inp type="number" value={f.acidezFca} onChange={set("acidezFca")} step="0.1" />
+                <Inp type="number" value={f.acidezFca} onChange={set("acidezFca")} step="0.1" min="0" max="100" />
                 <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>Ref: 14 – 18 °D</div>
               </F>
               <F label="pH Fca.">
-                <Inp type="number" value={f.phFca} onChange={set("phFca")} step="0.01" />
+                <Inp type="number" value={f.phFca} onChange={set("phFca")} step="0.01" min="0" max="14" />
                 <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>Ref: 6.6 – 6.8</div>
               </F>
             </div>
@@ -613,10 +636,40 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
           }
           const miss = req.filter(([k]) => !String(f[k] || "").trim()).map(([, v]) => v);
           if (miss.length) { alert("Campos obligatorios sin completar:\n• " + miss.join("\n• ")); return; }
+          // Aguado > 0 = adulteración — requiere confirmación explícita
+          const aguFca = parseFloat(f.aguadoFca);
+          const aguTbo = parseFloat(f.aguadoTbo);
+          if ((!isNaN(aguFca) && aguFca > 0) || (!isNaN(aguTbo) && aguTbo > 0)) {
+            setAguadoAlerta(true);
+            return;
+          }
           onSave(f);
         }}>Guardar</button>
       </div>
       {onDelete && <button type="button" style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar este ingreso</button>}
+
+      {/* Modal bloqueante de Aguado */}
+      {aguadoAlerta && (
+        <Modal title="⚠ Aguado detectado" onClose={() => setAguadoAlerta(false)} zIndex={300}>
+          <div style={{ background: `${C.danger}18`, border: `1px solid ${C.danger}44`, borderRadius: 10, padding: 14, marginBottom: 16 }}>
+            <div style={{ fontWeight: 700, color: C.danger, fontSize: 14, marginBottom: 6 }}>
+              Aguado Fábrica: {f.aguadoFca || "—"} &nbsp;|&nbsp; Aguado Tambo: {f.aguadoTbo || "—"}
+            </div>
+            <div style={{ fontSize: 13, color: C.text, lineHeight: 1.5 }}>
+              Un valor de aguado mayor a 0 indica posible <strong>adulteración de leche con agua</strong>. Este ingreso no debería procesarse sin autorización del supervisor o jefe de planta.
+            </div>
+          </div>
+          <div style={{ fontSize: 13, color: C.sub, marginBottom: 16 }}>
+            Solo continuar si el desvío fue verificado y autorizado. El registro quedará en el historial.
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <button type="button" style={btnSecondary} onClick={() => setAguadoAlerta(false)}>Corregir valores</button>
+            <button type="button" style={{ ...btnPrimary, background: C.danger, borderColor: C.danger }} onClick={() => { setAguadoAlerta(false); onSave(f); }}>
+              Guardar de todas formas
+            </button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 };
@@ -4161,6 +4214,10 @@ export default function App() {
   const [loginLoading, setLoginLoading] = useState(false);
   const [syncKey, setSyncKey] = useState(0); // incrementa cada 10s → refresca datos en todas las secciones
   const [storageOk, setStorageOk] = useState(true);
+  const [queueLen, setQueueLen] = useState(0);
+  const [queueRetrying, setQueueRetrying] = useState(false);
+  const [dayClosed, setDayClosed] = useState(false);
+  const [dayClosedBy, setDayClosedBy] = useState(null);
   const isToday = date === getToday();
 
   const navItems = perfil
@@ -4175,6 +4232,20 @@ export default function App() {
       .then(r => setStorageOk(!!r))
       .catch(() => setStorageOk(false));
   }, []);
+
+  // Suscribir al estado de la cola de escritura
+  useEffect(() => onWriteQueueChange((len, retrying) => {
+    setQueueLen(len);
+    setQueueRetrying(retrying);
+  }), []);
+
+  // Cargar estado de cierre del día al cambiar fecha o en cada sync
+  useEffect(() => {
+    loadEstado(date).then(est => {
+      setDayClosed(est?.closed || false);
+      setDayClosedBy(est?.closedBy || null);
+    });
+  }, [date, syncKey]);
 
   // Sincronizar perfil con sesión de Supabase Auth
   useEffect(() => {
@@ -4246,6 +4317,22 @@ export default function App() {
     const d = await load(date, "stock", {});
     await save(date, "stock", { ...d, [t]: { ...(d[t] || {}), resp: initNombre.trim() } });
     setInitModal(false);
+  };
+
+  const handleCerrarDia = async () => {
+    if (!confirm(`¿Cerrar el día ${fmtDate(date)}?\nNo se podrán agregar ni modificar registros. Solo el jefe puede reabrir.`)) return;
+    const est = { closed: true, closedAt: new Date().toISOString(), closedBy: PERFILES[perfil]?.label || "Supervisor" };
+    await saveEstado(date, est);
+    await logAudit(date, "close_day", "dia", `Día ${date} cerrado`, est.closedBy);
+    setDayClosed(true);
+    setDayClosedBy(est.closedBy);
+  };
+  const handleReabrirDia = async () => {
+    if (!confirm(`¿Reabrir el día ${fmtDate(date)}?`)) return;
+    await saveEstado(date, { closed: false });
+    await logAudit(date, "reopen_day", "dia", `Día ${date} reabierto`, PERFILES[perfil]?.label || "Jefe");
+    setDayClosed(false);
+    setDayClosedBy(null);
   };
 
   const handleLogin = async () => {
@@ -4336,6 +4423,27 @@ export default function App() {
                 {isToday ? "Hoy" : fmtDate(date)}
               </span>
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Banner cola de escritura — cambios pendientes de sincronizar */}
+      {queueLen > 0 && (
+        <div style={{
+          background: `${C.accent}15`, borderBottom: `2px solid ${C.accent}88`,
+          padding: "8px 16px", display: "flex", alignItems: "center", gap: 10,
+          position: "sticky", top: 0, zIndex: 299,
+          marginLeft: isDesktop ? SIDEBAR_W : 0,
+        }}>
+          {queueRetrying
+            ? <IcoSyncing size={16} strokeWidth={SW} color={C.accent} style={{ animation: "spin 1s linear infinite" }} />
+            : <IcoSyncError size={16} strokeWidth={SW} color={C.accent} />
+          }
+          <div style={{ flex: 1, fontSize: 12, color: C.accent, fontWeight: 600 }}>
+            {queueRetrying
+              ? `Sincronizando ${queueLen} cambio${queueLen > 1 ? "s" : ""}…`
+              : `${queueLen} cambio${queueLen > 1 ? "s" : ""} pendiente${queueLen > 1 ? "s" : ""} — sin conexión`
+            }
           </div>
         </div>
       )}
@@ -4511,6 +4619,23 @@ export default function App() {
             )}
           </button>
 
+          {/* Botón cerrar/reabrir día — solo supervisor y jefe */}
+          {perfil && (
+            <button type="button"
+              onClick={dayClosed ? (perfil === "jefe" ? handleReabrirDia : undefined) : handleCerrarDia}
+              title={dayClosed ? (perfil === "jefe" ? "Reabrir día" : `Día cerrado por ${dayClosedBy}`) : "Cerrar día"}
+              aria-label={dayClosed ? "Día cerrado" : "Cerrar día"}
+              style={{
+                background: dayClosed ? `${C.danger}20` : C.card,
+                border: `1px solid ${dayClosed ? C.danger : C.border}`,
+                borderRadius: 9, color: dayClosed ? C.danger : C.sub,
+                width: 34, height: 34, cursor: dayClosed && perfil !== "jefe" ? "default" : "pointer",
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}>
+              {dayClosed ? <IcoCerrado size={16} strokeWidth={SW} /> : <IcoAbierto size={16} strokeWidth={SW} />}
+            </button>
+          )}
+
           <button type="button" onClick={() => setInforme(true)} title="Informe del día" aria-label="Ver informe del día" style={{
             background: C.card, border: `1px solid ${C.border}`,
             borderRadius: 9, color: C.sub, width: 34, height: 34,
@@ -4543,7 +4668,23 @@ export default function App() {
       )}
 
       {/* Content */}
-      <div style={{ padding: isDesktop ? "16px 24px 24px" : "12px 16px 0", marginLeft: isDesktop ? SIDEBAR_W : 0 }}>
+      <div style={{ padding: isDesktop ? "16px 24px 24px" : "12px 16px 0", marginLeft: isDesktop ? SIDEBAR_W : 0, position: "relative" }}>
+        {/* Overlay día cerrado — bloquea edición sin ocultar contenido */}
+        {dayClosed && section !== "supervisor" && (
+          <div style={{
+            position: "absolute", inset: 0, zIndex: 80,
+            background: `${C.bg}CC`,
+            display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-start",
+            paddingTop: 48,
+          }}>
+            <IcoCerrado size={40} strokeWidth={1.5} color={C.danger} />
+            <div style={{ fontSize: 16, fontWeight: 700, color: C.text, marginTop: 14 }}>Día cerrado</div>
+            <div style={{ fontSize: 13, color: C.sub, marginTop: 6, textAlign: "center", maxWidth: 260 }}>
+              {dayClosedBy ? `Cerrado por ${dayClosedBy}. ` : ""}
+              {perfil === "jefe" ? "Usá el candado en el header para reabrir." : "Solo el jefe puede reabrir el día."}
+            </div>
+          </div>
+        )}
         <div style={{ maxWidth: isDesktop ? 960 : "100%", margin: isDesktop ? "0 auto" : undefined }}>
         {section === "ingresos" && <SecIngresos date={date} syncKey={syncKey} />}
         {section === "cip" && <SecCIP date={date} syncKey={syncKey} />}

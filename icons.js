@@ -53,6 +53,10 @@ export {
   // ── Misc ─────────────────────────────────────────────────────
   Truck         as CamionIcon,
   Users         as UsuariosOnline,
+  Lock          as DiaCerrado,
+  LockOpen      as DiaAbierto,
+  CloudOff      as SyncError,
+  RefreshCw     as Syncing,
 } from "lucide-react";
 
 // Stroke width estándar para toda la app

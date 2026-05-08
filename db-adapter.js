@@ -6,9 +6,12 @@ import { createClient } from "@supabase/supabase-js";
 // Backend: tabla yatasto_storage (key TEXT PK, value TEXT, updated_at TIMESTAMPTZ)
 // Interfaz:
 //   db.get(key)         → Promise<{ value: string } | null>
-//   db.set(key, value)  → Promise<void>
+//   db.set(key, value)  → Promise<void>  (encola si falla, reintenta con backoff)
 //   db.remove(key)      → Promise<void>
 //   db.list(prefix)     → Promise<Array<{ key, value }>>
+//
+// Cola offline:
+//   onWriteQueueChange(fn) → fn(pendingCount, isRetrying) — suscripción reactiva
 // ─────────────────────────────────────────────────────────────────────────────
 
 const SUPABASE_URL      = import.meta.env.VITE_SUPABASE_URL;
@@ -20,6 +23,70 @@ if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
 
 const _sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+// ── Write queue con retry ────────────────────────────────────────────────────
+// Persiste en localStorage para sobrevivir recargas. Cada entrada: { key, value }.
+// Al reconectar drena en orden FIFO con backoff 2s → 4s → 8s → 16s.
+
+const _QUEUE_LS = "__yatasto_wq__";
+let _queue = (() => {
+  try { return JSON.parse(localStorage.getItem(_QUEUE_LS) || "[]"); } catch { return []; }
+})();
+let _flushing = false;
+const _listeners = new Set();
+
+function _queuePersist() {
+  try { localStorage.setItem(_QUEUE_LS, JSON.stringify(_queue)); } catch {}
+}
+function _queueNotify() {
+  _listeners.forEach(fn => fn(_queue.length, _flushing));
+}
+
+export function onWriteQueueChange(fn) {
+  _listeners.add(fn);
+  fn(_queue.length, _flushing); // estado inicial inmediato
+  return () => _listeners.delete(fn);
+}
+
+async function _flushQueue() {
+  if (_flushing || _queue.length === 0) return;
+  _flushing = true;
+  _queueNotify();
+
+  while (_queue.length > 0) {
+    const { key, value } = _queue[0];
+    let ok = false;
+    let delay = 2000;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      try {
+        const { error } = await _sb
+          .from("yatasto_storage")
+          .upsert({ key, value, updated_at: new Date().toISOString() });
+        if (error) throw error;
+        ok = true;
+        break;
+      } catch {
+        if (attempt < 3) await new Promise(r => setTimeout(r, delay));
+        delay *= 2;
+      }
+    }
+    if (ok) {
+      _queue.shift();
+      _queuePersist();
+      _queueNotify();
+    } else {
+      break; // sigue offline — detener y reintentar en 30s
+    }
+  }
+
+  _flushing = false;
+  _queueNotify();
+  if (_queue.length > 0) setTimeout(_flushQueue, 30000);
+}
+
+// Drenar cola al iniciar si quedó algo pendiente de sesión anterior
+if (_queue.length > 0) setTimeout(_flushQueue, 2000);
+
+// ── API pública ──────────────────────────────────────────────────────────────
 export const db = {
   async get(key) {
     const { data, error } = await _sb
@@ -32,10 +99,21 @@ export const db = {
   },
 
   async set(key, value) {
-    const { error } = await _sb
-      .from("yatasto_storage")
-      .upsert({ key, value, updated_at: new Date().toISOString() });
-    if (error) throw error;
+    try {
+      const { error } = await _sb
+        .from("yatasto_storage")
+        .upsert({ key, value, updated_at: new Date().toISOString() });
+      if (error) throw error;
+    } catch {
+      // Escritura directa falló — encolar para reintento
+      const idx = _queue.findIndex(q => q.key === key);
+      if (idx >= 0) _queue[idx].value = value; // actualizar entrada existente
+      else _queue.push({ key, value });
+      _queuePersist();
+      _queueNotify();
+      setTimeout(_flushQueue, 2000);
+      // No relanzar — el llamador trata la escritura como "aceptada" (optimista)
+    }
   },
 
   async remove(key) {
