@@ -24,6 +24,9 @@ npm run preview  # preview built dist/
 - `recibo_yatasto.jsx` — entire app: constants, UI atoms, section components, cross-section logic
 - `main.jsx` — React entry point; polyfills `window.storage` with `localStorage`
 - `db-adapter.js` — persistence abstraction (`db.get/set/remove/list`); currently wraps `window.storage`/localStorage with commented-out Supabase backend
+- `tokens.js` — design system primitives: `DARK`/`LIGHT` OKLCH palettes, `TYPE_SCALE`, `SPACE`, motion tokens (`DUR`, `EASE_OUT`, `EASE_INOUT`), `BP` breakpoints
+- `hooks.js` — `useViewport()` returns `{ isMobile, isTablet, isDesktop, width }` based on `window.matchMedia`; SSR-safe
+- `icons.js` — centralises all `lucide-react` imports with semantic aliases (e.g. `Truck as Ingresos`); exports `SW = 1.75` (standard stroke width)
 
 **Storage keys:**
 - Section data: `yatasto:YYYY-MM-DD:section` where section ∈ `ingresos | cip | carga | movimientos | stock | fortificados`
@@ -84,7 +87,13 @@ Defined once at the top of `recibo_yatasto.jsx` and reused everywhere:
 
 ## Styling
 
-All styles are inline JS objects. Palette in `C` (dark theme, amber accent `#f59e0b`). Shared style objects: `inp`, `lbl`, `secTitle`, `btnPrimary`, `btnSecondary`, `card`, `panel`. Numbers and times use `'Courier New', monospace`. No CSS files.
+All styles are inline JS objects. No CSS files.
+
+**Migration in progress:** `recibo_yatasto.jsx` still uses the legacy `C` object (dark theme, amber `#f59e0b`) with shared style objects `inp`, `lbl`, `secTitle`, `btnPrimary`, `btnSecondary`, `card`, `panel`. New code should consume `tokens.js` (`DARK`/`LIGHT` OKLCH palettes) and `hooks.js` (`useViewport`) instead of extending the `C` object. Numbers and times use `'Courier New', monospace` (being migrated to JetBrains Mono via `FONT_MONO` in tokens).
+
+**Design anti-patterns to avoid** (per `UI-PLAN.md`): `border-left` ≥2px as decorative accent, gradient text, glassmorphism, hero-metric SaaS card grids, bounce/elastic easing, pure `#000`/`#fff`, `alert()` for validation (replace with inline banners). Every element must serve an operational decision — zero ornamental flourish.
+
+**Responsive:** `BP` in `tokens.js` defines `sm/md/lg/xl` breakpoints. Desktop (≥`lg`, 1024px) uses sidebar nav + master-detail layouts; mobile uses bottom tab bar + bottom-sheet modals. Use `useViewport()` to branch; never stretch mobile layouts to desktop.
 
 ## Supabase (optional backend)
 

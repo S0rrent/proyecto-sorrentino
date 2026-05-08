@@ -16,6 +16,16 @@ import {
   SW,
 } from "./icons.js";
 
+// ─── HELPERS DE EXPORTACIÓN ───────────────────────────────────
+const escapeHtml = s => String(s == null ? "" : s)
+  .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+  .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+
+const escapeCsv = s => {
+  const str = String(s == null ? "" : s);
+  return /[,"\n\r=+\-@|]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+};
+
 // ─── CONSTANTES ───────────────────────────────────────────────
 const TAMBOS_BASE = [
   { num: 13, nombre: "SEIVANE" }, { num: 90, nombre: "ESTAR 1" },
@@ -36,8 +46,8 @@ const TAMBOS_BASE = [
 const CAMIONES_BASE = ["GRISARO", "CUARELA", "BARTOLINI", "LLANO 1", "LLANO 2", "GALVAN", "ANGRIGIANI"];
 const FORT_DESTINOS = ["Tetra", "Ultra", "Yogur", "Postre", "Acción Correctiva"];
 const PERFILES = {
-  supervisor: { usuario: "Supervisor", clave: "Yatasto2026$", label: "Supervisor", Icon: IcoSupervisor },
-  jefe: { usuario: "Jefe", clave: "BuenaLeche123$", label: "Jefe de Planta", Icon: IcoJefe },
+  supervisor: { usuario: "Supervisor", email: "supervisor@yatasto.internal", label: "Supervisor", Icon: IcoSupervisor },
+  jefe:       { usuario: "Jefe",       email: "jefe@yatasto.internal",       label: "Jefe de Planta", Icon: IcoJefe },
 };
 const SILOS = ["100 NUEVO", "100 VIEJO", "80", "60", "42", "40F", "20", "15"];
 const SILOS_TODOS = [...SILOS, "TQ1", "TQ2", "TQ3", "TQ6", "TQ7", "TQ8", "TQ9", "POSTRE", "TINA", "DULCE"];
@@ -462,7 +472,7 @@ const Modal = ({ title, onClose, children, zIndex = 100 }) => {
 
 // ─── INGRESOS ────────────────────────────────────────────────
 const emptyIng = () => ({
-  id: Date.now(), hora: getNow(), tambo: "", num: "",
+  id: crypto.randomUUID(), hora: getNow(), tambo: "", num: "",
   litrosFca: "", litrosTbo: "", destino: "", tC: "",
   acidezFca: "", phFca: "", alcFca: "", alcTbo: "",
   gbFca: "", gbTbo: "", sngFca: "", sngTbo: "",
@@ -903,7 +913,7 @@ const SecCIP = ({ date, syncKey = 0 }) => {
 };
 
 // ─── CARGA DE CAMIONES ────────────────────────────────────────
-const emptyCarga = () => ({ id: Date.now(), label: "CARGA 1", destino: "", transportista: "", producto: "", siloProveniente: "", limpCisterna: "", litros: "", T: "", gC: "", pH: "", A: "", gD: "", hora: getNow(), responsable: "", obs: "" });
+const emptyCarga = () => ({ id: crypto.randomUUID(), label: "CARGA 1", destino: "", transportista: "", producto: "", siloProveniente: "", limpCisterna: "", litros: "", T: "", gC: "", pH: "", A: "", gD: "", hora: getNow(), responsable: "", obs: "" });
 const CargaForm = ({ initial, onSave, onClose, onDelete }) => {
   const [f, setF] = useState(initial || emptyCarga());
   const set = k => v => setF(p => ({ ...p, [k]: v }));
@@ -1093,8 +1103,8 @@ const SecCarga = ({ date, syncKey = 0 }) => {
 };
 
 // ─── MOVIMIENTOS ─────────────────────────────────────────────
-const emptyMov = () => ({ id: Date.now(), hora: getNow(), desde: "", hasta: "", litros: "", producto: "", motivo: "", resp: "" });
-const emptyCtrl = () => ({ id: Date.now(), hora: getNow(), silo: "", ph: "", gD: "", gC: "", alc: "", mg: "", sng: "", dens: "", fp: "", prot: "", resp: "" });
+const emptyMov = () => ({ id: crypto.randomUUID(), hora: getNow(), desde: "", hasta: "", litros: "", producto: "", motivo: "", resp: "" });
+const emptyCtrl = () => ({ id: crypto.randomUUID(), hora: getNow(), silo: "", ph: "", gD: "", gC: "", alc: "", mg: "", sng: "", dens: "", fp: "", prot: "", resp: "" });
 
 const MovForm = ({ initial, onSave, onClose, onDelete }) => {
   const [f, setF] = useState(initial || emptyMov());
@@ -1458,7 +1468,7 @@ const SecStock = ({ date, syncKey = 0 }) => {
 const UNIDADES_FORT = ["kg", "g", "L", "mL", "mg", "cc"];
 
 const emptyFort = () => ({
-  id: Date.now(),
+  id: crypto.randomUUID(),
   hora: getNow(),
   paraQue: "",
   siloOrigen: "",
@@ -1481,7 +1491,7 @@ const FortForm = ({ initial, onSave, onClose, onDelete }) => {
   const updAdicion = (id, key, val) =>
     setF(p => ({ ...p, adiciones: p.adiciones.map(a => a.id === id ? { ...a, [key]: val } : a) }));
   const addAdicion = () =>
-    setF(p => ({ ...p, adiciones: [...p.adiciones, { id: Date.now(), producto: "", cantidad: "", unidad: "kg" }] }));
+    setF(p => ({ ...p, adiciones: [...p.adiciones, { id: crypto.randomUUID(), producto: "", cantidad: "", unidad: "kg" }] }));
   const delAdicion = id =>
     setF(p => ({ ...p, adiciones: p.adiciones.filter(a => a.id !== id) }));
 
@@ -2096,7 +2106,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
         const ing = await load(day, "ingresos", []);
         ing.forEach(i => {
           const prefix = multiDay ? `${fmtDate(day)},` : "";
-          csv += `${prefix}${i.hora || ""},${i.tambo || ""},${i.litrosFca || ""},${i.litrosTbo || ""},${diffVal(i.litrosFca, i.litrosTbo)},${i.destino || ""},${i.phFca || ""},${i.acidezFca || ""},${i.gbFca || ""},${i.gbTbo || ""},${diffVal(i.gbFca, i.gbTbo)},${i.sngFca || ""},${i.sngTbo || ""},${diffVal(i.sngFca, i.sngTbo)},${i.densFca || ""},${i.densTbo || ""},${diffVal(i.densFca, i.densTbo)},${i.aguadoFca || ""},${i.aguadoTbo || ""},${diffVal(i.aguadoFca, i.aguadoTbo)},${i.protFca || ""},${i.protTbo || ""},${diffVal(i.protFca, i.protTbo)},${i.alcFca || ""},${i.alcTbo || ""},${diffVal(i.alcFca, i.alcTbo)},${i.responsable || ""}\n`;
+          csv += `${prefix}${i.hora || ""},${escapeCsv(i.tambo || "")},${i.litrosFca || ""},${i.litrosTbo || ""},${diffVal(i.litrosFca, i.litrosTbo)},${escapeCsv(i.destino || "")},${i.phFca || ""},${i.acidezFca || ""},${i.gbFca || ""},${i.gbTbo || ""},${diffVal(i.gbFca, i.gbTbo)},${i.sngFca || ""},${i.sngTbo || ""},${diffVal(i.sngFca, i.sngTbo)},${i.densFca || ""},${i.densTbo || ""},${diffVal(i.densFca, i.densTbo)},${i.aguadoFca || ""},${i.aguadoTbo || ""},${diffVal(i.aguadoFca, i.aguadoTbo)},${i.protFca || ""},${i.protTbo || ""},${diffVal(i.protFca, i.protTbo)},${i.alcFca || ""},${i.alcTbo || ""},${diffVal(i.alcFca, i.alcTbo)},${escapeCsv(i.responsable || "")}\n`;
         });
       }
       csv += "\nCARGAS\n";
@@ -2105,7 +2115,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
         const cargas = await load(day, "carga", []);
         cargas.forEach(c => {
           const prefix = multiDay ? `${fmtDate(day)},` : "";
-          csv += `${prefix}${c.hora || ""},${c.label || ""},${c.destino || ""},${c.transportista || ""},${c.siloProveniente || ""},${c.litros || ""},${c.pH || ""},${c.gC || ""},${c.responsable || ""}\n`;
+          csv += `${prefix}${c.hora || ""},${escapeCsv(c.label || "")},${escapeCsv(c.destino || "")},${escapeCsv(c.transportista || "")},${escapeCsv(c.siloProveniente || "")},${c.litros || ""},${c.pH || ""},${c.gC || ""},${escapeCsv(c.responsable || "")}\n`;
         });
       }
       csv += "\nMOVIMIENTOS\n";
@@ -2114,7 +2124,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
         const movData = await load(day, "movimientos", { movs: [] });
         (movData.movs || []).forEach(m => {
           const prefix = multiDay ? `${fmtDate(day)},` : "";
-          csv += `${prefix}${m.hora || ""},${m.desde || ""},${m.hasta || ""},${m.litros || ""},${m.motivo || ""},${m.resp || ""}\n`;
+          csv += `${prefix}${m.hora || ""},${escapeCsv(m.desde || "")},${escapeCsv(m.hasta || "")},${m.litros || ""},${escapeCsv(m.motivo || "")},${escapeCsv(m.resp || "")}\n`;
         });
       }
       const fname = multiDay ? `yatasto_${exportFrom}_${exportTo}.csv` : `yatasto_${exportFrom}.csv`;
@@ -2534,11 +2544,11 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
           H += `<tr>
             ${xlsMulti ? `<td class="td-muted">${fmtDate(i._day)}</td>` : ""}
             <td class="td-mono">${i.hora || "—"}</td>
-            <td class="td-bold">${i.tambo || "—"}</td>
+            <td class="td-bold">${escapeHtml(i.tambo) || "—"}</td>
             <td class="r td-bold">${lFca ? fmtN(lFca) : "—"}${difHTML}</td>
             <td class="r td-muted">${lTbo ? fmtN(lTbo) : "—"}</td>
             <td class="r">${xlsDiffVal(i.litrosFca, i.litrosTbo)}</td>
-            <td>${i.destino || "—"}</td>
+            <td>${escapeHtml(i.destino) || "—"}</td>
             <td class="r">${i.phFca || "—"}</td>
             <td class="r">${i.acidezFca || "—"}</td>
             <td class="r">${i.gbFca || "—"}</td>
@@ -2556,7 +2566,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
             <td class="r">${i.protFca || "—"}</td>
             <td class="r">${i.protTbo || "—"}</td>
             <td class="r">${xlsDiffVal(i.protFca, i.protTbo)}</td>
-            <td class="td-muted">${i.responsable || "—"}</td>
+            <td class="td-muted">${escapeHtml(i.responsable) || "—"}</td>
           </tr>`;
         });
         const tFca = xlsIngRows.reduce((s, i) => s + (parseFloat(i.litrosFca) || 0), 0);
@@ -2595,14 +2605,14 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
           H += `<tr>
             ${xlsMulti ? `<td class="td-muted">${fmtDate(c._day)}</td>` : ""}
             <td class="td-mono">${c.hora || "—"}</td>
-            <td class="td-bold">${c.label || "—"}</td>
-            <td>${c.destino || "—"}</td>
-            <td>${c.transportista || "—"}</td>
-            <td>${c.siloProveniente || "—"}</td>
+            <td class="td-bold">${escapeHtml(c.label) || "—"}</td>
+            <td>${escapeHtml(c.destino) || "—"}</td>
+            <td>${escapeHtml(c.transportista) || "—"}</td>
+            <td>${escapeHtml(c.siloProveniente) || "—"}</td>
             <td class="r td-bold">${c.litros ? fmtN(parseFloat(c.litros)) : "—"}</td>
             <td class="r">${c.pH || "—"}</td>
             <td class="r">${c.gC || "—"}</td>
-            <td class="td-muted">${c.responsable || "—"}</td>
+            <td class="td-muted">${escapeHtml(c.responsable) || "—"}</td>
           </tr>`;
         });
         const tC = xlsCargRows.reduce((s, c) => s + (parseFloat(c.litros) || 0), 0);
@@ -2634,10 +2644,10 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
           H += `<tr>
             ${xlsMulti ? `<td class="td-muted">${fmtDate(m._day)}</td>` : ""}
             <td class="td-mono">${m.hora || "—"}</td>
-            <td>${m.desde || "—"}</td><td>${m.hasta || "—"}</td>
+            <td>${escapeHtml(m.desde) || "—"}</td><td>${escapeHtml(m.hasta) || "—"}</td>
             <td class="r td-bold">${m.litros ? fmtN(parseFloat(m.litros)) : "—"}</td>
-            <td>${m.motivo || "—"}</td>
-            <td class="td-muted">${m.resp || "—"}</td>
+            <td>${escapeHtml(m.motivo) || "—"}</td>
+            <td class="td-muted">${escapeHtml(m.resp) || "—"}</td>
           </tr>`;
         });
         H += `</tbody></table></div>`;
@@ -2662,16 +2672,16 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
             </tr></thead><tbody>
         `;
         xlsFortRows.forEach(f => {
-          const adic = (f.adiciones || []).map(a => `${a.producto} ${a.cantidad}${a.unidad}`).join(" · ") || "—";
+          const adic = escapeHtml((f.adiciones || []).map(a => `${a.producto} ${a.cantidad}${a.unidad}`).join(" · ") || "—");
           H += `<tr>
             ${xlsMulti ? `<td class="td-muted">${fmtDate(f._day)}</td>` : ""}
             <td class="td-mono">${f.hora || "—"}</td>
-            <td class="td-bold">${f.lote || "—"}</td>
-            <td>${f.producto || "—"}</td>
+            <td class="td-bold">${escapeHtml(f.lote) || "—"}</td>
+            <td>${escapeHtml(f.producto) || "—"}</td>
             <td class="r">${f.litros ? fmtN(parseFloat(f.litros)) : "—"}</td>
-            <td>${f.tanque || "—"}</td>
+            <td>${escapeHtml(f.tanque) || "—"}</td>
             <td style="font-size:10px;color:#64748b">${adic}</td>
-            <td class="td-muted">${f.responsable || "—"}</td>
+            <td class="td-muted">${escapeHtml(f.responsable) || "—"}</td>
           </tr>`;
         });
         H += `</tbody></table></div>`;
@@ -3128,17 +3138,17 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
           const difH = difL > 150 ? ` <span class="badge warn">Δ${fmtN(Math.round(difL))}L</span>` : "";
           H += `<tr>
             <td class="mn">${i.hora || "—"}</td>
-            <td class="mb">${i.tambo || "—"}</td>
+            <td class="mb">${escapeHtml(i.tambo) || "—"}</td>
             <td class="r mb">${lFca ? fmtN(lFca) : "—"}${difH}</td>
             <td class="r mu">${lTbo ? fmtN(lTbo) : "—"}</td>
-            <td>${i.destino || "—"}</td>
+            <td>${escapeHtml(i.destino) || "—"}</td>
             <td class="r">${i.phFca || "—"}</td>
             <td class="r">${i.acidezFca || "—"}</td>
             <td class="r">${i.gbFca || "—"}</td>
             <td class="r">${i.sngFca || "—"}</td>
             <td class="r">${i.densFca || "—"}</td>
             <td class="r">${aguH}</td>
-            <td class="mu">${i.responsable || "—"}</td>
+            <td class="mu">${escapeHtml(i.responsable) || "—"}</td>
           </tr>`;
         });
         const tFca = ing.reduce((s, i) => s + (parseFloat(i.litrosFca) || 0), 0);
@@ -3174,14 +3184,14 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
         cargas.forEach(c => {
           H += `<tr>
             <td class="mn">${c.hora || "—"}</td>
-            <td class="mb">${c.label || "—"}</td>
-            <td>${c.destino || "—"}</td>
-            <td>${c.transportista || "—"}</td>
-            <td>${c.siloProveniente || "—"}</td>
+            <td class="mb">${escapeHtml(c.label) || "—"}</td>
+            <td>${escapeHtml(c.destino) || "—"}</td>
+            <td>${escapeHtml(c.transportista) || "—"}</td>
+            <td>${escapeHtml(c.siloProveniente) || "—"}</td>
             <td class="r mb">${c.litros ? fmtN(parseFloat(c.litros)) : "—"}</td>
             <td class="r">${c.pH || "—"}</td>
             <td class="r">${c.gC || "—"}</td>
-            <td class="mu">${c.responsable || "—"}</td>
+            <td class="mu">${escapeHtml(c.responsable) || "—"}</td>
           </tr>`;
         });
         const tC = cargas.reduce((s, c) => s + (parseFloat(c.litros) || 0), 0);
@@ -3210,10 +3220,10 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
         movs.forEach(m => {
           H += `<tr>
             <td class="mn">${m.hora || "—"}</td>
-            <td>${m.desde || "—"}</td><td>${m.hasta || "—"}</td>
+            <td>${escapeHtml(m.desde) || "—"}</td><td>${escapeHtml(m.hasta) || "—"}</td>
             <td class="r mb">${m.litros ? fmtN(parseFloat(m.litros)) : "—"}</td>
-            <td>${m.motivo || "—"}</td>
-            <td class="mu">${m.resp || "—"}</td>
+            <td>${escapeHtml(m.motivo) || "—"}</td>
+            <td class="mu">${escapeHtml(m.resp) || "—"}</td>
           </tr>`;
         });
         H += `</tbody></table></div>`;
@@ -3235,15 +3245,15 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
             </tr></thead><tbody>
         `;
         forts.forEach(f => {
-          const adic = (f.adiciones || []).map(a => `${a.producto} ${a.cantidad}${a.unidad}`).join(" · ") || "—";
+          const adic = escapeHtml((f.adiciones || []).map(a => `${a.producto} ${a.cantidad}${a.unidad}`).join(" · ") || "—");
           H += `<tr>
             <td class="mn">${f.hora || "—"}</td>
-            <td class="mb">${f.lote || "—"}</td>
-            <td>${f.producto || "—"}</td>
+            <td class="mb">${escapeHtml(f.lote) || "—"}</td>
+            <td>${escapeHtml(f.producto) || "—"}</td>
             <td class="r">${f.litros ? fmtN(parseFloat(f.litros)) : "—"}</td>
-            <td>${f.tanque || "—"}</td>
+            <td>${escapeHtml(f.tanque) || "—"}</td>
             <td style="font-size:10px;color:#64748b">${adic}</td>
-            <td class="mu">${f.responsable || "—"}</td>
+            <td class="mu">${escapeHtml(f.responsable) || "—"}</td>
           </tr>`;
         });
         H += `</tbody></table></div>`;
@@ -4148,6 +4158,7 @@ export default function App() {
   const [loginUser, setLoginUser] = useState("");
   const [loginPass, setLoginPass] = useState("");
   const [loginError, setLoginError] = useState("");
+  const [loginLoading, setLoginLoading] = useState(false);
   const [syncKey, setSyncKey] = useState(0); // incrementa cada 10s → refresca datos en todas las secciones
   const [storageOk, setStorageOk] = useState(true);
   const isToday = date === getToday();
@@ -4163,6 +4174,28 @@ export default function App() {
       .then(() => db.get(HC))
       .then(r => setStorageOk(!!r))
       .catch(() => setStorageOk(false));
+  }, []);
+
+  // Sincronizar perfil con sesión de Supabase Auth
+  useEffect(() => {
+    let active = true;
+    db.auth.getSession().then(session => {
+      if (!active) return;
+      const rol = session?.user?.user_metadata?.rol;
+      if (rol && PERFILES[rol]) setPerfil(rol);
+    }).catch(() => {});
+
+    const unsubscribe = db.auth.onAuthStateChange((_event, session) => {
+      const rol = session?.user?.user_metadata?.rol;
+      if (rol && PERFILES[rol]) {
+        setPerfil(rol);
+      } else {
+        setPerfil(null);
+        setSection(s => s === "supervisor" ? "ingresos" : s);
+      }
+    });
+
+    return () => { active = false; unsubscribe(); };
   }, []);
 
   // Carry-over automático: al abrir la app traspasa el saldo del día anterior
@@ -4215,23 +4248,31 @@ export default function App() {
     setInitModal(false);
   };
 
-  const handleLogin = () => {
-    const key = Object.keys(PERFILES).find(k =>
-      PERFILES[k].usuario === loginUser && PERFILES[k].clave === loginPass
+  const handleLogin = async () => {
+    const rolKey = Object.keys(PERFILES).find(k =>
+      PERFILES[k].usuario.toLowerCase() === loginUser.trim().toLowerCase()
     );
-    if (key) {
-      setPerfil(key);
-      setLoginUser(""); setLoginPass(""); setLoginError("");
+    if (!rolKey) {
+      setLoginError("Usuario incorrecto.");
+      return;
+    }
+    setLoginLoading(true);
+    setLoginError("");
+    try {
+      await db.auth.signIn(PERFILES[rolKey].email, loginPass);
+      setLoginUser(""); setLoginPass("");
       setPerfilModal(false);
-    } else {
+    } catch {
       setLoginError("Usuario o contraseña incorrectos.");
+    } finally {
+      setLoginLoading(false);
     }
   };
 
-  const handleLogout = () => {
-    setPerfil(null);
-    if (section === "supervisor") setSection("ingresos");
+  const handleLogout = async () => {
     setPerfilModal(false);
+    if (section === "supervisor") setSection("ingresos");
+    try { await db.auth.signOut(); } catch {}
   };
 
   const closePerfilModal = () => {
@@ -4397,8 +4438,10 @@ export default function App() {
                 </div>
               )}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                <button type="button" style={btnSecondary} onClick={closePerfilModal}>Cancelar</button>
-                <button type="button" style={btnPrimary} onClick={handleLogin}>Ingresar</button>
+                <button type="button" style={btnSecondary} onClick={closePerfilModal} disabled={loginLoading}>Cancelar</button>
+                <button type="button" style={{ ...btnPrimary, opacity: loginLoading ? 0.7 : 1 }} onClick={handleLogin} disabled={loginLoading}>
+                  {loginLoading ? "Ingresando..." : "Ingresar"}
+                </button>
               </div>
             </div>
           )}
