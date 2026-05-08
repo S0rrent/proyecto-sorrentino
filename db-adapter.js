@@ -11,8 +11,12 @@ import { createClient } from "@supabase/supabase-js";
 //   db.list(prefix)     → Promise<Array<{ key, value }>>
 // ─────────────────────────────────────────────────────────────────────────────
 
-const SUPABASE_URL      = "https://edhcphmzvzqsvkfnachx.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVkaGNwaG16dnpxc3ZrZm5hY2h4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc1MDMwOTMsImV4cCI6MjA5MzA3OTA5M30.a6cXNXh-rxg86XnW-6PmKihDNujWSLsUF5Wt6Z4X_jw";
+const SUPABASE_URL      = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+  console.error("[db-adapter] Faltan variables de entorno VITE_SUPABASE_URL y/o VITE_SUPABASE_ANON_KEY. Crear un archivo .env basado en .env.example.");
+}
 
 const _sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
