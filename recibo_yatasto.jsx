@@ -155,7 +155,15 @@ async function load(date, sec, def) {
   catch { return def; }
 }
 async function save(date, sec, data) {
+  if (_closedDates.has(date)) { _onSaveBlocked?.(); return; }
   try { await db.set(sKey(date, sec), JSON.stringify(data)); } catch (e) { console.error(e); }
+}
+
+// Guarda de cierre de día — sincronizada desde App vía _markDayClosed()
+const _closedDates = new Set();
+let _onSaveBlocked = null;
+function _markDayClosed(date, closed) {
+  if (closed) _closedDates.add(date); else _closedDates.delete(date);
 }
 async function loadCfg() {
   const def = { tambosCustom: [], camionesCustom: [], transportistas: [], cargaProductosCustom: [] };
@@ -674,7 +682,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
   );
 };
 
-const SecIngresos = ({ date, syncKey = 0 }) => {
+const SecIngresos = ({ date, syncKey = 0, dayClosed = false }) => {
   const [list, setList] = useState([]);
   const [modal, setModal] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -791,7 +799,7 @@ const SecIngresos = ({ date, syncKey = 0 }) => {
           </div>
         ));
       })()}
-      <FAB onClick={() => setModal("new")} />
+      {!dayClosed && <FAB onClick={() => setModal("new")} />}
       {modal && (
         <Modal title={modal === "new" ? "Nuevo Ingreso" : "Editar Ingreso"} onClose={() => setModal(null)}>
           <IngresoForm
@@ -1106,7 +1114,7 @@ const CargaForm = ({ initial, onSave, onClose, onDelete }) => {
     </div>
   );
 };
-const SecCarga = ({ date, syncKey = 0 }) => {
+const SecCarga = ({ date, syncKey = 0, dayClosed = false }) => {
   const [list, setList] = useState([]);
   const [modal, setModal] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -1145,7 +1153,7 @@ const SecCarga = ({ date, syncKey = 0 }) => {
           </div>
         </div>
       ))}
-      <FAB onClick={() => setModal("new")} />
+      {!dayClosed && <FAB onClick={() => setModal("new")} />}
       {modal && (
         <Modal title={modal === "new" ? "Nueva Carga" : "Editar Carga"} onClose={() => setModal(null)}>
           <CargaForm initial={modal === "new" ? null : modal} onSave={onSave} onClose={() => setModal(null)} onDelete={modal !== "new" ? () => onDelete(modal.id) : null} />
@@ -1216,7 +1224,7 @@ const CtrlForm = ({ initial, onSave, onClose, onDelete }) => {
   );
 };
 
-const SecMovimientos = ({ date, syncKey = 0 }) => {
+const SecMovimientos = ({ date, syncKey = 0, dayClosed = false }) => {
   const [data, setData] = useState({ movs: [], ctrls: [] });
   const [modal, setModal] = useState(null);
   const [tab, setTab] = useState("movs");
@@ -1271,7 +1279,7 @@ const SecMovimientos = ({ date, syncKey = 0 }) => {
               {m.resp && <div style={{ fontSize: 12, color: C.muted, marginTop: 1 }}>{m.resp}</div>}
             </div>
           ))}
-          <FAB onClick={() => setModal({ type: "mov", item: null })} />
+          {!dayClosed && <FAB onClick={() => setModal({ type: "mov", item: null })} />}
         </>
       )}
       {tab === "ctrls" && (
@@ -1291,7 +1299,7 @@ const SecMovimientos = ({ date, syncKey = 0 }) => {
               </div>
             </div>
           ))}
-          <FAB onClick={() => setModal({ type: "ctrl", item: null })} />
+          {!dayClosed && <FAB onClick={() => setModal({ type: "ctrl", item: null })} />}
         </>
       )}
       {modal && (
@@ -1632,7 +1640,7 @@ const FortForm = ({ initial, onSave, onClose, onDelete }) => {
   );
 };
 
-const SecFortificados = ({ date, syncKey = 0 }) => {
+const SecFortificados = ({ date, syncKey = 0, dayClosed = false }) => {
   const [list, setList] = useState([]);
   const [modal, setModal] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -1709,7 +1717,7 @@ const SecFortificados = ({ date, syncKey = 0 }) => {
           {f.responsable && <div style={{ fontSize: 12, color: C.muted, marginTop: 4 }}>{f.responsable}</div>}
         </div>
       ))}
-      <FAB onClick={() => setModal("new")} />
+      {!dayClosed && <FAB onClick={() => setModal("new")} />}
       {modal && (
         <Modal title={modal === "new" ? "Nuevo Lote Fortificado" : "Editar Lote Fortificado"} onClose={() => setModal(null)}>
           <FortForm
@@ -4218,6 +4226,7 @@ export default function App() {
   const [queueRetrying, setQueueRetrying] = useState(false);
   const [dayClosed, setDayClosed] = useState(false);
   const [dayClosedBy, setDayClosedBy] = useState(null);
+  const [dayClosedBlocked, setDayClosedBlocked] = useState(false);
   const isToday = date === getToday();
 
   const navItems = perfil
@@ -4242,10 +4251,21 @@ export default function App() {
   // Cargar estado de cierre del día al cambiar fecha o en cada sync
   useEffect(() => {
     loadEstado(date).then(est => {
-      setDayClosed(est?.closed || false);
+      const closed = est?.closed || false;
+      setDayClosed(closed);
       setDayClosedBy(est?.closedBy || null);
+      _markDayClosed(date, closed);
     });
   }, [date, syncKey]);
+
+  // Registrar callback para cuando save() intenta escribir en día cerrado
+  useEffect(() => {
+    _onSaveBlocked = () => {
+      setDayClosedBlocked(true);
+      setTimeout(() => setDayClosedBlocked(false), 3000);
+    };
+    return () => { _onSaveBlocked = null; };
+  }, []);
 
   // Sincronizar perfil con sesión de Supabase Auth
   useEffect(() => {
@@ -4423,6 +4443,21 @@ export default function App() {
                 {isToday ? "Hoy" : fmtDate(date)}
               </span>
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Banner día cerrado — intento de guardado bloqueado */}
+      {dayClosedBlocked && (
+        <div style={{
+          background: `${C.danger}18`, borderBottom: `2px solid ${C.danger}`,
+          padding: "8px 16px", display: "flex", alignItems: "center", gap: 10,
+          position: "sticky", top: 0, zIndex: 301,
+          marginLeft: isDesktop ? SIDEBAR_W : 0,
+        }}>
+          <IcoCerrado size={16} strokeWidth={SW} color={C.danger} />
+          <div style={{ fontSize: 12, fontWeight: 700, color: C.danger }}>
+            Día cerrado — no se guardaron cambios
           </div>
         </div>
       )}
@@ -4686,12 +4721,12 @@ export default function App() {
           </div>
         )}
         <div style={{ maxWidth: isDesktop ? 960 : "100%", margin: isDesktop ? "0 auto" : undefined }}>
-        {section === "ingresos" && <SecIngresos date={date} syncKey={syncKey} />}
+        {section === "ingresos" && <SecIngresos date={date} syncKey={syncKey} dayClosed={dayClosed} />}
         {section === "cip" && <SecCIP date={date} syncKey={syncKey} />}
-        {section === "carga" && <SecCarga date={date} syncKey={syncKey} />}
-        {section === "movimientos" && <SecMovimientos date={date} syncKey={syncKey} />}
+        {section === "carga" && <SecCarga date={date} syncKey={syncKey} dayClosed={dayClosed} />}
+        {section === "movimientos" && <SecMovimientos date={date} syncKey={syncKey} dayClosed={dayClosed} />}
         {section === "stock" && <SecStock date={date} syncKey={syncKey} />}
-        {section === "fortificados" && <SecFortificados date={date} syncKey={syncKey} />}
+        {section === "fortificados" && <SecFortificados date={date} syncKey={syncKey} dayClosed={dayClosed} />}
         {section === "supervisor" && perfil && <SecDashboard date={date} perfil={perfil} perfilLabel={PERFILES[perfil]?.label || ""} syncKey={syncKey} />}
         </div>
       </div>
