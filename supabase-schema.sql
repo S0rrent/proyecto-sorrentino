@@ -203,13 +203,14 @@ CREATE TABLE IF NOT EXISTS config (
 -- Habilitar RLS en yatasto_storage (tabla principal)
 ALTER TABLE yatasto_storage ENABLE ROW LEVEL SECURITY;
 
--- Política: acceso total con anon key (ajustar para producción)
+-- Política: solo usuarios autenticados con Supabase Auth pueden leer/escribir.
 -- DROP + CREATE hace el script re-ejecutable (evita error 42710 "policy already exists")
-DROP POLICY IF EXISTS "acceso_total_anon" ON yatasto_storage;
-CREATE POLICY "acceso_total_anon" ON yatasto_storage
+DROP POLICY IF EXISTS "acceso_total_anon"   ON yatasto_storage;
+DROP POLICY IF EXISTS "solo_usuarios_auth"  ON yatasto_storage;
+CREATE POLICY "solo_usuarios_auth" ON yatasto_storage
   FOR ALL
-  USING (true)
-  WITH CHECK (true);
+  USING (auth.uid() IS NOT NULL)
+  WITH CHECK (auth.uid() IS NOT NULL);
 
 -- Habilitar RLS en tablas relacionales
 ALTER TABLE ingresos     ENABLE ROW LEVEL SECURITY;
@@ -219,19 +220,25 @@ ALTER TABLE stock_turnos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE cip_registros ENABLE ROW LEVEL SECURITY;
 ALTER TABLE fortificados ENABLE ROW LEVEL SECURITY;
 
--- Políticas permisivas para anon (red local de planta)
+-- Políticas: solo usuarios autenticados
 DROP POLICY IF EXISTS "acceso_anon_ingresos"    ON ingresos;
 DROP POLICY IF EXISTS "acceso_anon_cargas"      ON cargas;
 DROP POLICY IF EXISTS "acceso_anon_movimientos" ON movimientos;
 DROP POLICY IF EXISTS "acceso_anon_stock"       ON stock_turnos;
 DROP POLICY IF EXISTS "acceso_anon_cip"         ON cip_registros;
 DROP POLICY IF EXISTS "acceso_anon_fort"        ON fortificados;
-CREATE POLICY "acceso_anon_ingresos"    ON ingresos    FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "acceso_anon_cargas"      ON cargas      FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "acceso_anon_movimientos" ON movimientos FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "acceso_anon_stock"       ON stock_turnos FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "acceso_anon_cip"         ON cip_registros FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "acceso_anon_fort"        ON fortificados FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "auth_ingresos"    ON ingresos;
+DROP POLICY IF EXISTS "auth_cargas"      ON cargas;
+DROP POLICY IF EXISTS "auth_movimientos" ON movimientos;
+DROP POLICY IF EXISTS "auth_stock"       ON stock_turnos;
+DROP POLICY IF EXISTS "auth_cip"         ON cip_registros;
+DROP POLICY IF EXISTS "auth_fort"        ON fortificados;
+CREATE POLICY "auth_ingresos"    ON ingresos    FOR ALL USING (auth.uid() IS NOT NULL) WITH CHECK (auth.uid() IS NOT NULL);
+CREATE POLICY "auth_cargas"      ON cargas      FOR ALL USING (auth.uid() IS NOT NULL) WITH CHECK (auth.uid() IS NOT NULL);
+CREATE POLICY "auth_movimientos" ON movimientos FOR ALL USING (auth.uid() IS NOT NULL) WITH CHECK (auth.uid() IS NOT NULL);
+CREATE POLICY "auth_stock"       ON stock_turnos FOR ALL USING (auth.uid() IS NOT NULL) WITH CHECK (auth.uid() IS NOT NULL);
+CREATE POLICY "auth_cip"         ON cip_registros FOR ALL USING (auth.uid() IS NOT NULL) WITH CHECK (auth.uid() IS NOT NULL);
+CREATE POLICY "auth_fort"        ON fortificados FOR ALL USING (auth.uid() IS NOT NULL) WITH CHECK (auth.uid() IS NOT NULL);
 
 -- =============================================================================
 --  VISTAS ÚTILES PARA REPORTES
@@ -431,15 +438,37 @@ CREATE TRIGGER trig_config_updated
 --    - Backups automáticos diarios
 --
 --  ─────────────────────────────────────────────────────────────────────────
---  SEGURIDAD EN PRODUCCIÓN
+--  CREAR USUARIOS EN SUPABASE AUTH (obligatorio para que el login funcione)
 --  ─────────────────────────────────────────────────────────────────────────
---  Las políticas RLS en este schema son PERMISIVAS (acceso total con anon key).
---  Esto está bien para una red interna de planta.
+--  Las políticas RLS ahora requieren auth.uid() — solo usuarios autenticados
+--  con Supabase Auth pueden leer y escribir datos.
 --
---  Si la app se expone a internet, considerar:
---    1. Usar Supabase Auth para autenticar usuarios reales
---    2. Cambiar las políticas RLS para requerir auth.uid()
---    3. Rotar la anon key periódicamente
---    4. Nunca compartir la "service_role" key (acceso total sin RLS)
+--  Ejecutar este SQL en el SQL Editor de Supabase para crear los dos usuarios:
+--
+--    SELECT supabase_auth.create_user(
+--      email      := 'supervisor@yatasto.internal',
+--      password   := '<contraseña-segura-supervisor>',
+--      user_metadata := '{"rol": "supervisor"}'::jsonb
+--    );
+--
+--    SELECT supabase_auth.create_user(
+--      email      := 'jefe@yatasto.internal',
+--      password   := '<contraseña-segura-jefe>',
+--      user_metadata := '{"rol": "jefe"}'::jsonb
+--    );
+--
+--  NOTA: Elegir contraseñas fuertes (mínimo 12 caracteres, mayúsculas, números,
+--  símbolos). Estas contraseñas reemplazan las que estaban hardcodeadas en el
+--  código fuente — ahora se validan server-side vía Supabase Auth.
+--
+--  NOTA: Los emails son internos y no se usan para notificaciones. El usuario
+--  de la app sigue ingresando solo "Supervisor" o "Jefe" como nombre de usuario.
+--
+--  SEGURIDAD
+--  ─────────────────────────────────────────────────────────────────────────
+--  - Las políticas RLS requieren auth.uid() IS NOT NULL — ningún acceso sin sesión.
+--  - La anon key sola ya no alcanza para leer ni escribir datos.
+--  - Nunca compartir la "service_role" key (acceso total sin RLS).
+--  - Rotar la anon key periódicamente desde Settings → API.
 --
 -- =============================================================================

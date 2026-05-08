@@ -54,6 +54,27 @@ export const db = {
     if (error) throw error;
     return data || [];
   },
+
+  auth: {
+    async signIn(email, password) {
+      const { data, error } = await _sb.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+      return data;
+    },
+    async signOut() {
+      const { error } = await _sb.auth.signOut();
+      if (error) throw error;
+    },
+    async getSession() {
+      const { data, error } = await _sb.auth.getSession();
+      if (error) throw error;
+      return data.session;
+    },
+    onAuthStateChange(callback) {
+      const { data: { subscription } } = _sb.auth.onAuthStateChange(callback);
+      return () => subscription.unsubscribe();
+    },
+  },
 };
 
 // ── Migración localStorage → Supabase ────────────────────────────────────────

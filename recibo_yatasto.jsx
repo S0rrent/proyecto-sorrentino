@@ -46,8 +46,8 @@ const TAMBOS_BASE = [
 const CAMIONES_BASE = ["GRISARO", "CUARELA", "BARTOLINI", "LLANO 1", "LLANO 2", "GALVAN", "ANGRIGIANI"];
 const FORT_DESTINOS = ["Tetra", "Ultra", "Yogur", "Postre", "Acción Correctiva"];
 const PERFILES = {
-  supervisor: { usuario: "Supervisor", clave: "Yatasto2026$", label: "Supervisor", Icon: IcoSupervisor },
-  jefe: { usuario: "Jefe", clave: "BuenaLeche123$", label: "Jefe de Planta", Icon: IcoJefe },
+  supervisor: { usuario: "Supervisor", email: "supervisor@yatasto.internal", label: "Supervisor", Icon: IcoSupervisor },
+  jefe:       { usuario: "Jefe",       email: "jefe@yatasto.internal",       label: "Jefe de Planta", Icon: IcoJefe },
 };
 const SILOS = ["100 NUEVO", "100 VIEJO", "80", "60", "42", "40F", "20", "15"];
 const SILOS_TODOS = [...SILOS, "TQ1", "TQ2", "TQ3", "TQ6", "TQ7", "TQ8", "TQ9", "POSTRE", "TINA", "DULCE"];
@@ -4158,6 +4158,7 @@ export default function App() {
   const [loginUser, setLoginUser] = useState("");
   const [loginPass, setLoginPass] = useState("");
   const [loginError, setLoginError] = useState("");
+  const [loginLoading, setLoginLoading] = useState(false);
   const [syncKey, setSyncKey] = useState(0); // incrementa cada 10s → refresca datos en todas las secciones
   const [storageOk, setStorageOk] = useState(true);
   const isToday = date === getToday();
@@ -4173,6 +4174,28 @@ export default function App() {
       .then(() => db.get(HC))
       .then(r => setStorageOk(!!r))
       .catch(() => setStorageOk(false));
+  }, []);
+
+  // Sincronizar perfil con sesión de Supabase Auth
+  useEffect(() => {
+    let active = true;
+    db.auth.getSession().then(session => {
+      if (!active) return;
+      const rol = session?.user?.user_metadata?.rol;
+      if (rol && PERFILES[rol]) setPerfil(rol);
+    }).catch(() => {});
+
+    const unsubscribe = db.auth.onAuthStateChange((_event, session) => {
+      const rol = session?.user?.user_metadata?.rol;
+      if (rol && PERFILES[rol]) {
+        setPerfil(rol);
+      } else {
+        setPerfil(null);
+        setSection(s => s === "supervisor" ? "ingresos" : s);
+      }
+    });
+
+    return () => { active = false; unsubscribe(); };
   }, []);
 
   // Carry-over automático: al abrir la app traspasa el saldo del día anterior
@@ -4225,23 +4248,31 @@ export default function App() {
     setInitModal(false);
   };
 
-  const handleLogin = () => {
-    const key = Object.keys(PERFILES).find(k =>
-      PERFILES[k].usuario === loginUser && PERFILES[k].clave === loginPass
+  const handleLogin = async () => {
+    const rolKey = Object.keys(PERFILES).find(k =>
+      PERFILES[k].usuario.toLowerCase() === loginUser.trim().toLowerCase()
     );
-    if (key) {
-      setPerfil(key);
-      setLoginUser(""); setLoginPass(""); setLoginError("");
+    if (!rolKey) {
+      setLoginError("Usuario incorrecto.");
+      return;
+    }
+    setLoginLoading(true);
+    setLoginError("");
+    try {
+      await db.auth.signIn(PERFILES[rolKey].email, loginPass);
+      setLoginUser(""); setLoginPass("");
       setPerfilModal(false);
-    } else {
+    } catch {
       setLoginError("Usuario o contraseña incorrectos.");
+    } finally {
+      setLoginLoading(false);
     }
   };
 
-  const handleLogout = () => {
-    setPerfil(null);
-    if (section === "supervisor") setSection("ingresos");
+  const handleLogout = async () => {
     setPerfilModal(false);
+    if (section === "supervisor") setSection("ingresos");
+    try { await db.auth.signOut(); } catch {}
   };
 
   const closePerfilModal = () => {
@@ -4407,8 +4438,10 @@ export default function App() {
                 </div>
               )}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                <button type="button" style={btnSecondary} onClick={closePerfilModal}>Cancelar</button>
-                <button type="button" style={btnPrimary} onClick={handleLogin}>Ingresar</button>
+                <button type="button" style={btnSecondary} onClick={closePerfilModal} disabled={loginLoading}>Cancelar</button>
+                <button type="button" style={{ ...btnPrimary, opacity: loginLoading ? 0.7 : 1 }} onClick={handleLogin} disabled={loginLoading}>
+                  {loginLoading ? "Ingresando..." : "Ingresar"}
+                </button>
               </div>
             </div>
           )}
