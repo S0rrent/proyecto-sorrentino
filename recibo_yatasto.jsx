@@ -500,6 +500,44 @@ const Modal = ({ title, onClose, children, zIndex = 100 }) => {
   );
 };
 
+// Hook imperativo de confirmación — reemplazo de window.confirm()
+// Uso: const [confirmUI, askConfirm] = useConfirm();
+//      if (await askConfirm({ title: "...", message: "...", danger: true })) { ... }
+function useConfirm() {
+  const [state, setState] = useState(null); // { title, message, danger, confirmLabel, resolve }
+  const ask = ({ title = "Confirmar", message, danger = false, confirmLabel = "Confirmar" }) =>
+    new Promise(resolve => setState({ title, message, danger, confirmLabel, resolve }));
+  const ui = state ? (
+    <Modal title={state.title} onClose={() => { state.resolve(false); setState(null); }} zIndex={350}>
+      <div style={{ fontSize: 14, color: C.text, lineHeight: 1.5, marginBottom: 20, whiteSpace: "pre-wrap" }}>
+        {state.message}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        <button type="button" style={btnSecondary} onClick={() => { state.resolve(false); setState(null); }}>Cancelar</button>
+        <button type="button" autoFocus
+          style={{ ...btnPrimary, ...(state.danger ? { background: C.danger, color: "#fff" } : {}) }}
+          onClick={() => { state.resolve(true); setState(null); }}>
+          {state.confirmLabel}
+        </button>
+      </div>
+    </Modal>
+  ) : null;
+  return [ui, ask];
+}
+
+// Calcula el balance actual de un silo y verifica si una operación lo dejaría negativo.
+// excludeFn permite restar la contribución del item que se está editando para no contarlo dos veces.
+async function checkSiloBalance(date, siloRaw, litrosImpacto, excludeFn = null) {
+  const litros = parseFloat(litrosImpacto) || 0;
+  if (!siloRaw || litros <= 0) return { ok: true };
+  const siloKey = SILO_STOCK_KEY[siloRaw] || siloRaw;
+  const totals = await calcAutoLitros(date);
+  let current = totals[siloKey] || 0;
+  if (excludeFn) current = current + (excludeFn() || 0); // re-sumar el aporte del item editado
+  const next = current - litros;
+  return { ok: next >= 0, current, next, silo: siloKey, missing: next < 0 ? -next : 0 };
+}
+
 // ─── INGRESOS ────────────────────────────────────────────────
 const emptyIng = () => ({
   id: crypto.randomUUID(), hora: getNow(), tambo: "", num: "",
@@ -690,6 +728,7 @@ const SecIngresos = ({ date, syncKey = 0, dayClosed = false }) => {
   const [tamboModal, setTamboModal] = useState(false);
   const [newTambo, setNewTambo] = useState({ nombre: "", num: "" });
   const [filtro, setFiltro] = useState("");
+  const [confirmUI, askConfirm] = useConfirm();
 
   useEffect(() => {
     load(date, "ingresos", []).then(d => { setList(d); setLoading(false); });
@@ -703,7 +742,7 @@ const SecIngresos = ({ date, syncKey = 0, dayClosed = false }) => {
     setModal(null);
   };
   const onDelete = async id => {
-    if (confirm("¿Eliminar este ingreso?")) {
+    if (await askConfirm({ title: "Eliminar ingreso", message: "¿Eliminar este ingreso? La acción quedará registrada en el historial.", danger: true, confirmLabel: "Eliminar" })) {
       const item = list.find(i => i.id === id);
       if (item) await logDelete("ingreso", item);
       await persist(list.filter(i => i.id !== id)); setModal(null);
@@ -826,6 +865,7 @@ const SecIngresos = ({ date, syncKey = 0, dayClosed = false }) => {
           </div>
         </Modal>
       )}
+      {confirmUI}
     </div>
   );
 };
@@ -1118,12 +1158,30 @@ const SecCarga = ({ date, syncKey = 0, dayClosed = false }) => {
   const [list, setList] = useState([]);
   const [modal, setModal] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [confirmUI, askConfirm] = useConfirm();
   useEffect(() => { load(date, "carga", []).then(d => { setList(d); setLoading(false); }); }, [date, syncKey]);
   const persist = async u => { setList(u); await save(date, "carga", u); };
-  const onSave = async item => { const ex = list.find(i => i.id === item.id); await persist(ex ? list.map(i => i.id === item.id ? item : i) : [...list, item]); setModal(null); };
+  const onSave = async item => {
+    const existing = list.find(i => i.id === item.id);
+    const exclude = existing ? () => parseFloat(existing.litros) || 0 : null;
+    const check = await checkSiloBalance(date, item.siloProveniente, item.litros, exclude);
+    if (!check.ok) {
+      const ok = await askConfirm({
+        title: "Saldo insuficiente",
+        message: `Esta carga dejaría el silo ${check.silo} con saldo negativo.\n\nDisponible: ${check.current.toFixed(0)} L\nSe restan: ${parseFloat(item.litros).toFixed(0)} L\nResultado: ${check.next.toFixed(0)} L\n\n¿Guardar de todas formas?`,
+        danger: true,
+        confirmLabel: "Guardar igual",
+      });
+      if (!ok) return;
+    }
+    const ex = list.find(i => i.id === item.id);
+    await persist(ex ? list.map(i => i.id === item.id ? item : i) : [...list, item]);
+    setModal(null);
+  };
   const onDelete = async id => {
-    if (confirm("¿Eliminar?")) {
-      const item = list.find(i => i.id === id);
+    const item = list.find(i => i.id === id);
+    const resumen = item ? buildResumen("carga", item) : "";
+    if (await askConfirm({ title: "Eliminar carga", message: `¿Eliminar esta carga?${resumen ? "\n\n" + resumen : ""}`, danger: true, confirmLabel: "Eliminar" })) {
       if (item) await logDelete("carga", item);
       await persist(list.filter(i => i.id !== id)); setModal(null);
     }
@@ -1159,6 +1217,7 @@ const SecCarga = ({ date, syncKey = 0, dayClosed = false }) => {
           <CargaForm initial={modal === "new" ? null : modal} onSave={onSave} onClose={() => setModal(null)} onDelete={modal !== "new" ? () => onDelete(modal.id) : null} />
         </Modal>
       )}
+      {confirmUI}
     </div>
   );
 };
@@ -1229,21 +1288,39 @@ const SecMovimientos = ({ date, syncKey = 0, dayClosed = false }) => {
   const [modal, setModal] = useState(null);
   const [tab, setTab] = useState("movs");
   const [loading, setLoading] = useState(true);
+  const [confirmUI, askConfirm] = useConfirm();
   useEffect(() => { load(date, "movimientos", { movs: [], ctrls: [] }).then(d => { setData(d); setLoading(false); }); }, [date, syncKey]);
   const persist = async u => { setData(u); await save(date, "movimientos", u); };
-  const saveMov = async item => { const l = data.movs; const ex = l.find(i => i.id === item.id); await persist({ ...data, movs: ex ? l.map(i => i.id === item.id ? item : i) : [...l, item] }); setModal(null); };
+  const saveMov = async item => {
+    const existing = data.movs.find(i => i.id === item.id);
+    const exclude = existing ? () => parseFloat(existing.litros) || 0 : null;
+    const check = await checkSiloBalance(date, item.desde, item.litros, exclude);
+    if (!check.ok) {
+      const ok = await askConfirm({
+        title: "Saldo insuficiente",
+        message: `Este movimiento dejaría el silo ${check.silo} con saldo negativo.\n\nDisponible: ${check.current.toFixed(0)} L\nSe mueven: ${parseFloat(item.litros).toFixed(0)} L\nResultado: ${check.next.toFixed(0)} L\n\n¿Guardar de todas formas?`,
+        danger: true,
+        confirmLabel: "Guardar igual",
+      });
+      if (!ok) return;
+    }
+    const l = data.movs; const ex = l.find(i => i.id === item.id);
+    await persist({ ...data, movs: ex ? l.map(i => i.id === item.id ? item : i) : [...l, item] }); setModal(null);
+  };
   const saveCtrl = async item => { const l = data.ctrls; const ex = l.find(i => i.id === item.id); await persist({ ...data, ctrls: ex ? l.map(i => i.id === item.id ? item : i) : [...l, item] }); setModal(null); };
   const delMov = async id => {
-    if (confirm("¿Eliminar?")) {
-      const item = data.movs.find(i => i.id === id);
+    const item = data.movs.find(i => i.id === id);
+    const resumen = item ? buildResumen("movimiento", item) : "";
+    if (await askConfirm({ title: "Eliminar movimiento", message: `¿Eliminar este movimiento?${resumen ? "\n\n" + resumen : ""}`, danger: true, confirmLabel: "Eliminar" })) {
       if (item) await logDelete("movimiento", item);
       await persist({ ...data, movs: data.movs.filter(i => i.id !== id) });
     }
     setModal(null);
   };
   const delCtrl = async id => {
-    if (confirm("¿Eliminar?")) {
-      const item = data.ctrls.find(i => i.id === id);
+    const item = data.ctrls.find(i => i.id === id);
+    const resumen = item ? buildResumen("control", item) : "";
+    if (await askConfirm({ title: "Eliminar control", message: `¿Eliminar este control?${resumen ? "\n\n" + resumen : ""}`, danger: true, confirmLabel: "Eliminar" })) {
       if (item) await logDelete("control", item);
       await persist({ ...data, ctrls: data.ctrls.filter(i => i.id !== id) });
     }
@@ -1313,6 +1390,7 @@ const SecMovimientos = ({ date, syncKey = 0, dayClosed = false }) => {
           }
         </Modal>
       )}
+      {confirmUI}
     </div>
   );
 };
@@ -1644,6 +1722,7 @@ const SecFortificados = ({ date, syncKey = 0, dayClosed = false }) => {
   const [list, setList] = useState([]);
   const [modal, setModal] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [confirmUI, askConfirm] = useConfirm();
 
   useEffect(() => {
     load(date, "fortificados", []).then(d => { setList(d); setLoading(false); });
@@ -1651,13 +1730,26 @@ const SecFortificados = ({ date, syncKey = 0, dayClosed = false }) => {
 
   const persist = async u => { setList(u); await save(date, "fortificados", u); };
   const onSave = async item => {
+    const existing = list.find(i => i.id === item.id);
+    const exclude = existing ? () => parseFloat(existing.litrosBase) || 0 : null;
+    const check = await checkSiloBalance(date, item.siloOrigen, item.litrosBase, exclude);
+    if (!check.ok) {
+      const ok = await askConfirm({
+        title: "Saldo insuficiente",
+        message: `Este fortificado dejaría el silo origen ${check.silo} con saldo negativo.\n\nDisponible: ${check.current.toFixed(0)} L\nSe usan: ${parseFloat(item.litrosBase).toFixed(0)} L\nResultado: ${check.next.toFixed(0)} L\n\n¿Guardar de todas formas?`,
+        danger: true,
+        confirmLabel: "Guardar igual",
+      });
+      if (!ok) return;
+    }
     const ex = list.find(i => i.id === item.id);
     await persist(ex ? list.map(i => i.id === item.id ? item : i) : [...list, item]);
     setModal(null);
   };
   const onDelete = async id => {
-    if (confirm("¿Eliminar este lote?")) {
-      const item = list.find(i => i.id === id);
+    const item = list.find(i => i.id === id);
+    const resumen = item ? buildResumen("fortificado", item) : "";
+    if (await askConfirm({ title: "Eliminar lote fortificado", message: `¿Eliminar este lote?${resumen ? "\n\n" + resumen : ""}`, danger: true, confirmLabel: "Eliminar" })) {
       if (item) await logDelete("fortificado", item);
       await persist(list.filter(i => i.id !== id));
       setModal(null);
@@ -1727,6 +1819,7 @@ const SecFortificados = ({ date, syncKey = 0, dayClosed = false }) => {
           />
         </Modal>
       )}
+      {confirmUI}
     </div>
   );
 };
@@ -4227,6 +4320,7 @@ export default function App() {
   const [dayClosed, setDayClosed] = useState(false);
   const [dayClosedBy, setDayClosedBy] = useState(null);
   const [dayClosedBlocked, setDayClosedBlocked] = useState(false);
+  const [confirmUI, askConfirm] = useConfirm();
   const isToday = date === getToday();
 
   const navItems = perfil
@@ -4340,7 +4434,13 @@ export default function App() {
   };
 
   const handleCerrarDia = async () => {
-    if (!confirm(`¿Cerrar el día ${fmtDate(date)}?\nNo se podrán agregar ni modificar registros. Solo el jefe puede reabrir.`)) return;
+    const ok = await askConfirm({
+      title: "Cerrar día",
+      message: `¿Cerrar el día ${fmtDate(date)}?\n\nNo se podrán agregar ni modificar registros. Solo el jefe puede reabrir.`,
+      danger: true,
+      confirmLabel: "Cerrar día",
+    });
+    if (!ok) return;
     const est = { closed: true, closedAt: new Date().toISOString(), closedBy: PERFILES[perfil]?.label || "Supervisor" };
     await saveEstado(date, est);
     await logAudit(date, "close_day", "dia", `Día ${date} cerrado`, est.closedBy);
@@ -4348,7 +4448,12 @@ export default function App() {
     setDayClosedBy(est.closedBy);
   };
   const handleReabrirDia = async () => {
-    if (!confirm(`¿Reabrir el día ${fmtDate(date)}?`)) return;
+    const ok = await askConfirm({
+      title: "Reabrir día",
+      message: `¿Reabrir el día ${fmtDate(date)}?\n\nLos operarios podrán volver a editar registros.`,
+      confirmLabel: "Reabrir",
+    });
+    if (!ok) return;
     await saveEstado(date, { closed: false });
     await logAudit(date, "reopen_day", "dia", `Día ${date} reabierto`, PERFILES[perfil]?.label || "Jefe");
     setDayClosed(false);
@@ -4764,6 +4869,7 @@ export default function App() {
           );
         })}
       </div>}
+      {confirmUI}
     </div>
   );
 }
