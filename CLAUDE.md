@@ -6,14 +6,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Single-file React app (`recibo_yatasto.jsx`) for dairy operations at Lacteos Yatasto SA (Argentina). Tracks daily milk intake (ingresos), CIP cleaning, truck loading (carga), silo movements, shift stock, and fortified milk batches (fortificados).
 
-The app runs inside **Antigravity** (a VS Code-based IDE) which provides `window.storage` — a key/value persistence API used instead of localStorage. All section data flows through `load(date, section, default)` and `save(date, section, data)` helpers. `main.jsx` polyfills `window.storage` with `localStorage` so the app can also be previewed standalone.
+The app runs inside **Antigravity** (a VS Code-based IDE). Data persists to Supabase via `db-adapter.js`. `main.jsx` polyfills `window.storage` with `localStorage` for standalone preview only — the app itself always calls `db.*`.
 
 ## Commands
 
 ```bash
-npm run dev      # start Vite dev server (entry: main.jsx)
-npm run build    # build to dist/
-npm run preview  # preview built dist/
+cp .env.example .env  # fill in VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY first
+npm run dev           # start Vite dev server (entry: main.jsx)
+npm run build         # build to dist/
+npm run preview       # preview built dist/
 ```
 
 `index.html` loads `/main.jsx` directly. Vite bundles `main.jsx` → `recibo_yatasto.jsx`. Deployed to Netlify via `netlify.toml` (`npm run build`, publishes `dist/`).
@@ -22,15 +23,18 @@ npm run preview  # preview built dist/
 
 **Core files:**
 - `recibo_yatasto.jsx` — entire app: constants, UI atoms, section components, cross-section logic
-- `main.jsx` — React entry point; polyfills `window.storage` with `localStorage`
-- `db-adapter.js` — persistence abstraction (`db.get/set/remove/list`); currently wraps `window.storage`/localStorage with commented-out Supabase backend
+- `main.jsx` — React entry point; polyfills `window.storage` with `localStorage` for standalone preview
+- `db-adapter.js` — Supabase persistence: `db.get/set/remove/list` + `db.auth.signIn/signOut/getSession/onAuthStateChange`; reads `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` from env
 - `tokens.js` — design system primitives: `DARK`/`LIGHT` OKLCH palettes, `TYPE_SCALE`, `SPACE`, motion tokens (`DUR`, `EASE_OUT`, `EASE_INOUT`), `BP` breakpoints
 - `hooks.js` — `useViewport()` returns `{ isMobile, isTablet, isDesktop, width }` based on `window.matchMedia`; SSR-safe
 - `icons.js` — centralises all `lucide-react` imports with semantic aliases (e.g. `Truck as Ingresos`); exports `SW = 1.75` (standard stroke width)
 
-**Storage keys:**
+**Storage keys** (all go through `db.get/set`):
 - Section data: `yatasto:YYYY-MM-DD:section` where section ∈ `ingresos | cip | carga | movimientos | stock | fortificados`
 - Config (custom tambos/camiones): `yatasto:config` — loaded/saved via `loadCfg()` / `saveCfg()`
+- `yatasto:usuarios` — active session tracking per device
+- `yatasto:saldo-silos` — cached silo balance carried forward from previous dates
+- `yatasto:eliminados` — deletion audit log (capped at 300 entries), appended by `logElim()`
 
 **Section components** (each receives only `{ date }`):
 - `SecIngresos` — milk truck arrivals; each entry has quality params (acidez, pH, GB, SNG, densidad, proteína, etc.) and a silo destination; concentrated products (`PRODS_CONCENTRADOS`) use a simplified form
@@ -39,14 +43,15 @@ npm run preview  # preview built dist/
 - `SecMovimientos` — silo-to-silo transfers (movs tab) and quality controls per silo (ctrls tab)
 - `SecStock` — per-shift silo stock levels (3 shifts: 07:00, 14:00, 21:00); auto-populates litros from `calcAutoLitros()` and infers product per silo from the latest ingreso
 - `SecFortificados` — fortified milk batches with dynamic additions list (product + quantity + unit)
+- `SecDashboard` — supervisor/jefe-only analytics; receives `{ date, perfil, perfilLabel, syncKey }`; accessible via the "supervisor" nav tab
 
-**State pattern:** Each section loads in `useEffect` on date change. Every user action calls `persist()` which updates React state and `window.storage` immediately — no debounce, no submit button for section-level saves.
+**State pattern:** Each section loads in `useEffect` on date change. Every user action calls `persist()` which updates React state and calls `db.set()` immediately — no debounce, no submit button for section-level saves.
 
 **Validation pattern:** Required fields are checked on the "Guardar" button click using an inline array of `[key, label]` pairs; missing fields are collected and shown via `alert()`.
 
 **Item IDs:** All list items use `id: Date.now()` as a unique key.
 
-**Authentication:** `PERFILES` defines two roles — `supervisor` (Yatasto2026$) and `jefe` (BuenaLeche123$). Login is checked client-side; role determines which actions are available.
+**Authentication:** `PERFILES` defines two roles — `supervisor` and `jefe` — each mapped to an internal email (`supervisor@yatasto.internal`, `jefe@yatasto.internal`). Login validates the username/password client-side against hardcoded credentials, then calls `db.auth.signIn(email, password)` to establish a Supabase session. Role determines which actions are available (e.g. delete button, `SecDashboard` access).
 
 ## Cross-Section Computation
 
@@ -95,6 +100,6 @@ All styles are inline JS objects. No CSS files.
 
 **Responsive:** `BP` in `tokens.js` defines `sm/md/lg/xl` breakpoints. Desktop (≥`lg`, 1024px) uses sidebar nav + master-detail layouts; mobile uses bottom tab bar + bottom-sheet modals. Use `useViewport()` to branch; never stretch mobile layouts to desktop.
 
-## Supabase (optional backend)
+## Supabase backend
 
-`db-adapter.js` exposes `db.get/set/remove/list` — currently backed by `window.storage`/localStorage. To switch to Supabase: fill in `SUPABASE_URL` and `SUPABASE_ANON_KEY` in `db-adapter.js`, uncomment the Supabase blocks, and replace `window.storage` calls in `recibo_yatasto.jsx` with `db.*`. The schema is in `supabase-schema.sql`; the primary table is `yatasto_storage (key TEXT PK, value TEXT)`. Data migration helper: `migrateToSupabase()` exported from `db-adapter.js`.
+`db-adapter.js` is the live backend. Table: `yatasto_storage (key TEXT PK, value TEXT, updated_at TIMESTAMPTZ)` — see `supabase-schema.sql`. Data migration from localStorage: `migrateToSupabase()` exported from `db-adapter.js` (run once from the browser console).
