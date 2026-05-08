@@ -462,7 +462,7 @@ const Modal = ({ title, onClose, children, zIndex = 100 }) => {
 
 // ─── INGRESOS ────────────────────────────────────────────────
 const emptyIng = () => ({
-  id: Date.now(), hora: getNow(), tambo: "", num: "",
+  id: crypto.randomUUID(), hora: getNow(), tambo: "", num: "",
   litrosFca: "", litrosTbo: "", destino: "", tC: "",
   acidezFca: "", phFca: "", alcFca: "", alcTbo: "",
   gbFca: "", gbTbo: "", sngFca: "", sngTbo: "",
@@ -903,7 +903,7 @@ const SecCIP = ({ date, syncKey = 0 }) => {
 };
 
 // ─── CARGA DE CAMIONES ────────────────────────────────────────
-const emptyCarga = () => ({ id: Date.now(), label: "CARGA 1", destino: "", transportista: "", producto: "", siloProveniente: "", limpCisterna: "", litros: "", T: "", gC: "", pH: "", A: "", gD: "", hora: getNow(), responsable: "", obs: "" });
+const emptyCarga = () => ({ id: crypto.randomUUID(), label: "CARGA 1", destino: "", transportista: "", producto: "", siloProveniente: "", limpCisterna: "", litros: "", T: "", gC: "", pH: "", A: "", gD: "", hora: getNow(), responsable: "", obs: "" });
 const CargaForm = ({ initial, onSave, onClose, onDelete }) => {
   const [f, setF] = useState(initial || emptyCarga());
   const set = k => v => setF(p => ({ ...p, [k]: v }));
@@ -1093,8 +1093,8 @@ const SecCarga = ({ date, syncKey = 0 }) => {
 };
 
 // ─── MOVIMIENTOS ─────────────────────────────────────────────
-const emptyMov = () => ({ id: Date.now(), hora: getNow(), desde: "", hasta: "", litros: "", producto: "", motivo: "", resp: "" });
-const emptyCtrl = () => ({ id: Date.now(), hora: getNow(), silo: "", ph: "", gD: "", gC: "", alc: "", mg: "", sng: "", dens: "", fp: "", prot: "", resp: "" });
+const emptyMov = () => ({ id: crypto.randomUUID(), hora: getNow(), desde: "", hasta: "", litros: "", producto: "", motivo: "", resp: "" });
+const emptyCtrl = () => ({ id: crypto.randomUUID(), hora: getNow(), silo: "", ph: "", gD: "", gC: "", alc: "", mg: "", sng: "", dens: "", fp: "", prot: "", resp: "" });
 
 const MovForm = ({ initial, onSave, onClose, onDelete }) => {
   const [f, setF] = useState(initial || emptyMov());
@@ -1458,7 +1458,7 @@ const SecStock = ({ date, syncKey = 0 }) => {
 const UNIDADES_FORT = ["kg", "g", "L", "mL", "mg", "cc"];
 
 const emptyFort = () => ({
-  id: Date.now(),
+  id: crypto.randomUUID(),
   hora: getNow(),
   paraQue: "",
   siloOrigen: "",
@@ -1481,7 +1481,7 @@ const FortForm = ({ initial, onSave, onClose, onDelete }) => {
   const updAdicion = (id, key, val) =>
     setF(p => ({ ...p, adiciones: p.adiciones.map(a => a.id === id ? { ...a, [key]: val } : a) }));
   const addAdicion = () =>
-    setF(p => ({ ...p, adiciones: [...p.adiciones, { id: Date.now(), producto: "", cantidad: "", unidad: "kg" }] }));
+    setF(p => ({ ...p, adiciones: [...p.adiciones, { id: crypto.randomUUID(), producto: "", cantidad: "", unidad: "kg" }] }));
   const delAdicion = id =>
     setF(p => ({ ...p, adiciones: p.adiciones.filter(a => a.id !== id) }));
 
