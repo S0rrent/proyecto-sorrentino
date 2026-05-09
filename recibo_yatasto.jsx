@@ -155,7 +155,16 @@ async function load(date, sec, def) {
   catch { return def; }
 }
 async function save(date, sec, data) {
+  if (_closedDates.has(date)) { _onSaveBlocked?.(); return; }
+  _autoLitrosCache.delete(date); // invalidar al escribir cualquier sección
   try { await db.set(sKey(date, sec), JSON.stringify(data)); } catch (e) { console.error(e); }
+}
+
+// Guarda de cierre de día — sincronizada desde App vía _markDayClosed()
+const _closedDates = new Set();
+let _onSaveBlocked = null;
+function _markDayClosed(date, closed) {
+  if (closed) _closedDates.add(date); else _closedDates.delete(date);
 }
 async function loadCfg() {
   const def = { tambosCustom: [], camionesCustom: [], transportistas: [], cargaProductosCustom: [] };
@@ -278,7 +287,13 @@ async function logDelete(tipo, item, by) {
 }
 
 // Calcula litros netos por silo: saldo_anterior + ingresos + movimientos − cargas − fort_origen + fort_destino
+const _autoLitrosCache = new Map(); // key: date → { result, ts }
+const _AUTO_LITROS_TTL = 15000;     // 15 s — suficiente para una navegación completa
+
 async function calcAutoLitros(date) {
+  const hit = _autoLitrosCache.get(date);
+  if (hit && Date.now() - hit.ts < _AUTO_LITROS_TTL) return hit.result;
+
   const [ingresos, movData, cargas, forts, saldo] = await Promise.all([
     load(date, "ingresos", []),
     load(date, "movimientos", { movs: [], ctrls: [] }),
@@ -328,6 +343,7 @@ async function calcAutoLitros(date) {
       }
     });
   });
+  _autoLitrosCache.set(date, { result: totals, ts: Date.now() });
   return totals;
 }
 
@@ -492,6 +508,44 @@ const Modal = ({ title, onClose, children, zIndex = 100 }) => {
   );
 };
 
+// Hook imperativo de confirmación — reemplazo de window.confirm()
+// Uso: const [confirmUI, askConfirm] = useConfirm();
+//      if (await askConfirm({ title: "...", message: "...", danger: true })) { ... }
+function useConfirm() {
+  const [state, setState] = useState(null); // { title, message, danger, confirmLabel, resolve }
+  const ask = ({ title = "Confirmar", message, danger = false, confirmLabel = "Confirmar" }) =>
+    new Promise(resolve => setState({ title, message, danger, confirmLabel, resolve }));
+  const ui = state ? (
+    <Modal title={state.title} onClose={() => { state.resolve(false); setState(null); }} zIndex={350}>
+      <div style={{ fontSize: 14, color: C.text, lineHeight: 1.5, marginBottom: 20, whiteSpace: "pre-wrap" }}>
+        {state.message}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        <button type="button" style={btnSecondary} onClick={() => { state.resolve(false); setState(null); }}>Cancelar</button>
+        <button type="button" autoFocus
+          style={{ ...btnPrimary, ...(state.danger ? { background: C.danger, color: "#fff" } : {}) }}
+          onClick={() => { state.resolve(true); setState(null); }}>
+          {state.confirmLabel}
+        </button>
+      </div>
+    </Modal>
+  ) : null;
+  return [ui, ask];
+}
+
+// Calcula el balance actual de un silo y verifica si una operación lo dejaría negativo.
+// excludeFn permite restar la contribución del item que se está editando para no contarlo dos veces.
+async function checkSiloBalance(date, siloRaw, litrosImpacto, excludeFn = null) {
+  const litros = parseFloat(litrosImpacto) || 0;
+  if (!siloRaw || litros <= 0) return { ok: true };
+  const siloKey = SILO_STOCK_KEY[siloRaw] || siloRaw;
+  const totals = await calcAutoLitros(date);
+  let current = totals[siloKey] || 0;
+  if (excludeFn) current = current + (excludeFn() || 0); // re-sumar el aporte del item editado
+  const next = current - litros;
+  return { ok: next >= 0, current, next, silo: siloKey, missing: next < 0 ? -next : 0 };
+}
+
 // ─── INGRESOS ────────────────────────────────────────────────
 const emptyIng = () => ({
   id: crypto.randomUUID(), hora: getNow(), tambo: "", num: "",
@@ -506,7 +560,8 @@ const emptyIng = () => ({
 const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo }) => {
   const [f, setF] = useState(initial || emptyIng());
   const [aguadoAlerta, setAguadoAlerta] = useState(false);
-  const set = k => v => setF(p => ({ ...p, [k]: v }));
+  const [fieldError, setFieldError] = useState("");
+  const set = k => v => { setFieldError(""); setF(p => ({ ...p, [k]: v })); };
   const pickTambo = nombre => {
     const t = tambos.find(t => t.nombre === nombre);
     setF(p => ({ ...p, tambo: nombre, num: t ? String(t.num) : p.num }));
@@ -622,6 +677,11 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
       <F label="Observaciones">
         <textarea style={{ ...inp, minHeight: 60, resize: "vertical" }} value={f.obs} onChange={e => set("obs")(e.target.value)} placeholder="Observaciones..." />
       </F>
+      {fieldError && (
+        <div style={{ background: `${C.danger}18`, border: `1px solid ${C.danger}55`, borderRadius: 8, padding: "10px 12px", marginBottom: 8, fontSize: 13, color: C.danger, whiteSpace: "pre-line", lineHeight: 1.6 }}>
+          {fieldError}
+        </div>
+      )}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
         <button type="button" style={btnSecondary} onClick={onClose}>Cancelar</button>
         <button type="button" style={btnPrimary} onClick={() => {
@@ -635,7 +695,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
                    ["gbFca", "GB Fca."], ["sngFca", "SNG Fca."], ["densFca", "Densidad Fca."], ["protFca", "Proteína Fca."], ["atm", "ATM"]];
           }
           const miss = req.filter(([k]) => !String(f[k] || "").trim()).map(([, v]) => v);
-          if (miss.length) { alert("Campos obligatorios sin completar:\n• " + miss.join("\n• ")); return; }
+          if (miss.length) { setFieldError("Faltan completar:\n• " + miss.join("\n• ")); return; }
           // Aguado > 0 = adulteración — requiere confirmación explícita
           const aguFca = parseFloat(f.aguadoFca);
           const aguTbo = parseFloat(f.aguadoTbo);
@@ -643,6 +703,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
             setAguadoAlerta(true);
             return;
           }
+          setFieldError("");
           onSave(f);
         }}>Guardar</button>
       </div>
@@ -674,7 +735,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
   );
 };
 
-const SecIngresos = ({ date, syncKey = 0 }) => {
+const SecIngresos = ({ date, syncKey = 0, dayClosed = false }) => {
   const [list, setList] = useState([]);
   const [modal, setModal] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -682,6 +743,7 @@ const SecIngresos = ({ date, syncKey = 0 }) => {
   const [tamboModal, setTamboModal] = useState(false);
   const [newTambo, setNewTambo] = useState({ nombre: "", num: "" });
   const [filtro, setFiltro] = useState("");
+  const [confirmUI, askConfirm] = useConfirm();
 
   useEffect(() => {
     load(date, "ingresos", []).then(d => { setList(d); setLoading(false); });
@@ -695,7 +757,7 @@ const SecIngresos = ({ date, syncKey = 0 }) => {
     setModal(null);
   };
   const onDelete = async id => {
-    if (confirm("¿Eliminar este ingreso?")) {
+    if (await askConfirm({ title: "Eliminar ingreso", message: "¿Eliminar este ingreso? La acción quedará registrada en el historial.", danger: true, confirmLabel: "Eliminar" })) {
       const item = list.find(i => i.id === id);
       if (item) await logDelete("ingreso", item);
       await persist(list.filter(i => i.id !== id)); setModal(null);
@@ -791,7 +853,7 @@ const SecIngresos = ({ date, syncKey = 0 }) => {
           </div>
         ));
       })()}
-      <FAB onClick={() => setModal("new")} />
+      {!dayClosed && <FAB onClick={() => setModal("new")} />}
       {modal && (
         <Modal title={modal === "new" ? "Nuevo Ingreso" : "Editar Ingreso"} onClose={() => setModal(null)}>
           <IngresoForm
@@ -818,6 +880,7 @@ const SecIngresos = ({ date, syncKey = 0 }) => {
           </div>
         </Modal>
       )}
+      {confirmUI}
     </div>
   );
 };
@@ -969,7 +1032,8 @@ const SecCIP = ({ date, syncKey = 0 }) => {
 const emptyCarga = () => ({ id: crypto.randomUUID(), label: "CARGA 1", destino: "", transportista: "", producto: "", siloProveniente: "", limpCisterna: "", litros: "", T: "", gC: "", pH: "", A: "", gD: "", hora: getNow(), responsable: "", obs: "" });
 const CargaForm = ({ initial, onSave, onClose, onDelete }) => {
   const [f, setF] = useState(initial || emptyCarga());
-  const set = k => v => setF(p => ({ ...p, [k]: v }));
+  const [fieldError, setFieldError] = useState("");
+  const set = k => v => { setFieldError(""); setF(p => ({ ...p, [k]: v })); };
   const [transportistas, setTransportistas] = useState([]);
   const [cargaProductos, setCargaProductos] = useState(CARGA_PRODUCTOS_BASE);
   const [transModal, setTransModal] = useState(false);
@@ -1062,6 +1126,11 @@ const CargaForm = ({ initial, onSave, onClose, onDelete }) => {
         <F label="Responsable"><Inp value={f.responsable} onChange={set("responsable")} /></F>
       </div>
       <F label="Observaciones"><textarea style={{ ...inp, minHeight: 48, resize: "vertical" }} value={f.obs} onChange={e => set("obs")(e.target.value)} /></F>
+      {fieldError && (
+        <div style={{ background: `${C.danger}18`, border: `1px solid ${C.danger}55`, borderRadius: 8, padding: "10px 12px", marginBottom: 8, fontSize: 13, color: C.danger, whiteSpace: "pre-line", lineHeight: 1.6 }}>
+          {fieldError}
+        </div>
+      )}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
         <button type="button" style={btnSecondary} onClick={onClose}>Cancelar</button>
         <button type="button" style={btnPrimary} onClick={() => {
@@ -1069,7 +1138,8 @@ const CargaForm = ({ initial, onSave, onClose, onDelete }) => {
           ["litros", "Litros"], ["hora", "Hora"], ["responsable", "Responsable"],
           ["T", "T"], ["gC", "°C"], ["pH", "pH"], ["A", "A"], ["gD", "°D"]];
           const miss = req.filter(([k]) => !String(f[k] || "").trim()).map(([, v]) => v);
-          if (miss.length) { alert("Campos obligatorios sin completar:\n• " + miss.join("\n• ")); return; }
+          if (miss.length) { setFieldError("Faltan completar:\n• " + miss.join("\n• ")); return; }
+          setFieldError("");
           onSave(f);
         }}>Guardar</button>
       </div>
@@ -1106,16 +1176,34 @@ const CargaForm = ({ initial, onSave, onClose, onDelete }) => {
     </div>
   );
 };
-const SecCarga = ({ date, syncKey = 0 }) => {
+const SecCarga = ({ date, syncKey = 0, dayClosed = false }) => {
   const [list, setList] = useState([]);
   const [modal, setModal] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [confirmUI, askConfirm] = useConfirm();
   useEffect(() => { load(date, "carga", []).then(d => { setList(d); setLoading(false); }); }, [date, syncKey]);
   const persist = async u => { setList(u); await save(date, "carga", u); };
-  const onSave = async item => { const ex = list.find(i => i.id === item.id); await persist(ex ? list.map(i => i.id === item.id ? item : i) : [...list, item]); setModal(null); };
+  const onSave = async item => {
+    const existing = list.find(i => i.id === item.id);
+    const exclude = existing ? () => parseFloat(existing.litros) || 0 : null;
+    const check = await checkSiloBalance(date, item.siloProveniente, item.litros, exclude);
+    if (!check.ok) {
+      const ok = await askConfirm({
+        title: "Saldo insuficiente",
+        message: `Esta carga dejaría el silo ${check.silo} con saldo negativo.\n\nDisponible: ${check.current.toFixed(0)} L\nSe restan: ${parseFloat(item.litros).toFixed(0)} L\nResultado: ${check.next.toFixed(0)} L\n\n¿Guardar de todas formas?`,
+        danger: true,
+        confirmLabel: "Guardar igual",
+      });
+      if (!ok) return;
+    }
+    const ex = list.find(i => i.id === item.id);
+    await persist(ex ? list.map(i => i.id === item.id ? item : i) : [...list, item]);
+    setModal(null);
+  };
   const onDelete = async id => {
-    if (confirm("¿Eliminar?")) {
-      const item = list.find(i => i.id === id);
+    const item = list.find(i => i.id === id);
+    const resumen = item ? buildResumen("carga", item) : "";
+    if (await askConfirm({ title: "Eliminar carga", message: `¿Eliminar esta carga?${resumen ? "\n\n" + resumen : ""}`, danger: true, confirmLabel: "Eliminar" })) {
       if (item) await logDelete("carga", item);
       await persist(list.filter(i => i.id !== id)); setModal(null);
     }
@@ -1145,12 +1233,13 @@ const SecCarga = ({ date, syncKey = 0 }) => {
           </div>
         </div>
       ))}
-      <FAB onClick={() => setModal("new")} />
+      {!dayClosed && <FAB onClick={() => setModal("new")} />}
       {modal && (
         <Modal title={modal === "new" ? "Nueva Carga" : "Editar Carga"} onClose={() => setModal(null)}>
           <CargaForm initial={modal === "new" ? null : modal} onSave={onSave} onClose={() => setModal(null)} onDelete={modal !== "new" ? () => onDelete(modal.id) : null} />
         </Modal>
       )}
+      {confirmUI}
     </div>
   );
 };
@@ -1161,7 +1250,8 @@ const emptyCtrl = () => ({ id: crypto.randomUUID(), hora: getNow(), silo: "", ph
 
 const MovForm = ({ initial, onSave, onClose, onDelete }) => {
   const [f, setF] = useState(initial || emptyMov());
-  const set = k => v => setF(p => ({ ...p, [k]: v }));
+  const [fieldError, setFieldError] = useState("");
+  const set = k => v => { setFieldError(""); setF(p => ({ ...p, [k]: v })); };
   return (
     <div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
@@ -1175,12 +1265,18 @@ const MovForm = ({ initial, onSave, onClose, onDelete }) => {
       <F label="Producto que se mueve"><Sel value={f.producto || ""} onChange={set("producto")} options={PRODS_STOCK} placeholder="Seleccionar producto..." /></F>
       <F label="Motivo"><Inp value={f.motivo || ""} onChange={set("motivo")} placeholder="Ej: Trasvase, Mezcla, etc." /></F>
       <F label="Responsable"><Inp value={f.resp} onChange={set("resp")} /></F>
+      {fieldError && (
+        <div style={{ background: `${C.danger}18`, border: `1px solid ${C.danger}55`, borderRadius: 8, padding: "10px 12px", marginBottom: 8, fontSize: 13, color: C.danger, whiteSpace: "pre-line", lineHeight: 1.6 }}>
+          {fieldError}
+        </div>
+      )}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
         <button type="button" style={btnSecondary} onClick={onClose}>Cancelar</button>
         <button type="button" style={btnPrimary} onClick={() => {
           const req = [["litros", "Litros"], ["desde", "Desde"], ["hasta", "Hasta"], ["motivo", "Motivo"], ["resp", "Responsable"]];
           const miss = req.filter(([k]) => !String(f[k] || "").trim()).map(([, v]) => v);
-          if (miss.length) { alert("Campos obligatorios sin completar:\n• " + miss.join("\n• ")); return; }
+          if (miss.length) { setFieldError("Faltan completar:\n• " + miss.join("\n• ")); return; }
+          setFieldError("");
           onSave(f);
         }}>Guardar</button>
       </div>
@@ -1190,7 +1286,8 @@ const MovForm = ({ initial, onSave, onClose, onDelete }) => {
 };
 const CtrlForm = ({ initial, onSave, onClose, onDelete }) => {
   const [f, setF] = useState(initial || emptyCtrl());
-  const set = k => v => setF(p => ({ ...p, [k]: v }));
+  const [fieldError, setFieldError] = useState("");
+  const set = k => v => { setFieldError(""); setF(p => ({ ...p, [k]: v })); };
   const campos = [["pH", "ph"], ["°D", "gD"], ["°C", "gC"], ["Alc.", "alc"], ["MG", "mg"], ["SNG", "sng"], ["Dens.", "dens"], ["FP", "fp"], ["Prot.", "prot"]];
   return (
     <div>
@@ -1202,12 +1299,18 @@ const CtrlForm = ({ initial, onSave, onClose, onDelete }) => {
         {campos.map(([l, k]) => <F key={k} label={l}><Inp type="number" value={f[k]} onChange={set(k)} step="0.01" /></F>)}
       </div>
       <F label="Responsable"><Inp value={f.resp} onChange={set("resp")} /></F>
+      {fieldError && (
+        <div style={{ background: `${C.danger}18`, border: `1px solid ${C.danger}55`, borderRadius: 8, padding: "10px 12px", marginBottom: 8, fontSize: 13, color: C.danger, whiteSpace: "pre-line", lineHeight: 1.6 }}>
+          {fieldError}
+        </div>
+      )}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
         <button type="button" style={btnSecondary} onClick={onClose}>Cancelar</button>
         <button type="button" style={btnPrimary} onClick={() => {
           const req = [["silo", "Silo"], ["ph", "pH"], ["gD", "°D"], ["gC", "°C"], ["alc", "Alc."], ["mg", "MG"], ["sng", "SNG"], ["dens", "Densidad"], ["fp", "FP"], ["prot", "Proteína"], ["resp", "Responsable"]];
           const miss = req.filter(([k]) => !String(f[k] || "").trim()).map(([, v]) => v);
-          if (miss.length) { alert("Campos obligatorios sin completar:\n• " + miss.join("\n• ")); return; }
+          if (miss.length) { setFieldError("Faltan completar:\n• " + miss.join("\n• ")); return; }
+          setFieldError("");
           onSave(f);
         }}>Guardar</button>
       </div>
@@ -1216,26 +1319,44 @@ const CtrlForm = ({ initial, onSave, onClose, onDelete }) => {
   );
 };
 
-const SecMovimientos = ({ date, syncKey = 0 }) => {
+const SecMovimientos = ({ date, syncKey = 0, dayClosed = false }) => {
   const [data, setData] = useState({ movs: [], ctrls: [] });
   const [modal, setModal] = useState(null);
   const [tab, setTab] = useState("movs");
   const [loading, setLoading] = useState(true);
+  const [confirmUI, askConfirm] = useConfirm();
   useEffect(() => { load(date, "movimientos", { movs: [], ctrls: [] }).then(d => { setData(d); setLoading(false); }); }, [date, syncKey]);
   const persist = async u => { setData(u); await save(date, "movimientos", u); };
-  const saveMov = async item => { const l = data.movs; const ex = l.find(i => i.id === item.id); await persist({ ...data, movs: ex ? l.map(i => i.id === item.id ? item : i) : [...l, item] }); setModal(null); };
+  const saveMov = async item => {
+    const existing = data.movs.find(i => i.id === item.id);
+    const exclude = existing ? () => parseFloat(existing.litros) || 0 : null;
+    const check = await checkSiloBalance(date, item.desde, item.litros, exclude);
+    if (!check.ok) {
+      const ok = await askConfirm({
+        title: "Saldo insuficiente",
+        message: `Este movimiento dejaría el silo ${check.silo} con saldo negativo.\n\nDisponible: ${check.current.toFixed(0)} L\nSe mueven: ${parseFloat(item.litros).toFixed(0)} L\nResultado: ${check.next.toFixed(0)} L\n\n¿Guardar de todas formas?`,
+        danger: true,
+        confirmLabel: "Guardar igual",
+      });
+      if (!ok) return;
+    }
+    const l = data.movs; const ex = l.find(i => i.id === item.id);
+    await persist({ ...data, movs: ex ? l.map(i => i.id === item.id ? item : i) : [...l, item] }); setModal(null);
+  };
   const saveCtrl = async item => { const l = data.ctrls; const ex = l.find(i => i.id === item.id); await persist({ ...data, ctrls: ex ? l.map(i => i.id === item.id ? item : i) : [...l, item] }); setModal(null); };
   const delMov = async id => {
-    if (confirm("¿Eliminar?")) {
-      const item = data.movs.find(i => i.id === id);
+    const item = data.movs.find(i => i.id === id);
+    const resumen = item ? buildResumen("movimiento", item) : "";
+    if (await askConfirm({ title: "Eliminar movimiento", message: `¿Eliminar este movimiento?${resumen ? "\n\n" + resumen : ""}`, danger: true, confirmLabel: "Eliminar" })) {
       if (item) await logDelete("movimiento", item);
       await persist({ ...data, movs: data.movs.filter(i => i.id !== id) });
     }
     setModal(null);
   };
   const delCtrl = async id => {
-    if (confirm("¿Eliminar?")) {
-      const item = data.ctrls.find(i => i.id === id);
+    const item = data.ctrls.find(i => i.id === id);
+    const resumen = item ? buildResumen("control", item) : "";
+    if (await askConfirm({ title: "Eliminar control", message: `¿Eliminar este control?${resumen ? "\n\n" + resumen : ""}`, danger: true, confirmLabel: "Eliminar" })) {
       if (item) await logDelete("control", item);
       await persist({ ...data, ctrls: data.ctrls.filter(i => i.id !== id) });
     }
@@ -1271,7 +1392,7 @@ const SecMovimientos = ({ date, syncKey = 0 }) => {
               {m.resp && <div style={{ fontSize: 12, color: C.muted, marginTop: 1 }}>{m.resp}</div>}
             </div>
           ))}
-          <FAB onClick={() => setModal({ type: "mov", item: null })} />
+          {!dayClosed && <FAB onClick={() => setModal({ type: "mov", item: null })} />}
         </>
       )}
       {tab === "ctrls" && (
@@ -1291,7 +1412,7 @@ const SecMovimientos = ({ date, syncKey = 0 }) => {
               </div>
             </div>
           ))}
-          <FAB onClick={() => setModal({ type: "ctrl", item: null })} />
+          {!dayClosed && <FAB onClick={() => setModal({ type: "ctrl", item: null })} />}
         </>
       )}
       {modal && (
@@ -1305,6 +1426,7 @@ const SecMovimientos = ({ date, syncKey = 0 }) => {
           }
         </Modal>
       )}
+      {confirmUI}
     </div>
   );
 };
@@ -1539,7 +1661,8 @@ const emptyFort = () => ({
 
 const FortForm = ({ initial, onSave, onClose, onDelete }) => {
   const [f, setF] = useState(() => initial ? { ...emptyFort(), ...initial } : emptyFort());
-  const set = k => v => setF(p => ({ ...p, [k]: v }));
+  const [fieldError, setFieldError] = useState("");
+  const set = k => v => { setFieldError(""); setF(p => ({ ...p, [k]: v })); };
 
   const updAdicion = (id, key, val) =>
     setF(p => ({ ...p, adiciones: p.adiciones.map(a => a.id === id ? { ...a, [key]: val } : a) }));
@@ -1616,6 +1739,11 @@ const FortForm = ({ initial, onSave, onClose, onDelete }) => {
       <F label="Observaciones">
         <textarea style={{ ...inp, minHeight: 56, resize: "vertical" }} value={f.obs} onChange={e => set("obs")(e.target.value)} placeholder="Obs..." />
       </F>
+      {fieldError && (
+        <div style={{ background: `${C.danger}18`, border: `1px solid ${C.danger}55`, borderRadius: 8, padding: "10px 12px", marginBottom: 8, fontSize: 13, color: C.danger, whiteSpace: "pre-line", lineHeight: 1.6 }}>
+          {fieldError}
+        </div>
+      )}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
         <button type="button" style={btnSecondary} onClick={onClose}>Cancelar</button>
         <button type="button" style={btnPrimary} onClick={() => {
@@ -1623,7 +1751,8 @@ const FortForm = ({ initial, onSave, onClose, onDelete }) => {
           const miss = req.filter(([k]) => !String(f[k] || "").trim()).map(([, v]) => v);
           const sinCant = f.adiciones.filter(a => !String(a.cantidad || "").trim()).map(a => a.producto || "Adición");
           const all = [...miss, ...sinCant.map(p => `Cantidad de ${p}`)];
-          if (all.length) { alert("Campos obligatorios sin completar:\n• " + all.join("\n• ")); return; }
+          if (all.length) { setFieldError("Faltan completar:\n• " + all.join("\n• ")); return; }
+          setFieldError("");
           onSave(f);
         }}>Guardar</button>
       </div>
@@ -1632,10 +1761,11 @@ const FortForm = ({ initial, onSave, onClose, onDelete }) => {
   );
 };
 
-const SecFortificados = ({ date, syncKey = 0 }) => {
+const SecFortificados = ({ date, syncKey = 0, dayClosed = false }) => {
   const [list, setList] = useState([]);
   const [modal, setModal] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [confirmUI, askConfirm] = useConfirm();
 
   useEffect(() => {
     load(date, "fortificados", []).then(d => { setList(d); setLoading(false); });
@@ -1643,13 +1773,26 @@ const SecFortificados = ({ date, syncKey = 0 }) => {
 
   const persist = async u => { setList(u); await save(date, "fortificados", u); };
   const onSave = async item => {
+    const existing = list.find(i => i.id === item.id);
+    const exclude = existing ? () => parseFloat(existing.litrosBase) || 0 : null;
+    const check = await checkSiloBalance(date, item.siloOrigen, item.litrosBase, exclude);
+    if (!check.ok) {
+      const ok = await askConfirm({
+        title: "Saldo insuficiente",
+        message: `Este fortificado dejaría el silo origen ${check.silo} con saldo negativo.\n\nDisponible: ${check.current.toFixed(0)} L\nSe usan: ${parseFloat(item.litrosBase).toFixed(0)} L\nResultado: ${check.next.toFixed(0)} L\n\n¿Guardar de todas formas?`,
+        danger: true,
+        confirmLabel: "Guardar igual",
+      });
+      if (!ok) return;
+    }
     const ex = list.find(i => i.id === item.id);
     await persist(ex ? list.map(i => i.id === item.id ? item : i) : [...list, item]);
     setModal(null);
   };
   const onDelete = async id => {
-    if (confirm("¿Eliminar este lote?")) {
-      const item = list.find(i => i.id === id);
+    const item = list.find(i => i.id === id);
+    const resumen = item ? buildResumen("fortificado", item) : "";
+    if (await askConfirm({ title: "Eliminar lote fortificado", message: `¿Eliminar este lote?${resumen ? "\n\n" + resumen : ""}`, danger: true, confirmLabel: "Eliminar" })) {
       if (item) await logDelete("fortificado", item);
       await persist(list.filter(i => i.id !== id));
       setModal(null);
@@ -1709,7 +1852,7 @@ const SecFortificados = ({ date, syncKey = 0 }) => {
           {f.responsable && <div style={{ fontSize: 12, color: C.muted, marginTop: 4 }}>{f.responsable}</div>}
         </div>
       ))}
-      <FAB onClick={() => setModal("new")} />
+      {!dayClosed && <FAB onClick={() => setModal("new")} />}
       {modal && (
         <Modal title={modal === "new" ? "Nuevo Lote Fortificado" : "Editar Lote Fortificado"} onClose={() => setModal(null)}>
           <FortForm
@@ -1719,6 +1862,7 @@ const SecFortificados = ({ date, syncKey = 0 }) => {
           />
         </Modal>
       )}
+      {confirmUI}
     </div>
   );
 };
@@ -4218,6 +4362,8 @@ export default function App() {
   const [queueRetrying, setQueueRetrying] = useState(false);
   const [dayClosed, setDayClosed] = useState(false);
   const [dayClosedBy, setDayClosedBy] = useState(null);
+  const [dayClosedBlocked, setDayClosedBlocked] = useState(false);
+  const [confirmUI, askConfirm] = useConfirm();
   const isToday = date === getToday();
 
   const navItems = perfil
@@ -4242,10 +4388,21 @@ export default function App() {
   // Cargar estado de cierre del día al cambiar fecha o en cada sync
   useEffect(() => {
     loadEstado(date).then(est => {
-      setDayClosed(est?.closed || false);
+      const closed = est?.closed || false;
+      setDayClosed(closed);
       setDayClosedBy(est?.closedBy || null);
+      _markDayClosed(date, closed);
     });
   }, [date, syncKey]);
+
+  // Registrar callback para cuando save() intenta escribir en día cerrado
+  useEffect(() => {
+    _onSaveBlocked = () => {
+      setDayClosedBlocked(true);
+      setTimeout(() => setDayClosedBlocked(false), 3000);
+    };
+    return () => { _onSaveBlocked = null; };
+  }, []);
 
   // Sincronizar perfil con sesión de Supabase Auth
   useEffect(() => {
@@ -4320,7 +4477,13 @@ export default function App() {
   };
 
   const handleCerrarDia = async () => {
-    if (!confirm(`¿Cerrar el día ${fmtDate(date)}?\nNo se podrán agregar ni modificar registros. Solo el jefe puede reabrir.`)) return;
+    const ok = await askConfirm({
+      title: "Cerrar día",
+      message: `¿Cerrar el día ${fmtDate(date)}?\n\nNo se podrán agregar ni modificar registros. Solo el jefe puede reabrir.`,
+      danger: true,
+      confirmLabel: "Cerrar día",
+    });
+    if (!ok) return;
     const est = { closed: true, closedAt: new Date().toISOString(), closedBy: PERFILES[perfil]?.label || "Supervisor" };
     await saveEstado(date, est);
     await logAudit(date, "close_day", "dia", `Día ${date} cerrado`, est.closedBy);
@@ -4328,7 +4491,12 @@ export default function App() {
     setDayClosedBy(est.closedBy);
   };
   const handleReabrirDia = async () => {
-    if (!confirm(`¿Reabrir el día ${fmtDate(date)}?`)) return;
+    const ok = await askConfirm({
+      title: "Reabrir día",
+      message: `¿Reabrir el día ${fmtDate(date)}?\n\nLos operarios podrán volver a editar registros.`,
+      confirmLabel: "Reabrir",
+    });
+    if (!ok) return;
     await saveEstado(date, { closed: false });
     await logAudit(date, "reopen_day", "dia", `Día ${date} reabierto`, PERFILES[perfil]?.label || "Jefe");
     setDayClosed(false);
@@ -4423,6 +4591,21 @@ export default function App() {
                 {isToday ? "Hoy" : fmtDate(date)}
               </span>
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Banner día cerrado — intento de guardado bloqueado */}
+      {dayClosedBlocked && (
+        <div style={{
+          background: `${C.danger}18`, borderBottom: `2px solid ${C.danger}`,
+          padding: "8px 16px", display: "flex", alignItems: "center", gap: 10,
+          position: "sticky", top: 0, zIndex: 301,
+          marginLeft: isDesktop ? SIDEBAR_W : 0,
+        }}>
+          <IcoCerrado size={16} strokeWidth={SW} color={C.danger} />
+          <div style={{ fontSize: 12, fontWeight: 700, color: C.danger }}>
+            Día cerrado — no se guardaron cambios
           </div>
         </div>
       )}
@@ -4686,12 +4869,12 @@ export default function App() {
           </div>
         )}
         <div style={{ maxWidth: isDesktop ? 960 : "100%", margin: isDesktop ? "0 auto" : undefined }}>
-        {section === "ingresos" && <SecIngresos date={date} syncKey={syncKey} />}
+        {section === "ingresos" && <SecIngresos date={date} syncKey={syncKey} dayClosed={dayClosed} />}
         {section === "cip" && <SecCIP date={date} syncKey={syncKey} />}
-        {section === "carga" && <SecCarga date={date} syncKey={syncKey} />}
-        {section === "movimientos" && <SecMovimientos date={date} syncKey={syncKey} />}
+        {section === "carga" && <SecCarga date={date} syncKey={syncKey} dayClosed={dayClosed} />}
+        {section === "movimientos" && <SecMovimientos date={date} syncKey={syncKey} dayClosed={dayClosed} />}
         {section === "stock" && <SecStock date={date} syncKey={syncKey} />}
-        {section === "fortificados" && <SecFortificados date={date} syncKey={syncKey} />}
+        {section === "fortificados" && <SecFortificados date={date} syncKey={syncKey} dayClosed={dayClosed} />}
         {section === "supervisor" && perfil && <SecDashboard date={date} perfil={perfil} perfilLabel={PERFILES[perfil]?.label || ""} syncKey={syncKey} />}
         </div>
       </div>
@@ -4729,6 +4912,7 @@ export default function App() {
           );
         })}
       </div>}
+      {confirmUI}
     </div>
   );
 }
