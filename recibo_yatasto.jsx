@@ -2224,8 +2224,9 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
       calcAutoLitros(date),
       db.get(ELIM_KEY).then(r => r ? JSON.parse(r.value) : []).catch(() => []),
       getActiveUsers(),
-    ]).then(([ing, cargas, movData, stock, forts, cip, autoLitros, historial, activeUsers]) => {
-      setD({ ing, cargas, movData, stock, forts, cip, autoLitros, historial });
+      db.get(auditKey(date)).then(r => r ? JSON.parse(r.value) : []).catch(() => []),
+    ]).then(([ing, cargas, movData, stock, forts, cip, autoLitros, historial, activeUsers, auditLog]) => {
+      setD({ ing, cargas, movData, stock, forts, cip, autoLitros, historial, auditLog });
       setUsers(activeUsers);
     });
   }, [date, syncKey]);
@@ -2282,6 +2283,8 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
 
   const TIPO_LABEL = { ingreso: "Ingreso", carga: "Carga", movimiento: "Movimiento", control: "Control Silo", fortificado: "Fortificado" };
   const TIPO_COL = { ingreso: C.accent, carga: C.sub, movimiento: C.muted, control: C.success, fortificado: C.success };
+  const AUDIT_LABEL = { delete: "Eliminación", close_day: "Cierre de día", reopen_day: "Reapertura" };
+  const AUDIT_COL   = { delete: C.danger, close_day: "#f97316", reopen_day: C.success };
 
   // ── Componentes visuales ─────────────────────────────────────
   const StatCard = ({ Icon: StatIcon, label, value, unit, color, sub, trend }) => {
@@ -3711,6 +3714,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
           ["tambos",   IcoLeche,     "Tambos"],
           ["historial",TabHistorial, "Historial"],
           ["exportar", TabExportar,  "Exportar"],
+          ...(perfil === "jefe" ? [["auditoria", AlertaOk, "Auditoría"]] : []),
         ].map(([t, TabIcon, lbl]) => {
           const active = tab === t;
           return (
@@ -4096,6 +4100,37 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
         </div>
       )}
 
+      {/* ── AUDITORÍA (solo jefe) ── */}
+      {tab === "auditoria" && perfil === "jefe" && (
+        <div>
+          <div style={{ ...panel, marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ fontSize: 12, color: C.sub }}>Eventos auditados del <strong style={{ color: C.text }}>{fmtDate(date)}</strong></div>
+            <div style={{ fontSize: 11, color: C.muted }}>{(d.auditLog || []).length} evento{(d.auditLog || []).length !== 1 ? "s" : ""}</div>
+          </div>
+          {(d.auditLog || []).length === 0 ? (
+            <div style={{ textAlign: "center", padding: "40px 24px", color: C.sub }}>
+              <div style={{ display: "flex", justifyContent: "center", opacity: 0.35, marginBottom: 10 }}><AlertaOk size={40} strokeWidth={1} /></div>
+              <div style={{ fontSize: 14 }}>Sin eventos registrados para esta fecha</div>
+            </div>
+          ) : [...(d.auditLog || [])].reverse().map((e, i) => {
+            const col = AUDIT_COL[e.action] || C.sub;
+            const ts = new Date(e.ts);
+            const hora = isNaN(ts) ? "" : ts.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
+            return (
+              <div key={i} style={{ ...card, padding: 10, marginBottom: 6 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 3 }}>
+                  <span style={{ fontSize: 11, background: col + "22", color: col, borderRadius: 4, padding: "2px 8px", fontWeight: 700, textTransform: "uppercase" }}>
+                    {AUDIT_LABEL[e.action] || e.action}
+                  </span>
+                  <span style={{ fontSize: 11, color: C.muted, fontFamily: FONT_MONO }}>{hora} · {e.by || "—"}</span>
+                </div>
+                {e.resumen && <div style={{ fontSize: 12, color: C.sub, marginTop: 2 }}>{e.resumen}</div>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {/* ── SEMANA ── */}
       {tab === "semana" && (() => {
         const loadingPlaceholder = (
@@ -4445,6 +4480,7 @@ export default function App() {
   const [dayClosedBy, setDayClosedBy] = useState(null);
   const [dayClosedBlocked, setDayClosedBlocked] = useState(false);
   const [confirmUI, askConfirm] = useConfirm();
+  const [turnoActual, setTurnoActual] = useState(getCurrentTurno());
   const isToday = date === getToday();
 
   const navItems = perfil
@@ -4538,6 +4574,7 @@ export default function App() {
       setSyncKey(k => k + 1);
       hbTick++;
       if (hbTick % 3 === 0) updateHeartbeat(nombre, rol); // heartbeat cada 30 s
+      setTurnoActual(getCurrentTurno()); // actualizar turno si cambió la hora
       // Detectar cambio de día (app abierta al cruzar la medianoche)
       const today = getToday();
       if (today !== lastDate) {
@@ -4568,6 +4605,9 @@ export default function App() {
     const est = { closed: true, closedAt: new Date().toISOString(), closedBy: PERFILES[perfil]?.label || "Supervisor" };
     await saveEstado(date, est);
     await logAudit(date, "close_day", "dia", `Día ${date} cerrado`, est.closedBy);
+    // Guardar saldo final para que mañana arranque con los litros correctos
+    const finalTotals = await calcAutoLitros(date);
+    await saveSaldo(finalTotals, date);
     setDayClosed(true);
     setDayClosedBy(est.closedBy);
   };
@@ -4840,11 +4880,21 @@ export default function App() {
               {(() => { const n = navItems.find(item => item.id === section); return n ? <n.Icon size={14} strokeWidth={SW} /> : null; })()}
               <span>{navItems.find(n => n.id === section)?.label}</span>
             </div>
+            {isToday && (
+              <span style={{ fontSize: 10, fontWeight: 700, color: C.accent, background: C.accentDim, borderRadius: 5, padding: "2px 6px", whiteSpace: "nowrap" }}>
+                {TURNO_LABELS[turnoActual]}
+              </span>
+            )}
           </div>
         ) : (
-          <div style={{ fontSize: 13, fontWeight: 700, color: C.text, display: "flex", alignItems: "center", gap: 6 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: C.text, display: "flex", alignItems: "center", gap: 8 }}>
             {(() => { const n = navItems.find(item => item.id === section); return n ? <n.Icon size={15} strokeWidth={SW} color={C.accent} /> : null; })()}
             <span>{navItems.find(n => n.id === section)?.id === "supervisor" ? "Dashboard" : navItems.find(n => n.id === section)?.label}</span>
+            {isToday && (
+              <span style={{ fontSize: 10, fontWeight: 700, color: C.accent, background: C.accentDim, borderRadius: 5, padding: "2px 7px", whiteSpace: "nowrap" }}>
+                {TURNO_LABELS[turnoActual]}
+              </span>
+            )}
           </div>
         )}
 
@@ -4928,6 +4978,24 @@ export default function App() {
         <div style={{ background: C.card, borderBottom: `1px solid ${C.border}`, padding: "12px 16px", display: "flex", gap: 8, marginLeft: isDesktop ? SIDEBAR_W : 0 }}>
           <input type="date" value={date} onChange={e => { setDate(e.target.value); setDatePicker(false); }} style={{ ...inp, flex: 1 }} />
           <button type="button" onClick={() => { setDate(getToday()); setDatePicker(false); }} style={{ ...btnPrimary, width: "auto", padding: "10px 16px", whiteSpace: "nowrap" }}>Hoy</button>
+        </div>
+      )}
+
+      {/* Banner: fecha histórica */}
+      {!isToday && (
+        <div style={{
+          background: `${C.accent}14`, borderBottom: `1px solid ${C.accentDark}`,
+          padding: "7px 16px", display: "flex", alignItems: "center", gap: 8,
+          marginLeft: isDesktop ? SIDEBAR_W : 0,
+        }}>
+          <IcoDate size={13} strokeWidth={SW} color={C.accent} />
+          <span style={{ fontSize: 12, color: C.text, flex: 1 }}>
+            Viendo registros del <strong style={{ fontFamily: FONT_MONO, color: C.accent }}>{fmtDate(date)}</strong>
+          </span>
+          <button type="button" onClick={() => setDate(getToday())} style={{
+            background: C.accent, color: "#000", border: "none", borderRadius: 6,
+            padding: "3px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap",
+          }}>Hoy →</button>
         </div>
       )}
 
