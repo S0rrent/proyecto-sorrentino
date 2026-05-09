@@ -1,4 +1,5 @@
 import { useState, useEffect, Fragment } from "react";
+import { useRegisterSW } from "virtual:pwa-register/react";
 import { DARK, LIGHT, FONT_SANS, FONT_MONO, EASE_OUT, DUR } from "./tokens.js";
 import { useViewport } from "./hooks.js";
 import { db, onWriteQueueChange } from "./db-adapter.js";
@@ -226,14 +227,54 @@ const SESSION_ID = (() => {
 
 // Rangos de referencia para alertas de calidad (solo visibles a Supervisor/Jefe)
 const QUALITY_REFS = {
-  "pH":          { min: 6.6,  max: 6.8  },
-  "Acidez":      { min: 14,   max: 18   },
-  "GB":          { min: 3,    max: 4    },
-  "SNG":         { min: 8,    max: 8.7  },
-  "Proteína":    { min: 2.9,  max: 3.5  },
-  "Temperatura": { min: 3,    max: 8    },
-  "Aguado":      { min: 0,    max: 0,   critical: true }, // debe ser EXACTAMENTE 0
+  "pH":          { min: 6.6,   max: 6.8   },
+  "Acidez":      { min: 14,    max: 18    },
+  "GB":          { min: 3,     max: 4     },
+  "SNG":         { min: 8,     max: 8.7   },
+  "Proteína":    { min: 2.9,   max: 3.5   },
+  "Temperatura": { min: 3,     max: 8     },
+  "Aguado":      { min: 0,     max: 0,    critical: true },
+  "Densidad":    { min: 1.028, max: 1.034 },
 };
+
+// ─── DENSIDAD: normalización formato Ecomilk ─────────────────────────────────
+// El Ecomilk muestra: 28, 29, 30, 31, 34
+// Formato técnico:    1.028, 1.029, 1.030, 1.031, 1.034
+// Regla: entero sin punto decimal en rango [20, 40] → interpretar como Ecomilk.
+
+function isEcomilkDensity(v) {
+  const s = String(v == null ? "" : v).trim();
+  if (!s || s.includes(".")) return false;
+  const n = Number(s);
+  return Number.isFinite(n) && Number.isInteger(n) && n >= 20 && n <= 40;
+}
+
+// Convierte cualquier formato válido al valor técnico con 3 decimales.
+function normalizeDensity(v) {
+  if (v === "" || v == null) return "";
+  if (isEcomilkDensity(v)) return (1 + parseInt(v, 10) / 1000).toFixed(3);
+  const n = parseFloat(v);
+  return !isNaN(n) ? n.toFixed(3) : String(v);
+}
+
+// Para display en auditorías, reportes y exports: siempre 3 decimales.
+// Retro-compatible: si un registro viejo tuviera "28" guardado, lo convierte al mostrarlo.
+function formatDensity(v) {
+  if (v === "" || v == null) return "";
+  if (isEcomilkDensity(v)) return (1 + parseInt(v, 10) / 1000).toFixed(3);
+  const n = parseFloat(v);
+  return !isNaN(n) ? n.toFixed(3) : String(v);
+}
+
+// Retorna null si el valor es válido; string de error si no.
+function validateDensity(raw) {
+  if (raw === "" || raw == null) return null;
+  if (isEcomilkDensity(raw)) return null; // 20–40 entero → OK
+  const n = parseFloat(raw);
+  if (isNaN(n)) return "Valor inválido";
+  if (n < 1.020 || n > 1.040) return `Fuera de rango (1.020–1.040 ó 20–40 Ecomilk)`;
+  return null;
+}
 
 // Campos a comparar Tambo vs Fábrica para detección de desvíos
 const DIFF_FIELDS = [
@@ -533,6 +574,46 @@ function useConfirm() {
   return [ui, ask];
 }
 
+// ─── DENSIDAD — Componentes de entrada ───────────────────────────────────────
+// Normaliza en onBlur: "28" → "1.028". Valida rango. Muestra error inline.
+const DensityInput = ({ value, onChange, placeholder = "ej. 28 ó 1.028" }) => {
+  const [local, setLocal] = useState(String(value || ""));
+  const [err, setErr] = useState("");
+  useEffect(() => { setLocal(String(value || "")); }, [value]);
+  const handleBlur = () => {
+    if (!local.trim()) { onChange(""); setErr(""); return; }
+    const errMsg = validateDensity(local);
+    if (errMsg) { setErr(errMsg); return; }
+    const norm = normalizeDensity(local);
+    setErr(""); setLocal(norm); onChange(norm);
+  };
+  return (
+    <div>
+      <input
+        style={inp} type="number" inputMode="decimal"
+        value={local} placeholder={placeholder} step="0.001"
+        onChange={e => { setLocal(e.target.value); setErr(""); }}
+        onBlur={handleBlur}
+      />
+      {err && <div style={{ fontSize: 11, color: C.danger, marginTop: 3, lineHeight: 1.4 }}>{err}</div>}
+    </div>
+  );
+};
+
+// Versión Fca/Tbo en dos columnas, reemplaza el <Pair> genérico para densidad.
+const DensityPair = ({ v1, v2, on1, on2 }) => (
+  <div style={{ marginBottom: 12 }}>
+    <label style={lbl}>Densidad — <span style={{ color: C.text }}>Fca.</span> / <span style={{ color: C.sub }}>Tbo.</span></label>
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+      <DensityInput value={v1} onChange={on1} />
+      <DensityInput value={v2} onChange={on2} />
+    </div>
+    <div style={{ fontSize: 11, color: C.sub, marginTop: 4 }}>
+      Ecomilk: 28–34 · Técnico: 1.028–1.034 · Ref: 1.028–1.033 g/mL
+    </div>
+  </div>
+);
+
 // Calcula el balance actual de un silo y verifica si una operación lo dejaría negativo.
 // excludeFn permite restar la contribución del item que se está editando para no contarlo dos veces.
 async function checkSiloBalance(date, siloRaw, litrosImpacto, excludeFn = null) {
@@ -557,6 +638,18 @@ const emptyIng = () => ({
   producto: "", brix: "", organoleptico: "",
 });
 
+// Mapeo de campos del formulario → rangos de referencia para advertencias en vivo.
+// Solo Fábrica; Aguado tiene su propio modal bloqueante.
+const QUALITY_WARN_MAP = [
+  { key: "phFca",     label: "pH",          ref: QUALITY_REFS["pH"]          },
+  { key: "acidezFca", label: "Acidez",      ref: QUALITY_REFS["Acidez"]      },
+  { key: "gbFca",     label: "GB",          ref: QUALITY_REFS["GB"]          },
+  { key: "sngFca",    label: "SNG",         ref: QUALITY_REFS["SNG"]         },
+  { key: "protFca",   label: "Proteína",    ref: QUALITY_REFS["Proteína"]    },
+  { key: "tC",        label: "Temperatura", ref: QUALITY_REFS["Temperatura"] },
+  { key: "densFca",   label: "Densidad",    ref: QUALITY_REFS["Densidad"]    },
+];
+
 const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo }) => {
   const [f, setF] = useState(initial || emptyIng());
   const [aguadoAlerta, setAguadoAlerta] = useState(false);
@@ -567,6 +660,13 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
     setF(p => ({ ...p, tambo: nombre, num: t ? String(t.num) : p.num }));
   };
   const isConcentrado = PRODS_CONCENTRADOS.includes(f.producto);
+
+  // Advertencias de calidad derivadas del estado del formulario — sin useState, sin bloqueo.
+  const qualityWarnings = isConcentrado ? [] : QUALITY_WARN_MAP.filter(({ key, ref }) => {
+    if (!ref) return false;
+    const v = parseFloat(f[key]);
+    return !isNaN(v) && (v < ref.min || v > ref.max);
+  }).map(({ label, ref, key }) => `${label}: ${f[key]}  (ref ${ref.min}–${ref.max})`);
 
   return (
     <div>
@@ -662,8 +762,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
             <div style={{ fontSize: 11, color: C.sub, marginTop: -8, marginBottom: 12 }}>Ref: 3.0 – 4.0 %</div>
             <Pair label="Sólidos No Grasos (SNG)" v1={f.sngFca} v2={f.sngTbo} on1={set("sngFca")} on2={set("sngTbo")} />
             <div style={{ fontSize: 11, color: C.sub, marginTop: -8, marginBottom: 12 }}>Ref: 8.0 – 8.7 %</div>
-            <Pair label="Densidad" v1={f.densFca} v2={f.densTbo} on1={set("densFca")} on2={set("densTbo")} />
-            <div style={{ fontSize: 11, color: C.sub, marginTop: -8, marginBottom: 12 }}>Ref: 1.028 – 1.033 g/mL</div>
+            <DensityPair v1={f.densFca} v2={f.densTbo} on1={set("densFca")} on2={set("densTbo")} />
             <Pair label="Aguado" v1={f.aguadoFca} v2={f.aguadoTbo} on1={set("aguadoFca")} on2={set("aguadoTbo")} />
             <div style={{ fontSize: 11, color: C.danger, marginTop: -8, marginBottom: 12 }}>Debe ser exactamente 0 — indica adulteración</div>
             <Pair label="Leche de Descarte" v1={f.dcFca} v2={f.dcTbo} on1={set("dcFca")} on2={set("dcTbo")} />
@@ -677,6 +776,15 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
       <F label="Observaciones">
         <textarea style={{ ...inp, minHeight: 60, resize: "vertical" }} value={f.obs} onChange={e => set("obs")(e.target.value)} placeholder="Observaciones..." />
       </F>
+      {qualityWarnings.length > 0 && (
+        <div style={{ background: `${C.accent}12`, border: `1px solid ${C.accent}44`, borderRadius: 8, padding: "10px 12px", marginBottom: 8, fontSize: 12, color: C.text, lineHeight: 1.7 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 700, color: C.accent, marginBottom: 4 }}>
+            <AlertaWarn size={13} strokeWidth={SW} /> Parámetros fuera de rango de referencia
+          </div>
+          {qualityWarnings.map((w, i) => <div key={i} style={{ color: C.sub }}>• {w}</div>)}
+          <div style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>El ingreso se guarda igual — revisar con supervisor si corresponde.</div>
+        </div>
+      )}
       {fieldError && (
         <div style={{ background: `${C.danger}18`, border: `1px solid ${C.danger}55`, borderRadius: 8, padding: "10px 12px", marginBottom: 8, fontSize: 13, color: C.danger, whiteSpace: "pre-line", lineHeight: 1.6 }}>
           {fieldError}
@@ -757,8 +865,14 @@ const SecIngresos = ({ date, syncKey = 0, dayClosed = false }) => {
     setModal(null);
   };
   const onDelete = async id => {
-    if (await askConfirm({ title: "Eliminar ingreso", message: "¿Eliminar este ingreso? La acción quedará registrada en el historial.", danger: true, confirmLabel: "Eliminar" })) {
-      const item = list.find(i => i.id === id);
+    const item = list.find(i => i.id === id);
+    const resumen = item ? buildResumen("ingreso", item) : "";
+    if (await askConfirm({
+      title: "Eliminar ingreso",
+      message: `¿Eliminar este ingreso?${resumen ? "\n\n" + resumen : ""}\n\nLa acción quedará registrada en el historial.`,
+      danger: true,
+      confirmLabel: "Eliminar",
+    })) {
       if (item) await logDelete("ingreso", item);
       await persist(list.filter(i => i.id !== id)); setModal(null);
     }
@@ -1288,7 +1402,8 @@ const CtrlForm = ({ initial, onSave, onClose, onDelete }) => {
   const [f, setF] = useState(initial || emptyCtrl());
   const [fieldError, setFieldError] = useState("");
   const set = k => v => { setFieldError(""); setF(p => ({ ...p, [k]: v })); };
-  const campos = [["pH", "ph"], ["°D", "gD"], ["°C", "gC"], ["Alc.", "alc"], ["MG", "mg"], ["SNG", "sng"], ["Dens.", "dens"], ["FP", "fp"], ["Prot.", "prot"]];
+  // "dens" se renderiza aparte con DensityInput; el resto se mapea con Inp genérico.
+  const campos = [["pH", "ph"], ["°D", "gD"], ["°C", "gC"], ["Alc.", "alc"], ["MG", "mg"], ["SNG", "sng"], ["FP", "fp"], ["Prot.", "prot"]];
   return (
     <div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 4 }}>
@@ -1298,6 +1413,7 @@ const CtrlForm = ({ initial, onSave, onClose, onDelete }) => {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 6 }}>
         {campos.map(([l, k]) => <F key={k} label={l}><Inp type="number" value={f[k]} onChange={set(k)} step="0.01" /></F>)}
       </div>
+      <F label="Dens."><DensityInput value={f.dens} onChange={set("dens")} /></F>
       <F label="Responsable"><Inp value={f.resp} onChange={set("resp")} /></F>
       {fieldError && (
         <div style={{ background: `${C.danger}18`, border: `1px solid ${C.danger}55`, borderRadius: 8, padding: "10px 12px", marginBottom: 8, fontSize: 13, color: C.danger, whiteSpace: "pre-line", lineHeight: 1.6 }}>
@@ -2126,6 +2242,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
   const [exportFrom, setExportFrom] = useState(date);
   const [exportTo, setExportTo] = useState(date);
   const [exporting, setExporting] = useState(false);
+  const [popupBlocked, setPopupBlocked] = useState(false);
   const [weekData, setWeekData] = useState(null);
   const [loadingWeek, setLoadingWeek] = useState(false);
   const [tamboSel, setTamboSel] = useState(null);
@@ -2143,8 +2260,9 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
       calcAutoLitros(date),
       db.get(ELIM_KEY).then(r => r ? JSON.parse(r.value) : []).catch(() => []),
       getActiveUsers(),
-    ]).then(([ing, cargas, movData, stock, forts, cip, autoLitros, historial, activeUsers]) => {
-      setD({ ing, cargas, movData, stock, forts, cip, autoLitros, historial });
+      db.get(auditKey(date)).then(r => r ? JSON.parse(r.value) : []).catch(() => []),
+    ]).then(([ing, cargas, movData, stock, forts, cip, autoLitros, historial, activeUsers, auditLog]) => {
+      setD({ ing, cargas, movData, stock, forts, cip, autoLitros, historial, auditLog });
       setUsers(activeUsers);
     });
   }, [date, syncKey]);
@@ -2201,6 +2319,8 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
 
   const TIPO_LABEL = { ingreso: "Ingreso", carga: "Carga", movimiento: "Movimiento", control: "Control Silo", fortificado: "Fortificado" };
   const TIPO_COL = { ingreso: C.accent, carga: C.sub, movimiento: C.muted, control: C.success, fortificado: C.success };
+  const AUDIT_LABEL = { delete: "Eliminación", close_day: "Cierre de día", reopen_day: "Reapertura" };
+  const AUDIT_COL   = { delete: C.danger, close_day: "#f97316", reopen_day: C.success };
 
   // ── Componentes visuales ─────────────────────────────────────
   const StatCard = ({ Icon: StatIcon, label, value, unit, color, sub, trend }) => {
@@ -2303,7 +2423,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
         const ing = await load(day, "ingresos", []);
         ing.forEach(i => {
           const prefix = multiDay ? `${fmtDate(day)},` : "";
-          csv += `${prefix}${i.hora || ""},${escapeCsv(i.tambo || "")},${i.litrosFca || ""},${i.litrosTbo || ""},${diffVal(i.litrosFca, i.litrosTbo)},${escapeCsv(i.destino || "")},${i.phFca || ""},${i.acidezFca || ""},${i.gbFca || ""},${i.gbTbo || ""},${diffVal(i.gbFca, i.gbTbo)},${i.sngFca || ""},${i.sngTbo || ""},${diffVal(i.sngFca, i.sngTbo)},${i.densFca || ""},${i.densTbo || ""},${diffVal(i.densFca, i.densTbo)},${i.aguadoFca || ""},${i.aguadoTbo || ""},${diffVal(i.aguadoFca, i.aguadoTbo)},${i.protFca || ""},${i.protTbo || ""},${diffVal(i.protFca, i.protTbo)},${i.alcFca || ""},${i.alcTbo || ""},${diffVal(i.alcFca, i.alcTbo)},${escapeCsv(i.responsable || "")}\n`;
+          csv += `${prefix}${i.hora || ""},${escapeCsv(i.tambo || "")},${i.litrosFca || ""},${i.litrosTbo || ""},${diffVal(i.litrosFca, i.litrosTbo)},${escapeCsv(i.destino || "")},${i.phFca || ""},${i.acidezFca || ""},${i.gbFca || ""},${i.gbTbo || ""},${diffVal(i.gbFca, i.gbTbo)},${i.sngFca || ""},${i.sngTbo || ""},${diffVal(i.sngFca, i.sngTbo)},${formatDensity(i.densFca) || ""},${formatDensity(i.densTbo) || ""},${diffVal(i.densFca, i.densTbo)},${i.aguadoFca || ""},${i.aguadoTbo || ""},${diffVal(i.aguadoFca, i.aguadoTbo)},${i.protFca || ""},${i.protTbo || ""},${diffVal(i.protFca, i.protTbo)},${i.alcFca || ""},${i.alcTbo || ""},${diffVal(i.alcFca, i.alcTbo)},${escapeCsv(i.responsable || "")}\n`;
         });
       }
       csv += "\nCARGAS\n";
@@ -2754,8 +2874,8 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
             <td class="r">${i.sngFca || "—"}</td>
             <td class="r">${i.sngTbo || "—"}</td>
             <td class="r">${xlsDiffVal(i.sngFca, i.sngTbo)}</td>
-            <td class="r">${i.densFca || "—"}</td>
-            <td class="r">${i.densTbo || "—"}</td>
+            <td class="r">${formatDensity(i.densFca) || "—"}</td>
+            <td class="r">${formatDensity(i.densTbo) || "—"}</td>
             <td class="r">${xlsDiffVal(i.densFca, i.densTbo)}</td>
             <td class="r">${aguHTML}</td>
             <td class="r">${i.aguadoTbo || "—"}</td>
@@ -3343,7 +3463,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
             <td class="r">${i.acidezFca || "—"}</td>
             <td class="r">${i.gbFca || "—"}</td>
             <td class="r">${i.sngFca || "—"}</td>
-            <td class="r">${i.densFca || "—"}</td>
+            <td class="r">${formatDensity(i.densFca) || "—"}</td>
             <td class="r">${aguH}</td>
             <td class="mu">${escapeHtml(i.responsable) || "—"}</td>
           </tr>`;
@@ -3494,7 +3614,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
         w.document.write(full);
         w.document.close();
       } else {
-        alert("El navegador bloqueó la ventana emergente. Permitir popups para este sitio y volver a intentar.");
+        setPopupBlocked(true);
       }
     } finally { setExporting(false); }
   };
@@ -3556,6 +3676,22 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
 
   return (
     <div>
+      {/* Modal popup bloqueado */}
+      {popupBlocked && (
+        <Modal title="Popup bloqueado" onClose={() => setPopupBlocked(false)}>
+          <div style={{ fontSize: 14, color: C.text, lineHeight: 1.6, marginBottom: 16 }}>
+            El navegador bloqueó la ventana emergente del informe.
+          </div>
+          <div style={{ ...panel, fontSize: 13, color: C.sub, lineHeight: 1.7 }}>
+            <div style={{ fontWeight: 700, color: C.text, marginBottom: 6 }}>Cómo habilitarlo:</div>
+            <div>1. Buscá el ícono de popup bloqueado en la barra de dirección.</div>
+            <div>2. Hacé clic y elegí <strong>"Permitir siempre popups de este sitio"</strong>.</div>
+            <div>3. Volvé a tocar Exportar.</div>
+          </div>
+          <button type="button" style={btnPrimary} onClick={() => setPopupBlocked(false)}>Entendido</button>
+        </Modal>
+      )}
+
       {/* ── HEADER PREMIUM ── */}
       <div style={{
         background: _THEME === "light"
@@ -3630,6 +3766,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
           ["tambos",   IcoLeche,     "Tambos"],
           ["historial",TabHistorial, "Historial"],
           ["exportar", TabExportar,  "Exportar"],
+          ...(perfil === "jefe" ? [["auditoria", AlertaOk, "Auditoría"]] : []),
         ].map(([t, TabIcon, lbl]) => {
           const active = tab === t;
           return (
@@ -4015,6 +4152,37 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
         </div>
       )}
 
+      {/* ── AUDITORÍA (solo jefe) ── */}
+      {tab === "auditoria" && perfil === "jefe" && (
+        <div>
+          <div style={{ ...panel, marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ fontSize: 12, color: C.sub }}>Eventos auditados del <strong style={{ color: C.text }}>{fmtDate(date)}</strong></div>
+            <div style={{ fontSize: 11, color: C.muted }}>{(d.auditLog || []).length} evento{(d.auditLog || []).length !== 1 ? "s" : ""}</div>
+          </div>
+          {(d.auditLog || []).length === 0 ? (
+            <div style={{ textAlign: "center", padding: "40px 24px", color: C.sub }}>
+              <div style={{ display: "flex", justifyContent: "center", opacity: 0.35, marginBottom: 10 }}><AlertaOk size={40} strokeWidth={1} /></div>
+              <div style={{ fontSize: 14 }}>Sin eventos registrados para esta fecha</div>
+            </div>
+          ) : [...(d.auditLog || [])].reverse().map((e, i) => {
+            const col = AUDIT_COL[e.action] || C.sub;
+            const ts = new Date(e.ts);
+            const hora = isNaN(ts) ? "" : ts.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
+            return (
+              <div key={i} style={{ ...card, padding: 10, marginBottom: 6 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 3 }}>
+                  <span style={{ fontSize: 11, background: col + "22", color: col, borderRadius: 4, padding: "2px 8px", fontWeight: 700, textTransform: "uppercase" }}>
+                    {AUDIT_LABEL[e.action] || e.action}
+                  </span>
+                  <span style={{ fontSize: 11, color: C.muted, fontFamily: FONT_MONO }}>{hora} · {e.by || "—"}</span>
+                </div>
+                {e.resumen && <div style={{ fontSize: 12, color: C.sub, marginTop: 2 }}>{e.resumen}</div>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {/* ── SEMANA ── */}
       {tab === "semana" && (() => {
         const loadingPlaceholder = (
@@ -4364,7 +4532,10 @@ export default function App() {
   const [dayClosedBy, setDayClosedBy] = useState(null);
   const [dayClosedBlocked, setDayClosedBlocked] = useState(false);
   const [confirmUI, askConfirm] = useConfirm();
+  const [turnoActual, setTurnoActual] = useState(getCurrentTurno());
   const isToday = date === getToday();
+
+  const { needRefresh: [needRefresh], updateServiceWorker } = useRegisterSW();
 
   const navItems = perfil
     ? [...NAV, { id: "supervisor", label: "Superv.", Icon: PERFILES[perfil]?.Icon || IcoSupervisor }]
@@ -4457,6 +4628,7 @@ export default function App() {
       setSyncKey(k => k + 1);
       hbTick++;
       if (hbTick % 3 === 0) updateHeartbeat(nombre, rol); // heartbeat cada 30 s
+      setTurnoActual(getCurrentTurno()); // actualizar turno si cambió la hora
       // Detectar cambio de día (app abierta al cruzar la medianoche)
       const today = getToday();
       if (today !== lastDate) {
@@ -4487,6 +4659,9 @@ export default function App() {
     const est = { closed: true, closedAt: new Date().toISOString(), closedBy: PERFILES[perfil]?.label || "Supervisor" };
     await saveEstado(date, est);
     await logAudit(date, "close_day", "dia", `Día ${date} cerrado`, est.closedBy);
+    // Guardar saldo final para que mañana arranque con los litros correctos
+    const finalTotals = await calcAutoLitros(date);
+    await saveSaldo(finalTotals, date);
     setDayClosed(true);
     setDayClosedBy(est.closedBy);
   };
@@ -4537,6 +4712,31 @@ export default function App() {
 
   return (
     <div style={{ background: C.bg, minHeight: "100vh", color: C.text, fontFamily: FONT_SANS, paddingBottom: isDesktop ? 0 : 72 }}>
+
+      {/* Banner de actualización PWA */}
+      {needRefresh && (
+        <div style={{
+          position: "fixed", top: 0, left: 0, right: 0, zIndex: 9999,
+          background: C.accent, color: "#000",
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "8px 16px", gap: 12,
+        }}>
+          <span style={{ fontSize: 13, fontWeight: 600 }}>
+            Nueva versión disponible
+          </span>
+          <button
+            type="button"
+            onClick={() => updateServiceWorker(true)}
+            style={{
+              background: "#000", color: C.accent, border: "none", borderRadius: 6,
+              padding: "4px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer",
+              whiteSpace: "nowrap",
+            }}
+          >
+            Actualizar →
+          </button>
+        </div>
+      )}
 
       {/* Sidebar — desktop only */}
       {isDesktop && (
@@ -4759,16 +4959,38 @@ export default function App() {
               {(() => { const n = navItems.find(item => item.id === section); return n ? <n.Icon size={14} strokeWidth={SW} /> : null; })()}
               <span>{navItems.find(n => n.id === section)?.label}</span>
             </div>
+            {isToday && (
+              <span style={{ fontSize: 10, fontWeight: 700, color: C.accent, background: C.accentDim, borderRadius: 5, padding: "2px 6px", whiteSpace: "nowrap" }}>
+                {TURNO_LABELS[turnoActual]}
+              </span>
+            )}
           </div>
         ) : (
-          <div style={{ fontSize: 13, fontWeight: 700, color: C.text, display: "flex", alignItems: "center", gap: 6 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: C.text, display: "flex", alignItems: "center", gap: 8 }}>
             {(() => { const n = navItems.find(item => item.id === section); return n ? <n.Icon size={15} strokeWidth={SW} color={C.accent} /> : null; })()}
             <span>{navItems.find(n => n.id === section)?.id === "supervisor" ? "Dashboard" : navItems.find(n => n.id === section)?.label}</span>
+            {isToday && (
+              <span style={{ fontSize: 10, fontWeight: 700, color: C.accent, background: C.accentDim, borderRadius: 5, padding: "2px 7px", whiteSpace: "nowrap" }}>
+                {TURNO_LABELS[turnoActual]}
+              </span>
+            )}
           </div>
         )}
 
         {/* Right: action buttons */}
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          {/* Sync status */}
+          <div title={!storageOk ? "Error de conexión" : queueLen > 0 ? `${queueLen} cambio${queueLen > 1 ? "s" : ""} pendiente${queueLen > 1 ? "s" : ""}` : "Sincronizado"}
+            style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 24, height: 24, flexShrink: 0 }}>
+            {!storageOk
+              ? <IcoOffline size={14} strokeWidth={SW} color={C.danger} />
+              : queueLen > 0 && queueRetrying
+              ? <IcoSyncing size={14} strokeWidth={SW} color={C.accent} />
+              : queueLen > 0
+              ? <IcoSyncError size={14} strokeWidth={SW} color="#f97316" />
+              : <span style={{ width: 7, height: 7, borderRadius: "50%", background: C.success, display: "inline-block" }} />
+            }
+          </div>
           {/* Theme toggle */}
           <button type="button" onClick={() => {
             const next = _THEME === "dark" ? "light" : "dark";
@@ -4847,6 +5069,24 @@ export default function App() {
         <div style={{ background: C.card, borderBottom: `1px solid ${C.border}`, padding: "12px 16px", display: "flex", gap: 8, marginLeft: isDesktop ? SIDEBAR_W : 0 }}>
           <input type="date" value={date} onChange={e => { setDate(e.target.value); setDatePicker(false); }} style={{ ...inp, flex: 1 }} />
           <button type="button" onClick={() => { setDate(getToday()); setDatePicker(false); }} style={{ ...btnPrimary, width: "auto", padding: "10px 16px", whiteSpace: "nowrap" }}>Hoy</button>
+        </div>
+      )}
+
+      {/* Banner: fecha histórica */}
+      {!isToday && (
+        <div style={{
+          background: `${C.accent}14`, borderBottom: `1px solid ${C.accentDark}`,
+          padding: "7px 16px", display: "flex", alignItems: "center", gap: 8,
+          marginLeft: isDesktop ? SIDEBAR_W : 0,
+        }}>
+          <IcoDate size={13} strokeWidth={SW} color={C.accent} />
+          <span style={{ fontSize: 12, color: C.text, flex: 1 }}>
+            Viendo registros del <strong style={{ fontFamily: FONT_MONO, color: C.accent }}>{fmtDate(date)}</strong>
+          </span>
+          <button type="button" onClick={() => setDate(getToday())} style={{
+            background: C.accent, color: "#000", border: "none", borderRadius: 6,
+            padding: "3px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap",
+          }}>Hoy →</button>
         </div>
       )}
 
