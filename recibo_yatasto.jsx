@@ -1,4 +1,5 @@
 import { useState, useEffect, Fragment } from "react";
+import { useRegisterSW } from "virtual:pwa-register/react";
 import { DARK, LIGHT, FONT_SANS, FONT_MONO, EASE_OUT, DUR } from "./tokens.js";
 import { useViewport } from "./hooks.js";
 import { db, onWriteQueueChange } from "./db-adapter.js";
@@ -4534,6 +4535,8 @@ export default function App() {
   const [turnoActual, setTurnoActual] = useState(getCurrentTurno());
   const isToday = date === getToday();
 
+  const { needRefresh: [needRefresh], updateServiceWorker } = useRegisterSW();
+
   const navItems = perfil
     ? [...NAV, { id: "supervisor", label: "Superv.", Icon: PERFILES[perfil]?.Icon || IcoSupervisor }]
     : NAV;
@@ -4709,6 +4712,31 @@ export default function App() {
 
   return (
     <div style={{ background: C.bg, minHeight: "100vh", color: C.text, fontFamily: FONT_SANS, paddingBottom: isDesktop ? 0 : 72 }}>
+
+      {/* Banner de actualización PWA */}
+      {needRefresh && (
+        <div style={{
+          position: "fixed", top: 0, left: 0, right: 0, zIndex: 9999,
+          background: C.accent, color: "#000",
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "8px 16px", gap: 12,
+        }}>
+          <span style={{ fontSize: 13, fontWeight: 600 }}>
+            Nueva versión disponible
+          </span>
+          <button
+            type="button"
+            onClick={() => updateServiceWorker(true)}
+            style={{
+              background: "#000", color: C.accent, border: "none", borderRadius: 6,
+              padding: "4px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer",
+              whiteSpace: "nowrap",
+            }}
+          >
+            Actualizar →
+          </button>
+        </div>
+      )}
 
       {/* Sidebar — desktop only */}
       {isDesktop && (
