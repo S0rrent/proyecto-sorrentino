@@ -637,6 +637,18 @@ const emptyIng = () => ({
   producto: "", brix: "", organoleptico: "",
 });
 
+// Mapeo de campos del formulario → rangos de referencia para advertencias en vivo.
+// Solo Fábrica; Aguado tiene su propio modal bloqueante.
+const QUALITY_WARN_MAP = [
+  { key: "phFca",     label: "pH",          ref: QUALITY_REFS["pH"]          },
+  { key: "acidezFca", label: "Acidez",      ref: QUALITY_REFS["Acidez"]      },
+  { key: "gbFca",     label: "GB",          ref: QUALITY_REFS["GB"]          },
+  { key: "sngFca",    label: "SNG",         ref: QUALITY_REFS["SNG"]         },
+  { key: "protFca",   label: "Proteína",    ref: QUALITY_REFS["Proteína"]    },
+  { key: "tC",        label: "Temperatura", ref: QUALITY_REFS["Temperatura"] },
+  { key: "densFca",   label: "Densidad",    ref: QUALITY_REFS["Densidad"]    },
+];
+
 const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo }) => {
   const [f, setF] = useState(initial || emptyIng());
   const [aguadoAlerta, setAguadoAlerta] = useState(false);
@@ -647,6 +659,13 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
     setF(p => ({ ...p, tambo: nombre, num: t ? String(t.num) : p.num }));
   };
   const isConcentrado = PRODS_CONCENTRADOS.includes(f.producto);
+
+  // Advertencias de calidad derivadas del estado del formulario — sin useState, sin bloqueo.
+  const qualityWarnings = isConcentrado ? [] : QUALITY_WARN_MAP.filter(({ key, ref }) => {
+    if (!ref) return false;
+    const v = parseFloat(f[key]);
+    return !isNaN(v) && (v < ref.min || v > ref.max);
+  }).map(({ label, ref, key }) => `${label}: ${f[key]}  (ref ${ref.min}–${ref.max})`);
 
   return (
     <div>
@@ -756,6 +775,15 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
       <F label="Observaciones">
         <textarea style={{ ...inp, minHeight: 60, resize: "vertical" }} value={f.obs} onChange={e => set("obs")(e.target.value)} placeholder="Observaciones..." />
       </F>
+      {qualityWarnings.length > 0 && (
+        <div style={{ background: `${C.accent}12`, border: `1px solid ${C.accent}44`, borderRadius: 8, padding: "10px 12px", marginBottom: 8, fontSize: 12, color: C.text, lineHeight: 1.7 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 700, color: C.accent, marginBottom: 4 }}>
+            <AlertaWarn size={13} strokeWidth={SW} /> Parámetros fuera de rango de referencia
+          </div>
+          {qualityWarnings.map((w, i) => <div key={i} style={{ color: C.sub }}>• {w}</div>)}
+          <div style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>El ingreso se guarda igual — revisar con supervisor si corresponde.</div>
+        </div>
+      )}
       {fieldError && (
         <div style={{ background: `${C.danger}18`, border: `1px solid ${C.danger}55`, borderRadius: 8, padding: "10px 12px", marginBottom: 8, fontSize: 13, color: C.danger, whiteSpace: "pre-line", lineHeight: 1.6 }}>
           {fieldError}
@@ -836,8 +864,14 @@ const SecIngresos = ({ date, syncKey = 0, dayClosed = false }) => {
     setModal(null);
   };
   const onDelete = async id => {
-    if (await askConfirm({ title: "Eliminar ingreso", message: "¿Eliminar este ingreso? La acción quedará registrada en el historial.", danger: true, confirmLabel: "Eliminar" })) {
-      const item = list.find(i => i.id === id);
+    const item = list.find(i => i.id === id);
+    const resumen = item ? buildResumen("ingreso", item) : "";
+    if (await askConfirm({
+      title: "Eliminar ingreso",
+      message: `¿Eliminar este ingreso?${resumen ? "\n\n" + resumen : ""}\n\nLa acción quedará registrada en el historial.`,
+      danger: true,
+      confirmLabel: "Eliminar",
+    })) {
       if (item) await logDelete("ingreso", item);
       await persist(list.filter(i => i.id !== id)); setModal(null);
     }
@@ -2207,6 +2241,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
   const [exportFrom, setExportFrom] = useState(date);
   const [exportTo, setExportTo] = useState(date);
   const [exporting, setExporting] = useState(false);
+  const [popupBlocked, setPopupBlocked] = useState(false);
   const [weekData, setWeekData] = useState(null);
   const [loadingWeek, setLoadingWeek] = useState(false);
   const [tamboSel, setTamboSel] = useState(null);
@@ -3578,7 +3613,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
         w.document.write(full);
         w.document.close();
       } else {
-        alert("El navegador bloqueó la ventana emergente. Permitir popups para este sitio y volver a intentar.");
+        setPopupBlocked(true);
       }
     } finally { setExporting(false); }
   };
@@ -3640,6 +3675,22 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
 
   return (
     <div>
+      {/* Modal popup bloqueado */}
+      {popupBlocked && (
+        <Modal title="Popup bloqueado" onClose={() => setPopupBlocked(false)}>
+          <div style={{ fontSize: 14, color: C.text, lineHeight: 1.6, marginBottom: 16 }}>
+            El navegador bloqueó la ventana emergente del informe.
+          </div>
+          <div style={{ ...panel, fontSize: 13, color: C.sub, lineHeight: 1.7 }}>
+            <div style={{ fontWeight: 700, color: C.text, marginBottom: 6 }}>Cómo habilitarlo:</div>
+            <div>1. Buscá el ícono de popup bloqueado en la barra de dirección.</div>
+            <div>2. Hacé clic y elegí <strong>"Permitir siempre popups de este sitio"</strong>.</div>
+            <div>3. Volvé a tocar Exportar.</div>
+          </div>
+          <button type="button" style={btnPrimary} onClick={() => setPopupBlocked(false)}>Entendido</button>
+        </Modal>
+      )}
+
       {/* ── HEADER PREMIUM ── */}
       <div style={{
         background: _THEME === "light"
@@ -4900,6 +4951,18 @@ export default function App() {
 
         {/* Right: action buttons */}
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          {/* Sync status */}
+          <div title={!storageOk ? "Error de conexión" : queueLen > 0 ? `${queueLen} cambio${queueLen > 1 ? "s" : ""} pendiente${queueLen > 1 ? "s" : ""}` : "Sincronizado"}
+            style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 24, height: 24, flexShrink: 0 }}>
+            {!storageOk
+              ? <IcoOffline size={14} strokeWidth={SW} color={C.danger} />
+              : queueLen > 0 && queueRetrying
+              ? <IcoSyncing size={14} strokeWidth={SW} color={C.accent} />
+              : queueLen > 0
+              ? <IcoSyncError size={14} strokeWidth={SW} color="#f97316" />
+              : <span style={{ width: 7, height: 7, borderRadius: "50%", background: C.success, display: "inline-block" }} />
+            }
+          </div>
           {/* Theme toggle */}
           <button type="button" onClick={() => {
             const next = _THEME === "dark" ? "light" : "dark";
