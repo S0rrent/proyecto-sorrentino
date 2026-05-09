@@ -156,6 +156,7 @@ async function load(date, sec, def) {
 }
 async function save(date, sec, data) {
   if (_closedDates.has(date)) { _onSaveBlocked?.(); return; }
+  _autoLitrosCache.delete(date); // invalidar al escribir cualquier sección
   try { await db.set(sKey(date, sec), JSON.stringify(data)); } catch (e) { console.error(e); }
 }
 
@@ -286,7 +287,13 @@ async function logDelete(tipo, item, by) {
 }
 
 // Calcula litros netos por silo: saldo_anterior + ingresos + movimientos − cargas − fort_origen + fort_destino
+const _autoLitrosCache = new Map(); // key: date → { result, ts }
+const _AUTO_LITROS_TTL = 15000;     // 15 s — suficiente para una navegación completa
+
 async function calcAutoLitros(date) {
+  const hit = _autoLitrosCache.get(date);
+  if (hit && Date.now() - hit.ts < _AUTO_LITROS_TTL) return hit.result;
+
   const [ingresos, movData, cargas, forts, saldo] = await Promise.all([
     load(date, "ingresos", []),
     load(date, "movimientos", { movs: [], ctrls: [] }),
@@ -336,6 +343,7 @@ async function calcAutoLitros(date) {
       }
     });
   });
+  _autoLitrosCache.set(date, { result: totals, ts: Date.now() });
   return totals;
 }
 
@@ -552,7 +560,8 @@ const emptyIng = () => ({
 const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo }) => {
   const [f, setF] = useState(initial || emptyIng());
   const [aguadoAlerta, setAguadoAlerta] = useState(false);
-  const set = k => v => setF(p => ({ ...p, [k]: v }));
+  const [fieldError, setFieldError] = useState("");
+  const set = k => v => { setFieldError(""); setF(p => ({ ...p, [k]: v })); };
   const pickTambo = nombre => {
     const t = tambos.find(t => t.nombre === nombre);
     setF(p => ({ ...p, tambo: nombre, num: t ? String(t.num) : p.num }));
@@ -668,6 +677,11 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
       <F label="Observaciones">
         <textarea style={{ ...inp, minHeight: 60, resize: "vertical" }} value={f.obs} onChange={e => set("obs")(e.target.value)} placeholder="Observaciones..." />
       </F>
+      {fieldError && (
+        <div style={{ background: `${C.danger}18`, border: `1px solid ${C.danger}55`, borderRadius: 8, padding: "10px 12px", marginBottom: 8, fontSize: 13, color: C.danger, whiteSpace: "pre-line", lineHeight: 1.6 }}>
+          {fieldError}
+        </div>
+      )}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
         <button type="button" style={btnSecondary} onClick={onClose}>Cancelar</button>
         <button type="button" style={btnPrimary} onClick={() => {
@@ -681,7 +695,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
                    ["gbFca", "GB Fca."], ["sngFca", "SNG Fca."], ["densFca", "Densidad Fca."], ["protFca", "Proteína Fca."], ["atm", "ATM"]];
           }
           const miss = req.filter(([k]) => !String(f[k] || "").trim()).map(([, v]) => v);
-          if (miss.length) { alert("Campos obligatorios sin completar:\n• " + miss.join("\n• ")); return; }
+          if (miss.length) { setFieldError("Faltan completar:\n• " + miss.join("\n• ")); return; }
           // Aguado > 0 = adulteración — requiere confirmación explícita
           const aguFca = parseFloat(f.aguadoFca);
           const aguTbo = parseFloat(f.aguadoTbo);
@@ -689,6 +703,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
             setAguadoAlerta(true);
             return;
           }
+          setFieldError("");
           onSave(f);
         }}>Guardar</button>
       </div>
@@ -1017,7 +1032,8 @@ const SecCIP = ({ date, syncKey = 0 }) => {
 const emptyCarga = () => ({ id: crypto.randomUUID(), label: "CARGA 1", destino: "", transportista: "", producto: "", siloProveniente: "", limpCisterna: "", litros: "", T: "", gC: "", pH: "", A: "", gD: "", hora: getNow(), responsable: "", obs: "" });
 const CargaForm = ({ initial, onSave, onClose, onDelete }) => {
   const [f, setF] = useState(initial || emptyCarga());
-  const set = k => v => setF(p => ({ ...p, [k]: v }));
+  const [fieldError, setFieldError] = useState("");
+  const set = k => v => { setFieldError(""); setF(p => ({ ...p, [k]: v })); };
   const [transportistas, setTransportistas] = useState([]);
   const [cargaProductos, setCargaProductos] = useState(CARGA_PRODUCTOS_BASE);
   const [transModal, setTransModal] = useState(false);
@@ -1110,6 +1126,11 @@ const CargaForm = ({ initial, onSave, onClose, onDelete }) => {
         <F label="Responsable"><Inp value={f.responsable} onChange={set("responsable")} /></F>
       </div>
       <F label="Observaciones"><textarea style={{ ...inp, minHeight: 48, resize: "vertical" }} value={f.obs} onChange={e => set("obs")(e.target.value)} /></F>
+      {fieldError && (
+        <div style={{ background: `${C.danger}18`, border: `1px solid ${C.danger}55`, borderRadius: 8, padding: "10px 12px", marginBottom: 8, fontSize: 13, color: C.danger, whiteSpace: "pre-line", lineHeight: 1.6 }}>
+          {fieldError}
+        </div>
+      )}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
         <button type="button" style={btnSecondary} onClick={onClose}>Cancelar</button>
         <button type="button" style={btnPrimary} onClick={() => {
@@ -1117,7 +1138,8 @@ const CargaForm = ({ initial, onSave, onClose, onDelete }) => {
           ["litros", "Litros"], ["hora", "Hora"], ["responsable", "Responsable"],
           ["T", "T"], ["gC", "°C"], ["pH", "pH"], ["A", "A"], ["gD", "°D"]];
           const miss = req.filter(([k]) => !String(f[k] || "").trim()).map(([, v]) => v);
-          if (miss.length) { alert("Campos obligatorios sin completar:\n• " + miss.join("\n• ")); return; }
+          if (miss.length) { setFieldError("Faltan completar:\n• " + miss.join("\n• ")); return; }
+          setFieldError("");
           onSave(f);
         }}>Guardar</button>
       </div>
@@ -1228,7 +1250,8 @@ const emptyCtrl = () => ({ id: crypto.randomUUID(), hora: getNow(), silo: "", ph
 
 const MovForm = ({ initial, onSave, onClose, onDelete }) => {
   const [f, setF] = useState(initial || emptyMov());
-  const set = k => v => setF(p => ({ ...p, [k]: v }));
+  const [fieldError, setFieldError] = useState("");
+  const set = k => v => { setFieldError(""); setF(p => ({ ...p, [k]: v })); };
   return (
     <div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
@@ -1242,12 +1265,18 @@ const MovForm = ({ initial, onSave, onClose, onDelete }) => {
       <F label="Producto que se mueve"><Sel value={f.producto || ""} onChange={set("producto")} options={PRODS_STOCK} placeholder="Seleccionar producto..." /></F>
       <F label="Motivo"><Inp value={f.motivo || ""} onChange={set("motivo")} placeholder="Ej: Trasvase, Mezcla, etc." /></F>
       <F label="Responsable"><Inp value={f.resp} onChange={set("resp")} /></F>
+      {fieldError && (
+        <div style={{ background: `${C.danger}18`, border: `1px solid ${C.danger}55`, borderRadius: 8, padding: "10px 12px", marginBottom: 8, fontSize: 13, color: C.danger, whiteSpace: "pre-line", lineHeight: 1.6 }}>
+          {fieldError}
+        </div>
+      )}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
         <button type="button" style={btnSecondary} onClick={onClose}>Cancelar</button>
         <button type="button" style={btnPrimary} onClick={() => {
           const req = [["litros", "Litros"], ["desde", "Desde"], ["hasta", "Hasta"], ["motivo", "Motivo"], ["resp", "Responsable"]];
           const miss = req.filter(([k]) => !String(f[k] || "").trim()).map(([, v]) => v);
-          if (miss.length) { alert("Campos obligatorios sin completar:\n• " + miss.join("\n• ")); return; }
+          if (miss.length) { setFieldError("Faltan completar:\n• " + miss.join("\n• ")); return; }
+          setFieldError("");
           onSave(f);
         }}>Guardar</button>
       </div>
@@ -1257,7 +1286,8 @@ const MovForm = ({ initial, onSave, onClose, onDelete }) => {
 };
 const CtrlForm = ({ initial, onSave, onClose, onDelete }) => {
   const [f, setF] = useState(initial || emptyCtrl());
-  const set = k => v => setF(p => ({ ...p, [k]: v }));
+  const [fieldError, setFieldError] = useState("");
+  const set = k => v => { setFieldError(""); setF(p => ({ ...p, [k]: v })); };
   const campos = [["pH", "ph"], ["°D", "gD"], ["°C", "gC"], ["Alc.", "alc"], ["MG", "mg"], ["SNG", "sng"], ["Dens.", "dens"], ["FP", "fp"], ["Prot.", "prot"]];
   return (
     <div>
@@ -1269,12 +1299,18 @@ const CtrlForm = ({ initial, onSave, onClose, onDelete }) => {
         {campos.map(([l, k]) => <F key={k} label={l}><Inp type="number" value={f[k]} onChange={set(k)} step="0.01" /></F>)}
       </div>
       <F label="Responsable"><Inp value={f.resp} onChange={set("resp")} /></F>
+      {fieldError && (
+        <div style={{ background: `${C.danger}18`, border: `1px solid ${C.danger}55`, borderRadius: 8, padding: "10px 12px", marginBottom: 8, fontSize: 13, color: C.danger, whiteSpace: "pre-line", lineHeight: 1.6 }}>
+          {fieldError}
+        </div>
+      )}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
         <button type="button" style={btnSecondary} onClick={onClose}>Cancelar</button>
         <button type="button" style={btnPrimary} onClick={() => {
           const req = [["silo", "Silo"], ["ph", "pH"], ["gD", "°D"], ["gC", "°C"], ["alc", "Alc."], ["mg", "MG"], ["sng", "SNG"], ["dens", "Densidad"], ["fp", "FP"], ["prot", "Proteína"], ["resp", "Responsable"]];
           const miss = req.filter(([k]) => !String(f[k] || "").trim()).map(([, v]) => v);
-          if (miss.length) { alert("Campos obligatorios sin completar:\n• " + miss.join("\n• ")); return; }
+          if (miss.length) { setFieldError("Faltan completar:\n• " + miss.join("\n• ")); return; }
+          setFieldError("");
           onSave(f);
         }}>Guardar</button>
       </div>
@@ -1625,7 +1661,8 @@ const emptyFort = () => ({
 
 const FortForm = ({ initial, onSave, onClose, onDelete }) => {
   const [f, setF] = useState(() => initial ? { ...emptyFort(), ...initial } : emptyFort());
-  const set = k => v => setF(p => ({ ...p, [k]: v }));
+  const [fieldError, setFieldError] = useState("");
+  const set = k => v => { setFieldError(""); setF(p => ({ ...p, [k]: v })); };
 
   const updAdicion = (id, key, val) =>
     setF(p => ({ ...p, adiciones: p.adiciones.map(a => a.id === id ? { ...a, [key]: val } : a) }));
@@ -1702,6 +1739,11 @@ const FortForm = ({ initial, onSave, onClose, onDelete }) => {
       <F label="Observaciones">
         <textarea style={{ ...inp, minHeight: 56, resize: "vertical" }} value={f.obs} onChange={e => set("obs")(e.target.value)} placeholder="Obs..." />
       </F>
+      {fieldError && (
+        <div style={{ background: `${C.danger}18`, border: `1px solid ${C.danger}55`, borderRadius: 8, padding: "10px 12px", marginBottom: 8, fontSize: 13, color: C.danger, whiteSpace: "pre-line", lineHeight: 1.6 }}>
+          {fieldError}
+        </div>
+      )}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
         <button type="button" style={btnSecondary} onClick={onClose}>Cancelar</button>
         <button type="button" style={btnPrimary} onClick={() => {
@@ -1709,7 +1751,8 @@ const FortForm = ({ initial, onSave, onClose, onDelete }) => {
           const miss = req.filter(([k]) => !String(f[k] || "").trim()).map(([, v]) => v);
           const sinCant = f.adiciones.filter(a => !String(a.cantidad || "").trim()).map(a => a.producto || "Adición");
           const all = [...miss, ...sinCant.map(p => `Cantidad de ${p}`)];
-          if (all.length) { alert("Campos obligatorios sin completar:\n• " + all.join("\n• ")); return; }
+          if (all.length) { setFieldError("Faltan completar:\n• " + all.join("\n• ")); return; }
+          setFieldError("");
           onSave(f);
         }}>Guardar</button>
       </div>
