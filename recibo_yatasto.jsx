@@ -226,14 +226,54 @@ const SESSION_ID = (() => {
 
 // Rangos de referencia para alertas de calidad (solo visibles a Supervisor/Jefe)
 const QUALITY_REFS = {
-  "pH":          { min: 6.6,  max: 6.8  },
-  "Acidez":      { min: 14,   max: 18   },
-  "GB":          { min: 3,    max: 4    },
-  "SNG":         { min: 8,    max: 8.7  },
-  "Proteína":    { min: 2.9,  max: 3.5  },
-  "Temperatura": { min: 3,    max: 8    },
-  "Aguado":      { min: 0,    max: 0,   critical: true }, // debe ser EXACTAMENTE 0
+  "pH":          { min: 6.6,   max: 6.8   },
+  "Acidez":      { min: 14,    max: 18    },
+  "GB":          { min: 3,     max: 4     },
+  "SNG":         { min: 8,     max: 8.7   },
+  "Proteína":    { min: 2.9,   max: 3.5   },
+  "Temperatura": { min: 3,     max: 8     },
+  "Aguado":      { min: 0,     max: 0,    critical: true },
+  "Densidad":    { min: 1.028, max: 1.034 },
 };
+
+// ─── DENSIDAD: normalización formato Ecomilk ─────────────────────────────────
+// El Ecomilk muestra: 28, 29, 30, 31, 34
+// Formato técnico:    1.028, 1.029, 1.030, 1.031, 1.034
+// Regla: entero sin punto decimal en rango [20, 40] → interpretar como Ecomilk.
+
+function isEcomilkDensity(v) {
+  const s = String(v == null ? "" : v).trim();
+  if (!s || s.includes(".")) return false;
+  const n = Number(s);
+  return Number.isFinite(n) && Number.isInteger(n) && n >= 20 && n <= 40;
+}
+
+// Convierte cualquier formato válido al valor técnico con 3 decimales.
+function normalizeDensity(v) {
+  if (v === "" || v == null) return "";
+  if (isEcomilkDensity(v)) return (1 + parseInt(v, 10) / 1000).toFixed(3);
+  const n = parseFloat(v);
+  return !isNaN(n) ? n.toFixed(3) : String(v);
+}
+
+// Para display en auditorías, reportes y exports: siempre 3 decimales.
+// Retro-compatible: si un registro viejo tuviera "28" guardado, lo convierte al mostrarlo.
+function formatDensity(v) {
+  if (v === "" || v == null) return "";
+  if (isEcomilkDensity(v)) return (1 + parseInt(v, 10) / 1000).toFixed(3);
+  const n = parseFloat(v);
+  return !isNaN(n) ? n.toFixed(3) : String(v);
+}
+
+// Retorna null si el valor es válido; string de error si no.
+function validateDensity(raw) {
+  if (raw === "" || raw == null) return null;
+  if (isEcomilkDensity(raw)) return null; // 20–40 entero → OK
+  const n = parseFloat(raw);
+  if (isNaN(n)) return "Valor inválido";
+  if (n < 1.020 || n > 1.040) return `Fuera de rango (1.020–1.040 ó 20–40 Ecomilk)`;
+  return null;
+}
 
 // Campos a comparar Tambo vs Fábrica para detección de desvíos
 const DIFF_FIELDS = [
@@ -533,6 +573,46 @@ function useConfirm() {
   return [ui, ask];
 }
 
+// ─── DENSIDAD — Componentes de entrada ───────────────────────────────────────
+// Normaliza en onBlur: "28" → "1.028". Valida rango. Muestra error inline.
+const DensityInput = ({ value, onChange, placeholder = "ej. 28 ó 1.028" }) => {
+  const [local, setLocal] = useState(String(value || ""));
+  const [err, setErr] = useState("");
+  useEffect(() => { setLocal(String(value || "")); }, [value]);
+  const handleBlur = () => {
+    if (!local.trim()) { onChange(""); setErr(""); return; }
+    const errMsg = validateDensity(local);
+    if (errMsg) { setErr(errMsg); return; }
+    const norm = normalizeDensity(local);
+    setErr(""); setLocal(norm); onChange(norm);
+  };
+  return (
+    <div>
+      <input
+        style={inp} type="number" inputMode="decimal"
+        value={local} placeholder={placeholder} step="0.001"
+        onChange={e => { setLocal(e.target.value); setErr(""); }}
+        onBlur={handleBlur}
+      />
+      {err && <div style={{ fontSize: 11, color: C.danger, marginTop: 3, lineHeight: 1.4 }}>{err}</div>}
+    </div>
+  );
+};
+
+// Versión Fca/Tbo en dos columnas, reemplaza el <Pair> genérico para densidad.
+const DensityPair = ({ v1, v2, on1, on2 }) => (
+  <div style={{ marginBottom: 12 }}>
+    <label style={lbl}>Densidad — <span style={{ color: C.text }}>Fca.</span> / <span style={{ color: C.sub }}>Tbo.</span></label>
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+      <DensityInput value={v1} onChange={on1} />
+      <DensityInput value={v2} onChange={on2} />
+    </div>
+    <div style={{ fontSize: 11, color: C.sub, marginTop: 4 }}>
+      Ecomilk: 28–34 · Técnico: 1.028–1.034 · Ref: 1.028–1.033 g/mL
+    </div>
+  </div>
+);
+
 // Calcula el balance actual de un silo y verifica si una operación lo dejaría negativo.
 // excludeFn permite restar la contribución del item que se está editando para no contarlo dos veces.
 async function checkSiloBalance(date, siloRaw, litrosImpacto, excludeFn = null) {
@@ -662,8 +742,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
             <div style={{ fontSize: 11, color: C.sub, marginTop: -8, marginBottom: 12 }}>Ref: 3.0 – 4.0 %</div>
             <Pair label="Sólidos No Grasos (SNG)" v1={f.sngFca} v2={f.sngTbo} on1={set("sngFca")} on2={set("sngTbo")} />
             <div style={{ fontSize: 11, color: C.sub, marginTop: -8, marginBottom: 12 }}>Ref: 8.0 – 8.7 %</div>
-            <Pair label="Densidad" v1={f.densFca} v2={f.densTbo} on1={set("densFca")} on2={set("densTbo")} />
-            <div style={{ fontSize: 11, color: C.sub, marginTop: -8, marginBottom: 12 }}>Ref: 1.028 – 1.033 g/mL</div>
+            <DensityPair v1={f.densFca} v2={f.densTbo} on1={set("densFca")} on2={set("densTbo")} />
             <Pair label="Aguado" v1={f.aguadoFca} v2={f.aguadoTbo} on1={set("aguadoFca")} on2={set("aguadoTbo")} />
             <div style={{ fontSize: 11, color: C.danger, marginTop: -8, marginBottom: 12 }}>Debe ser exactamente 0 — indica adulteración</div>
             <Pair label="Leche de Descarte" v1={f.dcFca} v2={f.dcTbo} on1={set("dcFca")} on2={set("dcTbo")} />
@@ -1288,7 +1367,8 @@ const CtrlForm = ({ initial, onSave, onClose, onDelete }) => {
   const [f, setF] = useState(initial || emptyCtrl());
   const [fieldError, setFieldError] = useState("");
   const set = k => v => { setFieldError(""); setF(p => ({ ...p, [k]: v })); };
-  const campos = [["pH", "ph"], ["°D", "gD"], ["°C", "gC"], ["Alc.", "alc"], ["MG", "mg"], ["SNG", "sng"], ["Dens.", "dens"], ["FP", "fp"], ["Prot.", "prot"]];
+  // "dens" se renderiza aparte con DensityInput; el resto se mapea con Inp genérico.
+  const campos = [["pH", "ph"], ["°D", "gD"], ["°C", "gC"], ["Alc.", "alc"], ["MG", "mg"], ["SNG", "sng"], ["FP", "fp"], ["Prot.", "prot"]];
   return (
     <div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 4 }}>
@@ -1298,6 +1378,7 @@ const CtrlForm = ({ initial, onSave, onClose, onDelete }) => {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 6 }}>
         {campos.map(([l, k]) => <F key={k} label={l}><Inp type="number" value={f[k]} onChange={set(k)} step="0.01" /></F>)}
       </div>
+      <F label="Dens."><DensityInput value={f.dens} onChange={set("dens")} /></F>
       <F label="Responsable"><Inp value={f.resp} onChange={set("resp")} /></F>
       {fieldError && (
         <div style={{ background: `${C.danger}18`, border: `1px solid ${C.danger}55`, borderRadius: 8, padding: "10px 12px", marginBottom: 8, fontSize: 13, color: C.danger, whiteSpace: "pre-line", lineHeight: 1.6 }}>
@@ -2303,7 +2384,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
         const ing = await load(day, "ingresos", []);
         ing.forEach(i => {
           const prefix = multiDay ? `${fmtDate(day)},` : "";
-          csv += `${prefix}${i.hora || ""},${escapeCsv(i.tambo || "")},${i.litrosFca || ""},${i.litrosTbo || ""},${diffVal(i.litrosFca, i.litrosTbo)},${escapeCsv(i.destino || "")},${i.phFca || ""},${i.acidezFca || ""},${i.gbFca || ""},${i.gbTbo || ""},${diffVal(i.gbFca, i.gbTbo)},${i.sngFca || ""},${i.sngTbo || ""},${diffVal(i.sngFca, i.sngTbo)},${i.densFca || ""},${i.densTbo || ""},${diffVal(i.densFca, i.densTbo)},${i.aguadoFca || ""},${i.aguadoTbo || ""},${diffVal(i.aguadoFca, i.aguadoTbo)},${i.protFca || ""},${i.protTbo || ""},${diffVal(i.protFca, i.protTbo)},${i.alcFca || ""},${i.alcTbo || ""},${diffVal(i.alcFca, i.alcTbo)},${escapeCsv(i.responsable || "")}\n`;
+          csv += `${prefix}${i.hora || ""},${escapeCsv(i.tambo || "")},${i.litrosFca || ""},${i.litrosTbo || ""},${diffVal(i.litrosFca, i.litrosTbo)},${escapeCsv(i.destino || "")},${i.phFca || ""},${i.acidezFca || ""},${i.gbFca || ""},${i.gbTbo || ""},${diffVal(i.gbFca, i.gbTbo)},${i.sngFca || ""},${i.sngTbo || ""},${diffVal(i.sngFca, i.sngTbo)},${formatDensity(i.densFca) || ""},${formatDensity(i.densTbo) || ""},${diffVal(i.densFca, i.densTbo)},${i.aguadoFca || ""},${i.aguadoTbo || ""},${diffVal(i.aguadoFca, i.aguadoTbo)},${i.protFca || ""},${i.protTbo || ""},${diffVal(i.protFca, i.protTbo)},${i.alcFca || ""},${i.alcTbo || ""},${diffVal(i.alcFca, i.alcTbo)},${escapeCsv(i.responsable || "")}\n`;
         });
       }
       csv += "\nCARGAS\n";
@@ -2754,8 +2835,8 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
             <td class="r">${i.sngFca || "—"}</td>
             <td class="r">${i.sngTbo || "—"}</td>
             <td class="r">${xlsDiffVal(i.sngFca, i.sngTbo)}</td>
-            <td class="r">${i.densFca || "—"}</td>
-            <td class="r">${i.densTbo || "—"}</td>
+            <td class="r">${formatDensity(i.densFca) || "—"}</td>
+            <td class="r">${formatDensity(i.densTbo) || "—"}</td>
             <td class="r">${xlsDiffVal(i.densFca, i.densTbo)}</td>
             <td class="r">${aguHTML}</td>
             <td class="r">${i.aguadoTbo || "—"}</td>
@@ -3343,7 +3424,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
             <td class="r">${i.acidezFca || "—"}</td>
             <td class="r">${i.gbFca || "—"}</td>
             <td class="r">${i.sngFca || "—"}</td>
-            <td class="r">${i.densFca || "—"}</td>
+            <td class="r">${formatDensity(i.densFca) || "—"}</td>
             <td class="r">${aguH}</td>
             <td class="mu">${escapeHtml(i.responsable) || "—"}</td>
           </tr>`;
