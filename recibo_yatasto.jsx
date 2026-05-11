@@ -27,3 +27,21 @@ const escapeCsv = s => {
   const str = String(s == null ? "" : s);
   return /[,"\n\r=+\-@|]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
 };
+
+// ─── CONSTANTES ───────────────────────────────────────────────
+const TAMBOS_BASE = [
+  { num: 13, nombre: "SEIVANE" }, { num: 90, nombre: "ESTAR 1" },
+  { num: 91, nombre: "ESTAR 2" }, { num: 93, nombre: "ESTAR 3" },
+  { num: 16, nombre: "TUESO" }, { num: 30, nombre: "CARPINETI" },
+  { num: 24, nombre: "COGORNI" }, { num: 26, nombre: "PAZOS 2" },
+  { num: 50, nombre: "BRUNO" }, { num: 4, nombre: "VIVOT" },
+  { num: 1, nombre: "MURPHY 1" }, { num: 2, nombre: "MURPHY 2" },
+  { num: 89, nombre: "OPOCA" }, { num: 35, nombre: "ETCHEVERRY" },
+  { num: 14, nombre: "ZIVERRA" }, { num: 65, nombre: "MELO" },
+  { num: 17, nombre: "GIORGI G." }, { num: 18, nombre: "GIORGI F." },
+  { num: 21, nombre: "GUSTI CARLOS" }, { num: 46, nombre: "PIÑERO JORGE" },
+  { num: 49, nombre: "CEJAS" }, { num: 50, nombre: "VAQUERIA" },
+  { num: 51, nombre: "SPINELLI" }, { num: "-", nombre: "FAISAN" },
+  { num: 4, nombre: "ZONA" }, { num: "-", nombre: "SAIGNACIO" },
+  { num: "-", nombre: "CANAGRO" }, { num: "-", nombre: "CHAME" },
+];
