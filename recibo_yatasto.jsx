@@ -4552,6 +4552,200 @@ function computeRange(preset, from, to) {
   }
 }
 
+const AdminTabIngresos = ({ ingresos, isDesktop }) => {
+  const tambosOpts = [...new Set(ingresos.map(r => r.tambo).filter(Boolean))].sort();
+  const prodOpts   = [...new Set(ingresos.map(r => r.producto).filter(Boolean))].sort();
+  const [filtTambo, setFiltTambo] = useState("");
+  const [filtProd,  setFiltProd]  = useState("");
+  const [filtText,  setFiltText]  = useState("");
+  const filtered = ingresos.filter(r => {
+    if (filtTambo && r.tambo !== filtTambo) return false;
+    if (filtProd  && r.producto !== filtProd) return false;
+    if (filtText) {
+      const q = filtText.toLowerCase();
+      if (!(r.tambo || "").toLowerCase().includes(q) &&
+          !(r.destino || "").toLowerCase().includes(q) &&
+          !(r.obs || "").toLowerCase().includes(q)) return false;
+    }
+    return true;
+  });
+  const totalFca = filtered.reduce((s, r) => s + (parseFloat(r.litrosFca) || 0), 0);
+  const totalTbo = filtered.reduce((s, r) => s + (parseFloat(r.litrosTbo) || 0), 0);
+  const totalDif = totalFca - totalTbo;
+  const th = { padding: "8px 10px", fontSize: 11, color: C.sub, textAlign: "left",
+    borderBottom: `1px solid ${C.border}`, whiteSpace: "nowrap", fontWeight: 600,
+    textTransform: "uppercase", letterSpacing: "0.04em" };
+  const td = (right = false) => ({
+    padding: "8px 10px", fontSize: 12, color: C.text,
+    borderBottom: `1px solid ${C.border}`, fontFamily: right ? FONT_MONO : FONT_SANS,
+    textAlign: right ? "right" : "left",
+  });
+  return (
+    <div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
+        <select value={filtTambo} onChange={e => setFiltTambo(e.target.value)}
+          style={{ ...inp, width: "auto", fontSize: 13, padding: "5px 10px" }}>
+          <option value="">Todos los tambos</option>
+          {tambosOpts.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+        <select value={filtProd} onChange={e => setFiltProd(e.target.value)}
+          style={{ ...inp, width: "auto", fontSize: 13, padding: "5px 10px" }}>
+          <option value="">Todos los productos</option>
+          {prodOpts.map(p => <option key={p} value={p}>{p}</option>)}
+        </select>
+        <input placeholder="Buscar tambo, destino…" value={filtText}
+          onChange={e => setFiltText(e.target.value)}
+          style={{ ...inp, width: isDesktop ? 220 : "100%", fontSize: 13, padding: "5px 10px" }} />
+        <span style={{ marginLeft: "auto", fontSize: 12, color: C.sub, alignSelf: "center" }}>
+          {filtered.length} registro{filtered.length !== 1 ? "s" : ""}
+        </span>
+      </div>
+      <div style={{ display: "flex", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
+        {[
+          ["Fábrica",    totalFca, C.accent],
+          ["Tambo",      totalTbo, "#a78bfa"],
+          ["Diferencia", Math.abs(totalDif), totalDif > 0 ? C.success : totalDif < 0 ? C.danger : C.sub],
+        ].map(([l, v, col]) => (
+          <div key={l} style={{ background: C.surface, border: `1px solid ${C.border}`,
+            borderRadius: 8, padding: "8px 14px", display: "flex", gap: 8, alignItems: "baseline" }}>
+            <span style={{ fontSize: 11, color: C.sub }}>{l}</span>
+            <span style={{ fontFamily: FONT_MONO, fontSize: 16, fontWeight: 700, color: col }}>
+              {Math.round(v).toLocaleString("es-AR")} L
+            </span>
+          </div>
+        ))}
+      </div>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+          <thead>
+            <tr style={{ background: C.surface }}>
+              <th style={th}>Fecha</th>
+              <th style={th}>Hora</th>
+              <th style={th}>Tambo</th>
+              <th style={th}>Producto</th>
+              <th style={th}>Destino</th>
+              <th style={{ ...th, textAlign: "right" }}>L Fca.</th>
+              <th style={{ ...th, textAlign: "right" }}>L Tbo.</th>
+              <th style={{ ...th, textAlign: "right" }}>Dif.</th>
+              <th style={th}>Obs.</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.length === 0 && (
+              <tr><td colSpan={9} style={{ ...td(), textAlign: "center", color: C.sub, padding: "24px 0" }}>
+                Sin registros
+              </td></tr>
+            )}
+            {filtered.map(r => {
+              const dif = (parseFloat(r.litrosFca) || 0) - (parseFloat(r.litrosTbo) || 0);
+              const difCol = Math.abs(dif) > 50 ? C.danger : dif > 0 ? C.success : C.sub;
+              return (
+                <tr key={r.id + r._date} style={{ background: "transparent" }}>
+                  <td style={td()}>{fmtDate(r._date)}</td>
+                  <td style={td()}>{r.hora || "—"}</td>
+                  <td style={td()}>{r.tambo || "—"}</td>
+                  <td style={td()}>{r.producto || "—"}</td>
+                  <td style={td()}>{r.destino || "—"}</td>
+                  <td style={td(true)}>{r.litrosFca != null ? Math.round(r.litrosFca).toLocaleString("es-AR") : "—"}</td>
+                  <td style={td(true)}>{r.litrosTbo != null ? Math.round(r.litrosTbo).toLocaleString("es-AR") : "—"}</td>
+                  <td style={{ ...td(true), color: difCol, fontWeight: 600 }}>
+                    {isNaN(dif) ? "—" : (dif >= 0 ? "+" : "") + Math.round(dif).toLocaleString("es-AR")}
+                  </td>
+                  <td style={{ ...td(), color: C.sub }}>{r.obs || ""}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
+const AdminTabSalidas = ({ cargas, isDesktop }) => {
+  const transOpts = [...new Set(cargas.map(r => r.transportista).filter(Boolean))].sort();
+  const destOpts  = [...new Set(cargas.map(r => r.destino).filter(Boolean))].sort();
+  const [filtTrans, setFiltTrans] = useState("");
+  const [filtDest,  setFiltDest]  = useState("");
+  const filtered = cargas.filter(r => {
+    if (filtTrans && r.transportista !== filtTrans) return false;
+    if (filtDest  && r.destino !== filtDest) return false;
+    return true;
+  });
+  const totalLitros = filtered.reduce((s, r) => s + (parseFloat(r.litros) || 0), 0);
+  const th = { padding: "8px 10px", fontSize: 11, color: C.sub, textAlign: "left",
+    borderBottom: `1px solid ${C.border}`, whiteSpace: "nowrap", fontWeight: 600,
+    textTransform: "uppercase", letterSpacing: "0.04em" };
+  const td = (right = false) => ({
+    padding: "8px 10px", fontSize: 12, color: C.text,
+    borderBottom: `1px solid ${C.border}`,
+    fontFamily: right ? FONT_MONO : FONT_SANS, textAlign: right ? "right" : "left",
+  });
+  return (
+    <div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
+        <select value={filtTrans} onChange={e => setFiltTrans(e.target.value)}
+          style={{ ...inp, width: "auto", fontSize: 13, padding: "5px 10px" }}>
+          <option value="">Todos los transportistas</option>
+          {transOpts.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+        <select value={filtDest} onChange={e => setFiltDest(e.target.value)}
+          style={{ ...inp, width: "auto", fontSize: 13, padding: "5px 10px" }}>
+          <option value="">Todos los destinos</option>
+          {destOpts.map(d => <option key={d} value={d}>{d}</option>)}
+        </select>
+        <span style={{ marginLeft: "auto", fontSize: 12, color: C.sub, alignSelf: "center" }}>
+          {filtered.length} despacho{filtered.length !== 1 ? "s" : ""}
+        </span>
+      </div>
+      <div style={{ display: "flex", gap: 12, marginBottom: 14 }}>
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`,
+          borderRadius: 8, padding: "8px 14px", display: "flex", gap: 8, alignItems: "baseline" }}>
+          <span style={{ fontSize: 11, color: C.sub }}>Total despachado</span>
+          <span style={{ fontFamily: FONT_MONO, fontSize: 16, fontWeight: 700, color: "#60a5fa" }}>
+            {Math.round(totalLitros).toLocaleString("es-AR")} L
+          </span>
+        </div>
+      </div>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr style={{ background: C.surface }}>
+              <th style={th}>Fecha</th>
+              <th style={th}>Hora</th>
+              <th style={th}>Carga</th>
+              <th style={th}>Transportista</th>
+              <th style={th}>Destino</th>
+              <th style={th}>Producto</th>
+              <th style={th}>Silo</th>
+              <th style={{ ...th, textAlign: "right" }}>Litros</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.length === 0 && (
+              <tr><td colSpan={8} style={{ ...td(), textAlign: "center", color: C.sub, padding: "24px 0" }}>
+                Sin registros
+              </td></tr>
+            )}
+            {filtered.map(r => (
+              <tr key={r.id + r._date}>
+                <td style={td()}>{fmtDate(r._date)}</td>
+                <td style={td()}>{r.hora || "—"}</td>
+                <td style={td()}>{r.label || "—"}</td>
+                <td style={td()}>{r.transportista || "—"}</td>
+                <td style={td()}>{r.destino || "—"}</td>
+                <td style={td()}>{r.producto || "—"}</td>
+                <td style={td()}>{r.siloProveniente || "—"}</td>
+                <td style={td(true)}>{r.litros != null ? Math.round(r.litros).toLocaleString("es-AR") : "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
 const SecAdmin = ({ date, syncKey }) => {
   const { isDesktop } = useViewport();
   const [tab, setTab] = useState("resumen");
@@ -4728,203 +4922,10 @@ const SecAdmin = ({ date, syncKey }) => {
       )}
 
       {/* ── INGRESOS ── */}
-      {!loading && tab === "ingresos" && (() => {
-        const tambosOpts = [...new Set(ingresos.map(r => r.tambo).filter(Boolean))].sort();
-        const [filtTambo, setFiltTambo] = useState("");
-        const [filtProd, setFiltProd] = useState("");
-        const [filtText, setFiltText] = useState("");
-        const filtered = ingresos.filter(r => {
-          if (filtTambo && r.tambo !== filtTambo) return false;
-          if (filtProd && r.producto !== filtProd) return false;
-          if (filtText) {
-            const q = filtText.toLowerCase();
-            if (!(r.tambo || "").toLowerCase().includes(q) &&
-                !(r.destino || "").toLowerCase().includes(q) &&
-                !(r.obs || "").toLowerCase().includes(q)) return false;
-          }
-          return true;
-        });
-        const totalFca = filtered.reduce((s, r) => s + (parseFloat(r.litrosFca) || 0), 0);
-        const totalTbo = filtered.reduce((s, r) => s + (parseFloat(r.litrosTbo) || 0), 0);
-        const totalDif = totalFca - totalTbo;
-        const prodOpts = [...new Set(ingresos.map(r => r.producto).filter(Boolean))].sort();
-        const th = { padding: "8px 10px", fontSize: 11, color: C.sub, textAlign: "left",
-          borderBottom: `1px solid ${C.border}`, whiteSpace: "nowrap", fontWeight: 600,
-          textTransform: "uppercase", letterSpacing: "0.04em" };
-        const td = (right = false) => ({
-          padding: "8px 10px", fontSize: 12, color: C.text,
-          borderBottom: `1px solid ${C.border}`, fontFamily: right ? FONT_MONO : FONT_SANS,
-          textAlign: right ? "right" : "left",
-        });
-        return (
-          <div>
-            {/* Filtros */}
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
-              <select value={filtTambo} onChange={e => setFiltTambo(e.target.value)}
-                style={{ ...inp, width: "auto", fontSize: 13, padding: "5px 10px" }}>
-                <option value="">Todos los tambos</option>
-                {tambosOpts.map(t => <option key={t} value={t}>{t}</option>)}
-              </select>
-              <select value={filtProd} onChange={e => setFiltProd(e.target.value)}
-                style={{ ...inp, width: "auto", fontSize: 13, padding: "5px 10px" }}>
-                <option value="">Todos los productos</option>
-                {prodOpts.map(p => <option key={p} value={p}>{p}</option>)}
-              </select>
-              <input placeholder="Buscar tambo, destino…" value={filtText}
-                onChange={e => setFiltText(e.target.value)}
-                style={{ ...inp, width: isDesktop ? 220 : "100%", fontSize: 13, padding: "5px 10px" }} />
-              <span style={{ marginLeft: "auto", fontSize: 12, color: C.sub, alignSelf: "center" }}>
-                {filtered.length} registro{filtered.length !== 1 ? "s" : ""}
-              </span>
-            </div>
-            {/* Totales */}
-            <div style={{ display: "flex", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
-              {[
-                ["Fábrica", totalFca, C.accent],
-                ["Tambo",   totalTbo, "#a78bfa"],
-                ["Diferencia", Math.abs(totalDif), totalDif > 0 ? C.success : totalDif < 0 ? C.danger : C.sub],
-              ].map(([l, v, col]) => (
-                <div key={l} style={{ background: C.surface, border: `1px solid ${C.border}`,
-                  borderRadius: 8, padding: "8px 14px", display: "flex", gap: 8, alignItems: "baseline" }}>
-                  <span style={{ fontSize: 11, color: C.sub }}>{l}</span>
-                  <span style={{ fontFamily: FONT_MONO, fontSize: 16, fontWeight: 700, color: col }}>
-                    {Math.round(v).toLocaleString("es-AR")} L
-                  </span>
-                </div>
-              ))}
-            </div>
-            {/* Tabla */}
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-                <thead>
-                  <tr style={{ background: C.surface }}>
-                    <th style={th}>Fecha</th>
-                    <th style={th}>Hora</th>
-                    <th style={th}>Tambo</th>
-                    <th style={th}>Producto</th>
-                    <th style={th}>Destino</th>
-                    <th style={{ ...th, textAlign: "right" }}>L Fca.</th>
-                    <th style={{ ...th, textAlign: "right" }}>L Tbo.</th>
-                    <th style={{ ...th, textAlign: "right" }}>Dif.</th>
-                    <th style={th}>Obs.</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.length === 0 && (
-                    <tr><td colSpan={9} style={{ ...td(), textAlign: "center", color: C.sub, padding: "24px 0" }}>
-                      Sin registros
-                    </td></tr>
-                  )}
-                  {filtered.map(r => {
-                    const dif = (parseFloat(r.litrosFca) || 0) - (parseFloat(r.litrosTbo) || 0);
-                    const difCol = Math.abs(dif) > 50 ? C.danger : dif > 0 ? C.success : C.sub;
-                    return (
-                      <tr key={r.id + r._date} style={{ background: "transparent" }}>
-                        <td style={td()}>{fmtDate(r._date)}</td>
-                        <td style={td()}>{r.hora || "—"}</td>
-                        <td style={td()}>{r.tambo || "—"}</td>
-                        <td style={td()}>{r.producto || "—"}</td>
-                        <td style={td()}>{r.destino || "—"}</td>
-                        <td style={td(true)}>{r.litrosFca != null ? Math.round(r.litrosFca).toLocaleString("es-AR") : "—"}</td>
-                        <td style={td(true)}>{r.litrosTbo != null ? Math.round(r.litrosTbo).toLocaleString("es-AR") : "—"}</td>
-                        <td style={{ ...td(true), color: difCol, fontWeight: 600 }}>
-                          {isNaN(dif) ? "—" : (dif >= 0 ? "+" : "") + Math.round(dif).toLocaleString("es-AR")}
-                        </td>
-                        <td style={{ ...td(), color: C.sub }}>{r.obs || ""}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        );
-      })()}
+      {!loading && tab === "ingresos" && <AdminTabIngresos ingresos={ingresos} isDesktop={isDesktop} />}
 
       {/* ── SALIDAS ── */}
-      {!loading && tab === "salidas" && (() => {
-        const transOpts = [...new Set(cargas.map(r => r.transportista).filter(Boolean))].sort();
-        const destOpts  = [...new Set(cargas.map(r => r.destino).filter(Boolean))].sort();
-        const [filtTrans, setFiltTrans] = useState("");
-        const [filtDest, setFiltDest] = useState("");
-        const filtered = cargas.filter(r => {
-          if (filtTrans && r.transportista !== filtTrans) return false;
-          if (filtDest && r.destino !== filtDest) return false;
-          return true;
-        });
-        const totalLitros = filtered.reduce((s, r) => s + (parseFloat(r.litros) || 0), 0);
-        const th = { padding: "8px 10px", fontSize: 11, color: C.sub, textAlign: "left",
-          borderBottom: `1px solid ${C.border}`, whiteSpace: "nowrap", fontWeight: 600,
-          textTransform: "uppercase", letterSpacing: "0.04em" };
-        const td = (right = false) => ({
-          padding: "8px 10px", fontSize: 12, color: C.text,
-          borderBottom: `1px solid ${C.border}`,
-          fontFamily: right ? FONT_MONO : FONT_SANS, textAlign: right ? "right" : "left",
-        });
-        return (
-          <div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
-              <select value={filtTrans} onChange={e => setFiltTrans(e.target.value)}
-                style={{ ...inp, width: "auto", fontSize: 13, padding: "5px 10px" }}>
-                <option value="">Todos los transportistas</option>
-                {transOpts.map(t => <option key={t} value={t}>{t}</option>)}
-              </select>
-              <select value={filtDest} onChange={e => setFiltDest(e.target.value)}
-                style={{ ...inp, width: "auto", fontSize: 13, padding: "5px 10px" }}>
-                <option value="">Todos los destinos</option>
-                {destOpts.map(d => <option key={d} value={d}>{d}</option>)}
-              </select>
-              <span style={{ marginLeft: "auto", fontSize: 12, color: C.sub, alignSelf: "center" }}>
-                {filtered.length} despacho{filtered.length !== 1 ? "s" : ""}
-              </span>
-            </div>
-            <div style={{ display: "flex", gap: 12, marginBottom: 14 }}>
-              <div style={{ background: C.surface, border: `1px solid ${C.border}`,
-                borderRadius: 8, padding: "8px 14px", display: "flex", gap: 8, alignItems: "baseline" }}>
-                <span style={{ fontSize: 11, color: C.sub }}>Total despachado</span>
-                <span style={{ fontFamily: FONT_MONO, fontSize: 16, fontWeight: 700, color: "#60a5fa" }}>
-                  {Math.round(totalLitros).toLocaleString("es-AR")} L
-                </span>
-              </div>
-            </div>
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                <thead>
-                  <tr style={{ background: C.surface }}>
-                    <th style={th}>Fecha</th>
-                    <th style={th}>Hora</th>
-                    <th style={th}>Carga</th>
-                    <th style={th}>Transportista</th>
-                    <th style={th}>Destino</th>
-                    <th style={th}>Producto</th>
-                    <th style={th}>Silo</th>
-                    <th style={{ ...th, textAlign: "right" }}>Litros</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.length === 0 && (
-                    <tr><td colSpan={8} style={{ ...td(), textAlign: "center", color: C.sub, padding: "24px 0" }}>
-                      Sin registros
-                    </td></tr>
-                  )}
-                  {filtered.map(r => (
-                    <tr key={r.id + r._date}>
-                      <td style={td()}>{fmtDate(r._date)}</td>
-                      <td style={td()}>{r.hora || "—"}</td>
-                      <td style={td()}>{r.label || "—"}</td>
-                      <td style={td()}>{r.transportista || "—"}</td>
-                      <td style={td()}>{r.destino || "—"}</td>
-                      <td style={td()}>{r.producto || "—"}</td>
-                      <td style={td()}>{r.siloProveniente || "—"}</td>
-                      <td style={td(true)}>{r.litros != null ? Math.round(r.litros).toLocaleString("es-AR") : "—"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        );
-      })()}
+      {!loading && tab === "salidas" && <AdminTabSalidas cargas={cargas} isDesktop={isDesktop} />}
 
       {/* ── TAMBOS ── */}
       {!loading && tab === "tambos" && (() => {
@@ -5135,7 +5136,6 @@ const SecAdmin = ({ date, syncKey }) => {
         );
       })()}
 
-      {/* ── EXPORTAR ── */}
       {/* ── EXPORTAR ── */}
       {!loading && tab === "exportar" && (() => {
         const exportCSV = () => {
