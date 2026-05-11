@@ -12,8 +12,9 @@ export {
   BarChart3      as Stock,
 
   // ── Perfiles ─────────────────────────────────────────────────
-  UserCog  as Supervisor,
-  Crown    as Jefe,
+  UserCog   as Supervisor,
+  Crown     as Jefe,
+  Briefcase as Admin,
 
   // ── Header / acciones globales ────────────────────────────────
   Sun      as ThemeLight,
