@@ -17,3 +17,13 @@ import {
   DiaCerrado as IcoCerrado, DiaAbierto as IcoAbierto, SyncError as IcoSyncError, Syncing as IcoSyncing,
   SW,
 } from "./icons.js";
+
+// ─── HELPERS DE EXPORTACIÓN ───────────────────────────────────
+const escapeHtml = s => String(s == null ? "" : s)
+  .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+  .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+
+const escapeCsv = s => {
+  const str = String(s == null ? "" : s);
+  return /[,"\n\r=+\-@|]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+};
