@@ -30,21 +30,33 @@ const escapeCsv = s => {
 
 // ─── CONSTANTES ───────────────────────────────────────────────
 const TAMBOS_BASE = [
-  { num: 13, nombre: "SEIVANE" }, { num: 90, nombre: "ESTAR 1" },
-  { num: 91, nombre: "ESTAR 2" }, { num: 93, nombre: "ESTAR 3" },
-  { num: 16, nombre: "TUESO" }, { num: 30, nombre: "CARPINETI" },
-  { num: 24, nombre: "COGORNI" }, { num: 26, nombre: "PAZOS 2" },
-  { num: 50, nombre: "BRUNO" }, { num: 4, nombre: "VIVOT" },
-  { num: 1, nombre: "MURPHY 1" }, { num: 2, nombre: "MURPHY 2" },
-  { num: 89, nombre: "OPOCA" }, { num: 35, nombre: "ETCHEVERRY" },
-  { num: 14, nombre: "ZIVERRA" }, { num: 65, nombre: "MELO" },
-  { num: 17, nombre: "GIORGI G." }, { num: 18, nombre: "GIORGI F." },
-  { num: 21, nombre: "GUSTI CARLOS" }, { num: 46, nombre: "PIÑERO JORGE" },
-  { num: 49, nombre: "CEJAS" }, { num: 50, nombre: "VAQUERIA" },
-  { num: 51, nombre: "SPINELLI" }, { num: "-", nombre: "FAISAN" },
-  { num: 4, nombre: "ZONA" }, { num: "-", nombre: "SAIGNACIO" },
-  { num: "-", nombre: "CANAGRO" }, { num: "-", nombre: "CHAME" },
+  { num: 13,  nombre: "SEIVANE" },    { num: 90,  nombre: "ESTAR 1" },
+  { num: 91,  nombre: "ESTAR 2" },    { num: 93,  nombre: "ESTAR 3" },
+  { num: 16,  nombre: "TUESO" },      { num: 30,  nombre: "CARPINETI" },
+  { num: 24,  nombre: "COGORNI" },    { num: 26,  nombre: "PAZOS 2" },
+  { num: 60,  nombre: "BRUNO" },      { num: 104, nombre: "VIVOT" },
+  { num: 1,   nombre: "MURPHY 1" },   { num: 2,   nombre: "MURPHY 2" },
+  { num: 89,  nombre: "OPOCA" },      { num: 35,  nombre: "ETCHEVERRY" },
+  { num: 14,  nombre: "ZIVERRA" },    { num: 65,  nombre: "MELO" },
+  { num: 17,  nombre: "GIORGI G." },  { num: 18,  nombre: "GIORGI F." },
+  { num: 21,  nombre: "GUSTI CARLOS" },{ num: 46, nombre: "PIÑERO JORGE" },
+  { num: 49,  nombre: "STA ROSA" },   { num: 49,  nombre: "CEJAS" },
+  { num: 50,  nombre: "VAQUERIA" },   { num: 51,  nombre: "SPINELLI" },
+  { num: "-", nombre: "FAISAN" },     { num: 4,   nombre: "ZONA" },
+  { num: "-", nombre: "SAIGNACIO" },  { num: "-", nombre: "CANAGRO" },
+  { num: "-", nombre: "CHAME" },      { num: "-", nombre: "ANDORNO" },
+  { num: "-", nombre: "HOURCADE 1" }, { num: "-", nombre: "HOURCADE 2" },
+  { num: "-", nombre: "HOURCADE 3" }, { num: "-", nombre: "HOURCADE 5" },
+  { num: "-", nombre: "NANFARO" },
 ];
+// Mapa de transportista → tambos que habitualmente traslada (el operario puede cambiar)
+const TRANSPORTISTAS = {
+  GRISARO:    ["SEIVANE", "ETCHEVERRY", "MELO", "ANDORNO"],
+  CUARELA:    ["ESTAR 1", "ESTAR 2", "BRUNO", "PIÑERO JORGE"],
+  LLANOS:     ["TUESO", "COGORNI", "VIVOT", "STA ROSA", "HOURCADE 1", "HOURCADE 2", "HOURCADE 3", "HOURCADE 5"],
+  GALVAN:     ["CARPINETI", "MURPHY 1", "MURPHY 2", "OPOCA", "GIORGI G."],
+  ANGRIGIANI: ["NANFARO"],
+};
 const CAMIONES_BASE = ["GRISARO", "CUARELA", "BARTOLINI", "LLANO 1", "LLANO 2", "GALVAN", "ANGRIGIANI"];
 const FORT_DESTINOS = ["Tetra", "Ultra", "Yogur", "Postre", "Acción Correctiva"];
 const PERFILES = {
@@ -630,7 +642,7 @@ async function checkSiloBalance(date, siloRaw, litrosImpacto, excludeFn = null) 
 
 // ─── INGRESOS ────────────────────────────────────────────────
 const emptyIng = () => ({
-  id: crypto.randomUUID(), hora: getNow(), tambo: "", num: "",
+  id: crypto.randomUUID(), hora: getNow(), tambo: "", num: "", transportista: "",
   litrosFca: "", litrosTbo: "", destino: "", tC: "",
   acidezFca: "", phFca: "", alcFca: "", alcTbo: "",
   gbFca: "", gbTbo: "", sngFca: "", sngTbo: "",
@@ -660,6 +672,20 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
     const t = tambos.find(t => t.nombre === nombre);
     setF(p => ({ ...p, tambo: nombre, num: t ? String(t.num) : p.num }));
   };
+  const pickTransportista = trans => {
+    setF(p => {
+      const nuevoF = { ...p, transportista: trans };
+      // Si el tambo actual no pertenece al nuevo transportista, limpiar la selección
+      if (trans && TRANSPORTISTAS[trans] && p.tambo && !TRANSPORTISTAS[trans].includes(p.tambo)) {
+        nuevoF.tambo = "";
+        nuevoF.num = "";
+      }
+      return nuevoF;
+    });
+  };
+  const transCarrierTambos = f.transportista ? (TRANSPORTISTAS[f.transportista] || []) : [];
+  const tambosPropios  = tambos.filter(t => transCarrierTambos.includes(t.nombre));
+  const tambosOtros    = tambos.filter(t => !transCarrierTambos.includes(t.nombre));
   const isConcentrado = PRODS_CONCENTRADOS.includes(f.producto);
 
   // Advertencias de calidad derivadas del estado del formulario — sin useState, sin bloqueo.
@@ -675,10 +701,36 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
         <F label="Hora"><input style={inp} type="time" value={f.hora} onChange={e => set("hora")(e.target.value)} /></F>
         <F label="N° Tambo"><Inp value={f.num} onChange={set("num")} placeholder="Nº" /></F>
       </div>
+      <F label="Transportista">
+        <select value={f.transportista || ""} onChange={e => pickTransportista(e.target.value)} style={inp}>
+          <option value="">Sin especificar</option>
+          {Object.keys(TRANSPORTISTAS).map(t => (
+            <option key={t} value={t}>{t}</option>
+          ))}
+        </select>
+      </F>
       <F label="Tambo / Procedencia">
-        <Sel value={f.tambo} onChange={pickTambo}
-          options={tambos.map(t => ({ value: t.nombre, label: `${t.num} — ${t.nombre}` }))}
-          placeholder="Seleccionar tambo..." />
+        <select value={f.tambo || ""} onChange={e => pickTambo(e.target.value)} style={inp}>
+          <option value="">Seleccionar tambo...</option>
+          {f.transportista && tambosPropios.length > 0 ? (
+            <>
+              <optgroup label={`Tambos de ${f.transportista}`}>
+                {tambosPropios.map(t => (
+                  <option key={t.nombre} value={t.nombre}>{t.num} — {t.nombre}</option>
+                ))}
+              </optgroup>
+              <optgroup label="Otros tambos">
+                {tambosOtros.map(t => (
+                  <option key={t.nombre} value={t.nombre}>{t.num} — {t.nombre}</option>
+                ))}
+              </optgroup>
+            </>
+          ) : (
+            tambos.map(t => (
+              <option key={t.nombre} value={t.nombre}>{t.num} — {t.nombre}</option>
+            ))
+          )}
+        </select>
         <button type="button" onClick={onNuevoTambo} style={{ marginTop: 6, background: "none", border: "none", color: C.accent, fontSize: 12, cursor: "pointer", padding: "4px 0", textDecoration: "underline" }}>
           + Agregar nuevo tambo
         </button>
@@ -932,7 +984,8 @@ const SecIngresos = ({ date, syncKey = 0, dayClosed = false }) => {
         const vista = q
           ? list.filter(ing =>
               (ing.tambo || "").toLowerCase().includes(q) ||
-              String(ing.num || "").toLowerCase().includes(q)
+              String(ing.num || "").toLowerCase().includes(q) ||
+              (ing.transportista || "").toLowerCase().includes(q)
             )
           : list;
         if (list.length === 0) return (
@@ -957,7 +1010,14 @@ const SecIngresos = ({ date, syncKey = 0, dayClosed = false }) => {
               <span style={{ fontFamily: FONT_MONO, fontWeight: 700, color: C.accent, fontSize: 17 }}>{ing.hora}</span>
               <span style={{ background: C.accentDim, color: C.accent, borderRadius: 6, padding: "2px 10px", fontSize: 12, fontWeight: 700 }}>{ing.destino || "Sin destino"}</span>
             </div>
-            <div style={{ fontWeight: 700, fontSize: 16, color: C.text, marginBottom: 4 }}>[{ing.num}] {ing.tambo || "—"}</div>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 4 }}>
+              <span style={{ fontWeight: 700, fontSize: 16, color: C.text }}>[{ing.num}] {ing.tambo || "—"}</span>
+              {ing.transportista && (
+                <span style={{ fontSize: 11, color: C.sub, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 4, padding: "1px 6px", letterSpacing: "0.03em" }}>
+                  {ing.transportista}
+                </span>
+              )}
+            </div>
             <div style={{ display: "flex", gap: 14, fontSize: 13, color: C.sub, flexWrap: "wrap" }}>
               {ing.litrosFca && <span>{parseFloat(ing.litrosFca).toLocaleString("es-AR")} L Fca.</span>}
               {ing.litrosTbo && <span>{parseFloat(ing.litrosTbo).toLocaleString("es-AR")} L Tbo.</span>}
