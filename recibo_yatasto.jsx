@@ -516,10 +516,10 @@ const Inp = ({ value, onChange, type = "text", placeholder, step, readOnly }) =>
 // - decimalAfter: posición donde se inserta la coma automáticamente al salir del campo
 //   (ej: decimalAfter=1 → "66" se formatea como "6,6"; decimalAfter=2 → "166" → "16,6")
 const SmartDecInp = ({ value, onChange, decimalAfter = 1, placeholder, readOnly }) => {
-  const [local, setLocal] = React.useState(() =>
+  const [local, setLocal] = useState(() =>
     value != null && value !== "" ? String(value).replace(".", ",") : ""
   );
-  React.useEffect(() => {
+  useEffect(() => {
     setLocal(value != null && value !== "" ? String(value).replace(".", ",") : "");
   }, [value]);
   const handleChange = (e) => {
