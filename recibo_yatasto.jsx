@@ -6,7 +6,7 @@ import { db, onWriteQueueChange } from "./db-adapter.js";
 import {
   Ingresos as IcoIngresos, Movimientos as IcoMovimientos, Carga as IcoCarga,
   Fortificados as IcoFortificados, CIP as IcoCIP, Stock as IcoStock,
-  Supervisor as IcoSupervisor, Jefe as IcoJefe,
+  Supervisor as IcoSupervisor, Jefe as IcoJefe, Admin as IcoAdmin,
   ThemeLight, ThemeDark, DatePicker as IcoDate, Informe as IcoInforme, Offline as IcoOffline,
   Destino as IcoDestino, Concentrado as IcoConcentrado, Calidad as IcoCalidad,
   Temperatura as IcoTemp, Buscar as IcoBuscar, Instalacion as IcoInstalacion,
@@ -30,26 +30,39 @@ const escapeCsv = s => {
 
 // ─── CONSTANTES ───────────────────────────────────────────────
 const TAMBOS_BASE = [
-  { num: 13, nombre: "SEIVANE" }, { num: 90, nombre: "ESTAR 1" },
-  { num: 91, nombre: "ESTAR 2" }, { num: 93, nombre: "ESTAR 3" },
-  { num: 16, nombre: "TUESO" }, { num: 30, nombre: "CARPINETI" },
-  { num: 24, nombre: "COGORNI" }, { num: 26, nombre: "PAZOS 2" },
-  { num: 50, nombre: "BRUNO" }, { num: 4, nombre: "VIVOT" },
-  { num: 1, nombre: "MURPHY 1" }, { num: 2, nombre: "MURPHY 2" },
-  { num: 89, nombre: "OPOCA" }, { num: 35, nombre: "ETCHEVERRY" },
-  { num: 14, nombre: "ZIVERRA" }, { num: 65, nombre: "MELO" },
-  { num: 17, nombre: "GIORGI G." }, { num: 18, nombre: "GIORGI F." },
-  { num: 21, nombre: "GUSTI CARLOS" }, { num: 46, nombre: "PIÑERO JORGE" },
-  { num: 49, nombre: "CEJAS" }, { num: 50, nombre: "VAQUERIA" },
-  { num: 51, nombre: "SPINELLI" }, { num: "-", nombre: "FAISAN" },
-  { num: 4, nombre: "ZONA" }, { num: "-", nombre: "SAIGNACIO" },
-  { num: "-", nombre: "CANAGRO" }, { num: "-", nombre: "CHAME" },
+  { num: 13,  nombre: "SEIVANE" },    { num: 90,  nombre: "ESTAR 1" },
+  { num: 91,  nombre: "ESTAR 2" },    { num: 93,  nombre: "ESTAR 3" },
+  { num: 16,  nombre: "TUESO" },      { num: 30,  nombre: "CARPINETI" },
+  { num: 24,  nombre: "COGORNI" },    { num: 26,  nombre: "PAZOS 2" },
+  { num: 60,  nombre: "BRUNO" },      { num: 104, nombre: "VIVOT" },
+  { num: 1,   nombre: "MURPHY 1" },   { num: 2,   nombre: "MURPHY 2" },
+  { num: 89,  nombre: "OPOCA" },      { num: 35,  nombre: "ETCHEVERRY" },
+  { num: 14,  nombre: "ZIVERRA" },    { num: 65,  nombre: "MELO" },
+  { num: 17,  nombre: "GIORGI G." },  { num: 18,  nombre: "GIORGI F." },
+  { num: 21,  nombre: "GUSTI CARLOS" },{ num: 46, nombre: "PIÑERO JORGE" },
+  { num: 49,  nombre: "STA ROSA" },   { num: 49,  nombre: "CEJAS" },
+  { num: 50,  nombre: "VAQUERIA" },   { num: 51,  nombre: "SPINELLI" },
+  { num: "-", nombre: "FAISAN" },     { num: 4,   nombre: "ZONA" },
+  { num: "-", nombre: "SAIGNACIO" },  { num: "-", nombre: "CANAGRO" },
+  { num: "-", nombre: "CHAME" },      { num: "-", nombre: "ANDORNO" },
+  { num: "-", nombre: "HOURCADE 1" }, { num: "-", nombre: "HOURCADE 2" },
+  { num: "-", nombre: "HOURCADE 3" }, { num: "-", nombre: "HOURCADE 5" },
+  { num: "-", nombre: "NANFARO" },
 ];
+// Mapa de transportista → tambos que habitualmente traslada (el operario puede cambiar)
+const TRANSPORTISTAS = {
+  GRISARO:    ["SEIVANE", "ETCHEVERRY", "MELO", "ANDORNO"],
+  CUARELA:    ["ESTAR 1", "ESTAR 2", "BRUNO", "PIÑERO JORGE"],
+  LLANOS:     ["TUESO", "COGORNI", "VIVOT", "STA ROSA", "HOURCADE 1", "HOURCADE 2", "HOURCADE 3", "HOURCADE 5"],
+  GALVAN:     ["CARPINETI", "MURPHY 1", "MURPHY 2", "OPOCA", "GIORGI G."],
+  ANGRIGIANI: ["NANFARO"],
+};
 const CAMIONES_BASE = ["GRISARO", "CUARELA", "BARTOLINI", "LLANO 1", "LLANO 2", "GALVAN", "ANGRIGIANI"];
 const FORT_DESTINOS = ["Tetra", "Ultra", "Yogur", "Postre", "Acción Correctiva"];
 const PERFILES = {
-  supervisor: { usuario: "Supervisor", email: "supervisor@yatasto.internal", label: "Supervisor", Icon: IcoSupervisor },
-  jefe:       { usuario: "Jefe",       email: "jefe@yatasto.internal",       label: "Jefe de Planta", Icon: IcoJefe },
+  supervisor:   { usuario: "Supervisor",    email: "supervisor@yatasto.internal", label: "Supervisor",       Icon: IcoSupervisor },
+  jefe:         { usuario: "Jefe",          email: "jefe@yatasto.internal",       label: "Jefe de Planta",   Icon: IcoJefe },
+  admin:        { usuario: "Administracion",email: "admin@yatasto.internal",      label: "Administración",   Icon: IcoAdmin },
 };
 const SILOS = ["100 NUEVO", "100 VIEJO", "80", "60", "42", "40F", "20", "15"];
 const SILOS_TODOS = [...SILOS, "TQ1", "TQ2", "TQ3", "TQ6", "TQ7", "TQ8", "TQ9", "POSTRE", "TINA", "DULCE"];
@@ -243,34 +256,43 @@ const QUALITY_REFS = {
 // Regla: entero sin punto decimal en rango [20, 40] → interpretar como Ecomilk.
 
 function isEcomilkDensity(v) {
-  const s = String(v == null ? "" : v).trim();
-  if (!s || s.includes(".")) return false;
+  const s = String(v == null ? "" : v).trim().replace(",", ".");
+  if (!s) return false;
   const n = Number(s);
-  return Number.isFinite(n) && Number.isInteger(n) && n >= 20 && n <= 40;
+  return Number.isFinite(n) && n >= 20 && n <= 40;
 }
 
-// Convierte cualquier formato válido al valor técnico con 3 decimales.
+// Convierte cualquier formato válido al valor técnico con 3 decimales (4 si Ecomilk con decimal).
 function normalizeDensity(v) {
   if (v === "" || v == null) return "";
-  if (isEcomilkDensity(v)) return (1 + parseInt(v, 10) / 1000).toFixed(3);
-  const n = parseFloat(v);
+  const s = String(v).trim().replace(",", ".");
+  if (isEcomilkDensity(s)) {
+    const n = parseFloat(s);
+    return (1 + n / 1000).toFixed(Number.isInteger(n) ? 3 : 4);
+  }
+  const n = parseFloat(s);
   return !isNaN(n) ? n.toFixed(3) : String(v);
 }
 
-// Para display en auditorías, reportes y exports: siempre 3 decimales.
+// Para display en auditorías, reportes y exports.
 // Retro-compatible: si un registro viejo tuviera "28" guardado, lo convierte al mostrarlo.
 function formatDensity(v) {
   if (v === "" || v == null) return "";
-  if (isEcomilkDensity(v)) return (1 + parseInt(v, 10) / 1000).toFixed(3);
-  const n = parseFloat(v);
+  const s = String(v).trim().replace(",", ".");
+  if (isEcomilkDensity(s)) {
+    const n = parseFloat(s);
+    return (1 + n / 1000).toFixed(Number.isInteger(n) ? 3 : 4);
+  }
+  const n = parseFloat(s);
   return !isNaN(n) ? n.toFixed(3) : String(v);
 }
 
 // Retorna null si el valor es válido; string de error si no.
 function validateDensity(raw) {
   if (raw === "" || raw == null) return null;
-  if (isEcomilkDensity(raw)) return null; // 20–40 entero → OK
-  const n = parseFloat(raw);
+  const s = String(raw).trim().replace(",", ".");
+  if (isEcomilkDensity(s)) return null; // 20–40 Ecomilk → OK
+  const n = parseFloat(s);
   if (isNaN(n)) return "Valor inválido";
   if (n < 1.020 || n > 1.040) return `Fuera de rango (1.020–1.040 ó 20–40 Ecomilk)`;
   return null;
@@ -497,6 +519,59 @@ const Inp = ({ value, onChange, type = "text", placeholder, step, readOnly }) =>
     placeholder={placeholder} step={step} readOnly={readOnly}
   />
 );
+// Input decimal inteligente para parámetros de calidad.
+// - Acepta tanto "," como "." como separador decimal (iOS decimal keyboard usa ",")
+// - Normaliza a "," para display, a "." para almacenamiento (parseFloat-compatible)
+// - decimalAfter: posición donde se inserta la coma automáticamente al salir del campo
+//   (ej: decimalAfter=1 → "66" se formatea como "6,6"; decimalAfter=2 → "166" → "16,6")
+const SmartDecInp = ({ value, onChange, decimalAfter = 1, placeholder, readOnly }) => {
+  const [local, setLocal] = useState(() =>
+    value != null && value !== "" ? String(value).replace(".", ",") : ""
+  );
+  useEffect(() => {
+    setLocal(value != null && value !== "" ? String(value).replace(".", ",") : "");
+  }, [value]);
+  const handleChange = (e) => {
+    let raw = e.target.value.replace(/[^0-9.,]/g, "");
+    const parts = raw.split(/[.,]/);
+    if (parts.length > 2) {
+      raw = parts[0] + "," + parts.slice(1).join("");
+    } else {
+      raw = raw.replace(".", ",");
+    }
+    setLocal(raw);
+    onChange(raw.replace(",", "."));
+  };
+  const handleBlur = () => {
+    if (!local.trim()) return;
+    if (!local.includes(",")) {
+      const digits = local.replace(/[^0-9]/g, "");
+      if (digits.length >= decimalAfter) {
+        const intPart = digits.slice(0, decimalAfter);
+        const decPart = digits.slice(decimalAfter);
+        const formatted = decPart ? `${intPart},${decPart}` : `${intPart},`;
+        setLocal(formatted);
+        onChange(`${intPart}.${decPart}`);
+      }
+    }
+  };
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      pattern="[0-9]*[.,]?[0-9]*"
+      autoComplete="off"
+      autoCorrect="off"
+      spellCheck={false}
+      style={{ ...inp, ...(readOnly ? { opacity: 0.6, cursor: "default" } : {}) }}
+      value={local}
+      onChange={handleChange}
+      onBlur={handleBlur}
+      placeholder={placeholder}
+      readOnly={readOnly}
+    />
+  );
+};
 const Sel = ({ value, onChange, options, placeholder }) => (
   <select style={{ ...inp, WebkitAppearance: "none" }} value={value} onChange={e => onChange(e.target.value)}>
     {placeholder && <option value="">{placeholder}</option>}
@@ -507,12 +582,12 @@ const Sel = ({ value, onChange, options, placeholder }) => (
     ))}
   </select>
 );
-const Pair = ({ label, v1, v2, on1, on2 }) => (
+const Pair = ({ label, v1, v2, on1, on2, decimalAfter = 1 }) => (
   <div style={{ marginBottom: 12 }}>
     <label style={lbl}>{label} — <span style={{ color: C.text }}>Fca.</span> / <span style={{ color: C.sub }}>Tbo.</span></label>
     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-      <input style={{ ...inp, borderColor: C.accentDark }} type="number" inputMode="decimal" value={v1} onChange={e => on1(e.target.value)} placeholder="Fca." />
-      <input style={inp} type="number" inputMode="decimal" value={v2} onChange={e => on2(e.target.value)} placeholder="Tbo." />
+      <SmartDecInp value={v1} onChange={on1} decimalAfter={decimalAfter} placeholder="Fca." />
+      <SmartDecInp value={v2} onChange={on2} decimalAfter={decimalAfter} placeholder="Tbo." />
     </div>
   </div>
 );
@@ -590,9 +665,10 @@ const DensityInput = ({ value, onChange, placeholder = "ej. 28 ó 1.028" }) => {
   return (
     <div>
       <input
-        style={inp} type="number" inputMode="decimal"
-        value={local} placeholder={placeholder} step="0.001"
-        onChange={e => { setLocal(e.target.value); setErr(""); }}
+        style={inp} type="text" inputMode="decimal"
+        pattern="[0-9]*[.,]?[0-9]*" autoComplete="off" autoCorrect="off" spellCheck={false}
+        value={local} placeholder={placeholder}
+        onChange={e => { setLocal(e.target.value.replace(/[^0-9.,]/g, "")); setErr(""); }}
         onBlur={handleBlur}
       />
       {err && <div style={{ fontSize: 11, color: C.danger, marginTop: 3, lineHeight: 1.4 }}>{err}</div>}
@@ -629,7 +705,7 @@ async function checkSiloBalance(date, siloRaw, litrosImpacto, excludeFn = null) 
 
 // ─── INGRESOS ────────────────────────────────────────────────
 const emptyIng = () => ({
-  id: crypto.randomUUID(), hora: getNow(), tambo: "", num: "",
+  id: crypto.randomUUID(), hora: getNow(), tambo: "", num: "", transportista: "",
   litrosFca: "", litrosTbo: "", destino: "", tC: "",
   acidezFca: "", phFca: "", alcFca: "", alcTbo: "",
   gbFca: "", gbTbo: "", sngFca: "", sngTbo: "",
@@ -659,6 +735,20 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
     const t = tambos.find(t => t.nombre === nombre);
     setF(p => ({ ...p, tambo: nombre, num: t ? String(t.num) : p.num }));
   };
+  const pickTransportista = trans => {
+    setF(p => {
+      const nuevoF = { ...p, transportista: trans };
+      // Si el tambo actual no pertenece al nuevo transportista, limpiar la selección
+      if (trans && TRANSPORTISTAS[trans] && p.tambo && !TRANSPORTISTAS[trans].includes(p.tambo)) {
+        nuevoF.tambo = "";
+        nuevoF.num = "";
+      }
+      return nuevoF;
+    });
+  };
+  const transCarrierTambos = f.transportista ? (TRANSPORTISTAS[f.transportista] || []) : [];
+  const tambosPropios  = tambos.filter(t => transCarrierTambos.includes(t.nombre));
+  const tambosOtros    = tambos.filter(t => !transCarrierTambos.includes(t.nombre));
   const isConcentrado = PRODS_CONCENTRADOS.includes(f.producto);
 
   // Advertencias de calidad derivadas del estado del formulario — sin useState, sin bloqueo.
@@ -674,10 +764,36 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
         <F label="Hora"><input style={inp} type="time" value={f.hora} onChange={e => set("hora")(e.target.value)} /></F>
         <F label="N° Tambo"><Inp value={f.num} onChange={set("num")} placeholder="Nº" /></F>
       </div>
+      <F label="Transportista">
+        <select value={f.transportista || ""} onChange={e => pickTransportista(e.target.value)} style={inp}>
+          <option value="">Sin especificar</option>
+          {Object.keys(TRANSPORTISTAS).map(t => (
+            <option key={t} value={t}>{t}</option>
+          ))}
+        </select>
+      </F>
       <F label="Tambo / Procedencia">
-        <Sel value={f.tambo} onChange={pickTambo}
-          options={tambos.map(t => ({ value: t.nombre, label: `${t.num} — ${t.nombre}` }))}
-          placeholder="Seleccionar tambo..." />
+        <select value={f.tambo || ""} onChange={e => pickTambo(e.target.value)} style={inp}>
+          <option value="">Seleccionar tambo...</option>
+          {f.transportista && tambosPropios.length > 0 ? (
+            <>
+              <optgroup label={`Tambos de ${f.transportista}`}>
+                {tambosPropios.map(t => (
+                  <option key={t.nombre} value={t.nombre}>{t.num} — {t.nombre}</option>
+                ))}
+              </optgroup>
+              <optgroup label="Otros tambos">
+                {tambosOtros.map(t => (
+                  <option key={t.nombre} value={t.nombre}>{t.num} — {t.nombre}</option>
+                ))}
+              </optgroup>
+            </>
+          ) : (
+            tambos.map(t => (
+              <option key={t.nombre} value={t.nombre}>{t.num} — {t.nombre}</option>
+            ))
+          )}
+        </select>
         <button type="button" onClick={onNuevoTambo} style={{ marginTop: 6, background: "none", border: "none", color: C.accent, fontSize: 12, cursor: "pointer", padding: "4px 0", textDecoration: "underline" }}>
           + Agregar nuevo tambo
         </button>
@@ -705,7 +821,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
             <F label="Destino — Silo"><Sel value={f.destino} onChange={set("destino")} options={SILOS} placeholder="Seleccionar silo..." /></F>
             <F label="Litros"><Inp type="number" value={f.litrosFca} onChange={set("litrosFca")} placeholder="0" /></F>
             <F label="Temperatura llegada (°C)">
-              <Inp type="number" value={f.tC} onChange={set("tC")} step="0.1" placeholder="°C" min="-5" max="50" />
+              <SmartDecInp value={f.tC} onChange={set("tC")} decimalAfter={1} placeholder="°C" />
               <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>Ref: 3 – 8 °C</div>
             </F>
           </div>
@@ -713,15 +829,15 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
             <div style={secTitle}>Parámetros</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
               <F label="Acidez">
-                <Inp type="number" value={f.acidezFca} onChange={set("acidezFca")} step="0.1" min="0" max="100" />
+                <SmartDecInp value={f.acidezFca} onChange={set("acidezFca")} decimalAfter={2} />
                 <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>Ref: 14 – 18 °D</div>
               </F>
               <F label="pH">
-                <Inp type="number" value={f.phFca} onChange={set("phFca")} step="0.01" min="0" max="14" />
+                <SmartDecInp value={f.phFca} onChange={set("phFca")} decimalAfter={1} />
                 <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>Ref: 6.6 – 6.8</div>
               </F>
             </div>
-            <F label="°BRIX"><Inp type="number" value={f.brix || ""} onChange={set("brix")} step="0.1" placeholder="°Brix" /></F>
+            <F label="°BRIX"><SmartDecInp value={f.brix || ""} onChange={set("brix")} decimalAfter={2} placeholder="°Brix" /></F>
             <F label="Organoléptico">
               <Sel value={f.organoleptico || ""} onChange={set("organoleptico")} options={["Sí", "No"]} placeholder="¿Conforme?" />
             </F>
@@ -738,7 +854,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
             </div>
             <F label="Destino — Silo"><Sel value={f.destino} onChange={set("destino")} options={SILOS} placeholder="Seleccionar silo..." /></F>
             <F label="Temperatura llegada (°C)">
-              <Inp type="number" value={f.tC} onChange={set("tC")} step="0.1" placeholder="°C" min="-5" max="50" />
+              <SmartDecInp value={f.tC} onChange={set("tC")} decimalAfter={1} placeholder="°C" />
               <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>Ref: 3 – 8 °C</div>
             </F>
           </div>
@@ -746,11 +862,11 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
             <div style={secTitle}>Parámetros básicos</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
               <F label="Acidez Fca.">
-                <Inp type="number" value={f.acidezFca} onChange={set("acidezFca")} step="0.1" min="0" max="100" />
+                <SmartDecInp value={f.acidezFca} onChange={set("acidezFca")} decimalAfter={2} />
                 <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>Ref: 14 – 18 °D</div>
               </F>
               <F label="pH Fca.">
-                <Inp type="number" value={f.phFca} onChange={set("phFca")} step="0.01" min="0" max="14" />
+                <SmartDecInp value={f.phFca} onChange={set("phFca")} decimalAfter={1} />
                 <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>Ref: 6.6 – 6.8</div>
               </F>
             </div>
@@ -765,10 +881,10 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
             <DensityPair v1={f.densFca} v2={f.densTbo} on1={set("densFca")} on2={set("densTbo")} />
             <Pair label="Aguado" v1={f.aguadoFca} v2={f.aguadoTbo} on1={set("aguadoFca")} on2={set("aguadoTbo")} />
             <div style={{ fontSize: 11, color: C.danger, marginTop: -8, marginBottom: 12 }}>Debe ser exactamente 0 — indica adulteración</div>
-            <Pair label="Leche de Descarte" v1={f.dcFca} v2={f.dcTbo} on1={set("dcFca")} on2={set("dcTbo")} />
+            <Pair label="Descenso Crioscópico" v1={f.dcFca} v2={f.dcTbo} on1={set("dcFca")} on2={set("dcTbo")} />
             <Pair label="Proteína" v1={f.protFca} v2={f.protTbo} on1={set("protFca")} on2={set("protTbo")} />
             <div style={{ fontSize: 11, color: C.sub, marginTop: -8, marginBottom: 12 }}>Ref: 2.9 – 3.5 %</div>
-            <F label="ATM"><Sel value={f.atm || ""} onChange={set("atm")} options={["Sí", "No"]} placeholder="ATM..." /></F>
+            <F label="ATB"><Sel value={f.atm || ""} onChange={set("atm")} options={["-", "+"]} placeholder="ATB..." /></F>
           </div>
         </>
       )}
@@ -799,8 +915,8 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
                    ["acidezFca", "Acidez"], ["phFca", "pH"]];
           } else {
             req = [["tambo", "Tambo"], ["litrosFca", "Litros Fábrica"], ["destino", "Destino"], ["producto", "Producto"],
-                   ["acidezFca", "Acidez Fca."], ["phFca", "pH Fca."], ["alcFca", "Prueba Alcohol Fca."],
-                   ["gbFca", "GB Fca."], ["sngFca", "SNG Fca."], ["densFca", "Densidad Fca."], ["protFca", "Proteína Fca."], ["atm", "ATM"]];
+                   ["acidezFca", "Acidez Fca."], ["phFca", "pH Fca."],
+                   ["gbFca", "GB Fca."], ["sngFca", "SNG Fca."], ["densFca", "Densidad Fca."], ["protFca", "Proteína Fca."], ["atm", "ATB"]];
           }
           const miss = req.filter(([k]) => !String(f[k] || "").trim()).map(([, v]) => v);
           if (miss.length) { setFieldError("Faltan completar:\n• " + miss.join("\n• ")); return; }
@@ -931,7 +1047,8 @@ const SecIngresos = ({ date, syncKey = 0, dayClosed = false }) => {
         const vista = q
           ? list.filter(ing =>
               (ing.tambo || "").toLowerCase().includes(q) ||
-              String(ing.num || "").toLowerCase().includes(q)
+              String(ing.num || "").toLowerCase().includes(q) ||
+              (ing.transportista || "").toLowerCase().includes(q)
             )
           : list;
         if (list.length === 0) return (
@@ -956,7 +1073,14 @@ const SecIngresos = ({ date, syncKey = 0, dayClosed = false }) => {
               <span style={{ fontFamily: FONT_MONO, fontWeight: 700, color: C.accent, fontSize: 17 }}>{ing.hora}</span>
               <span style={{ background: C.accentDim, color: C.accent, borderRadius: 6, padding: "2px 10px", fontSize: 12, fontWeight: 700 }}>{ing.destino || "Sin destino"}</span>
             </div>
-            <div style={{ fontWeight: 700, fontSize: 16, color: C.text, marginBottom: 4 }}>[{ing.num}] {ing.tambo || "—"}</div>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 4 }}>
+              <span style={{ fontWeight: 700, fontSize: 16, color: C.text }}>[{ing.num}] {ing.tambo || "—"}</span>
+              {ing.transportista && (
+                <span style={{ fontSize: 11, color: C.sub, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 4, padding: "1px 6px", letterSpacing: "0.03em" }}>
+                  {ing.transportista}
+                </span>
+              )}
+            </div>
             <div style={{ display: "flex", gap: 14, fontSize: 13, color: C.sub, flexWrap: "wrap" }}>
               {ing.litrosFca && <span>{parseFloat(ing.litrosFca).toLocaleString("es-AR")} L Fca.</span>}
               {ing.litrosTbo && <span>{parseFloat(ing.litrosTbo).toLocaleString("es-AR")} L Tbo.</span>}
@@ -1559,15 +1683,21 @@ const SecStock = ({ date, syncKey = 0 }) => {
     Promise.all([
       load(date, "stock", {}),
       load(date, "ingresos", []),
+      load(date, "fortificados", []),
       calcAutoLitros(date),
-    ]).then(([d, ingresos, autoTotals]) => {
+    ]).then(([d, ingresos, forts, autoTotals]) => {
       setAutoLitros(autoTotals);
 
-      // Inferir producto por silo desde ingresos del día
+      // Inferir producto por silo: primero ingresos, luego fortifications los sobreescriben
       const inferred = {};
       ingresos.forEach(ing => {
         const key = SILO_STOCK_KEY[ing.destino];
         if (key && ing.producto) inferred[key] = ing.producto;
+      });
+      forts.forEach(fort => {
+        if (!fort.siloDestino) return;
+        const key = SILO_STOCK_KEY[fort.siloDestino] || fort.siloDestino;
+        if (STOCK_SILOS.includes(key)) inferred[key] = "Leche Fortificada";
       });
 
       let updated = d;
@@ -2363,6 +2493,13 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
     const pct = Math.min(100, Math.max(0, (litros / cap) * 100));
     let prod = "";
     for (const t of TURNOS) { const p = ((((d.stock[t] || {}).silos || {})[silo]) || {}).producto; if (p) { prod = p; break; } }
+    // Fortifications override product type directly (no need to wait for SecStock to save)
+    if (d.fort && d.fort.length > 0) {
+      for (const fort of d.fort) {
+        const destKey = SILO_STOCK_KEY[fort.siloDestino] || fort.siloDestino;
+        if (destKey === silo) { prod = "Leche Fortificada"; break; }
+      }
+    }
     const fillColor = PROD_COLOR[prod] || C.accent;
     const isEmpty = litros <= 0;
     const isAlert = litros > 0 && pct > 88;
@@ -4506,6 +4643,760 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
   );
 };
 
+// ─── ADMINISTRACIÓN ───────────────────────────────────────────
+
+async function loadRangeData(from, to, section) {
+  const days = getDaysInRange(from, to);
+  const results = await Promise.all(
+    days.map(d =>
+      load(d, section, []).then(items =>
+        (Array.isArray(items) ? items : []).map(item => ({ ...item, _date: d }))
+      )
+    )
+  );
+  return results.flat();
+}
+
+const ADMIN_TABS = [
+  ["resumen",        IcoBalance,   "Resumen"],
+  ["ingresos",       IcoIngresos,  "Ingresos"],
+  ["salidas",        IcoCarga,     "Salidas"],
+  ["tambos",         IcoLeche,     "Tambos"],
+  ["transportistas", CamionIcon,   "Transportistas"],
+  ["diferencias",    AlertaWarn,   "Diferencias"],
+  ["exportar",       TabExportar,  "Exportar"],
+];
+
+const RANGE_PRESETS = [
+  ["hoy",       "Hoy"],
+  ["ayer",      "Ayer"],
+  ["semana",    "7 días"],
+  ["quincena",  "15 días"],
+  ["mes",       "30 días"],
+  ["custom",    "Personalizado"],
+];
+
+function computeRange(preset, from, to) {
+  const today = getToday();
+  switch (preset) {
+    case "hoy":       return { from: today, to: today };
+    case "ayer":      { const y = getPreviousDate(today); return { from: y, to: y }; }
+    case "semana":    return { from: getLastNDays(7)[0],  to: today };
+    case "quincena":  return { from: getLastNDays(15)[0], to: today };
+    case "mes":       return { from: getLastNDays(30)[0], to: today };
+    default:          return { from, to };
+  }
+}
+
+const AdminTabIngresos = ({ ingresos, isDesktop }) => {
+  const tambosOpts = [...new Set(ingresos.map(r => r.tambo).filter(Boolean))].sort();
+  const prodOpts   = [...new Set(ingresos.map(r => r.producto).filter(Boolean))].sort();
+  const [filtTambo, setFiltTambo] = useState("");
+  const [filtProd,  setFiltProd]  = useState("");
+  const [filtText,  setFiltText]  = useState("");
+  const filtered = ingresos.filter(r => {
+    if (filtTambo && r.tambo !== filtTambo) return false;
+    if (filtProd  && r.producto !== filtProd) return false;
+    if (filtText) {
+      const q = filtText.toLowerCase();
+      if (!(r.tambo || "").toLowerCase().includes(q) &&
+          !(r.destino || "").toLowerCase().includes(q) &&
+          !(r.obs || "").toLowerCase().includes(q)) return false;
+    }
+    return true;
+  });
+  const totalFca = filtered.reduce((s, r) => s + (parseFloat(r.litrosFca) || 0), 0);
+  const totalTbo = filtered.reduce((s, r) => s + (parseFloat(r.litrosTbo) || 0), 0);
+  const totalDif = totalFca - totalTbo;
+  const th = { padding: "8px 10px", fontSize: 11, color: C.sub, textAlign: "left",
+    borderBottom: `1px solid ${C.border}`, whiteSpace: "nowrap", fontWeight: 600,
+    textTransform: "uppercase", letterSpacing: "0.04em" };
+  const td = (right = false) => ({
+    padding: "8px 10px", fontSize: 12, color: C.text,
+    borderBottom: `1px solid ${C.border}`, fontFamily: right ? FONT_MONO : FONT_SANS,
+    textAlign: right ? "right" : "left",
+  });
+  return (
+    <div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
+        <select value={filtTambo} onChange={e => setFiltTambo(e.target.value)}
+          style={{ ...inp, width: "auto", fontSize: 13, padding: "5px 10px" }}>
+          <option value="">Todos los tambos</option>
+          {tambosOpts.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+        <select value={filtProd} onChange={e => setFiltProd(e.target.value)}
+          style={{ ...inp, width: "auto", fontSize: 13, padding: "5px 10px" }}>
+          <option value="">Todos los productos</option>
+          {prodOpts.map(p => <option key={p} value={p}>{p}</option>)}
+        </select>
+        <input placeholder="Buscar tambo, destino…" value={filtText}
+          onChange={e => setFiltText(e.target.value)}
+          style={{ ...inp, width: isDesktop ? 220 : "100%", fontSize: 13, padding: "5px 10px" }} />
+        <span style={{ marginLeft: "auto", fontSize: 12, color: C.sub, alignSelf: "center" }}>
+          {filtered.length} registro{filtered.length !== 1 ? "s" : ""}
+        </span>
+      </div>
+      <div style={{ display: "flex", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
+        {[
+          ["Fábrica",    totalFca, C.accent],
+          ["Tambo",      totalTbo, "#a78bfa"],
+          ["Diferencia", Math.abs(totalDif), totalDif > 0 ? C.success : totalDif < 0 ? C.danger : C.sub],
+        ].map(([l, v, col]) => (
+          <div key={l} style={{ background: C.surface, border: `1px solid ${C.border}`,
+            borderRadius: 8, padding: "8px 14px", display: "flex", gap: 8, alignItems: "baseline" }}>
+            <span style={{ fontSize: 11, color: C.sub }}>{l}</span>
+            <span style={{ fontFamily: FONT_MONO, fontSize: 16, fontWeight: 700, color: col }}>
+              {Math.round(v).toLocaleString("es-AR")} L
+            </span>
+          </div>
+        ))}
+      </div>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+          <thead>
+            <tr style={{ background: C.surface }}>
+              <th style={th}>Fecha</th>
+              <th style={th}>Hora</th>
+              <th style={th}>Tambo</th>
+              <th style={th}>Producto</th>
+              <th style={th}>Destino</th>
+              <th style={{ ...th, textAlign: "right" }}>L Fca.</th>
+              <th style={{ ...th, textAlign: "right" }}>L Tbo.</th>
+              <th style={{ ...th, textAlign: "right" }}>Dif.</th>
+              <th style={th}>Obs.</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.length === 0 && (
+              <tr><td colSpan={9} style={{ ...td(), textAlign: "center", color: C.sub, padding: "24px 0" }}>
+                Sin registros
+              </td></tr>
+            )}
+            {filtered.map(r => {
+              const dif = (parseFloat(r.litrosFca) || 0) - (parseFloat(r.litrosTbo) || 0);
+              const difCol = Math.abs(dif) > 50 ? C.danger : dif > 0 ? C.success : C.sub;
+              return (
+                <tr key={r.id + r._date} style={{ background: "transparent" }}>
+                  <td style={td()}>{fmtDate(r._date)}</td>
+                  <td style={td()}>{r.hora || "—"}</td>
+                  <td style={td()}>{r.tambo || "—"}</td>
+                  <td style={td()}>{r.producto || "—"}</td>
+                  <td style={td()}>{r.destino || "—"}</td>
+                  <td style={td(true)}>{r.litrosFca != null ? Math.round(r.litrosFca).toLocaleString("es-AR") : "—"}</td>
+                  <td style={td(true)}>{r.litrosTbo != null ? Math.round(r.litrosTbo).toLocaleString("es-AR") : "—"}</td>
+                  <td style={{ ...td(true), color: difCol, fontWeight: 600 }}>
+                    {isNaN(dif) ? "—" : (dif >= 0 ? "+" : "") + Math.round(dif).toLocaleString("es-AR")}
+                  </td>
+                  <td style={{ ...td(), color: C.sub }}>{r.obs || ""}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
+const AdminTabSalidas = ({ cargas, isDesktop }) => {
+  const transOpts = [...new Set(cargas.map(r => r.transportista).filter(Boolean))].sort();
+  const destOpts  = [...new Set(cargas.map(r => r.destino).filter(Boolean))].sort();
+  const [filtTrans, setFiltTrans] = useState("");
+  const [filtDest,  setFiltDest]  = useState("");
+  const filtered = cargas.filter(r => {
+    if (filtTrans && r.transportista !== filtTrans) return false;
+    if (filtDest  && r.destino !== filtDest) return false;
+    return true;
+  });
+  const totalLitros = filtered.reduce((s, r) => s + (parseFloat(r.litros) || 0), 0);
+  const th = { padding: "8px 10px", fontSize: 11, color: C.sub, textAlign: "left",
+    borderBottom: `1px solid ${C.border}`, whiteSpace: "nowrap", fontWeight: 600,
+    textTransform: "uppercase", letterSpacing: "0.04em" };
+  const td = (right = false) => ({
+    padding: "8px 10px", fontSize: 12, color: C.text,
+    borderBottom: `1px solid ${C.border}`,
+    fontFamily: right ? FONT_MONO : FONT_SANS, textAlign: right ? "right" : "left",
+  });
+  return (
+    <div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
+        <select value={filtTrans} onChange={e => setFiltTrans(e.target.value)}
+          style={{ ...inp, width: "auto", fontSize: 13, padding: "5px 10px" }}>
+          <option value="">Todos los transportistas</option>
+          {transOpts.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+        <select value={filtDest} onChange={e => setFiltDest(e.target.value)}
+          style={{ ...inp, width: "auto", fontSize: 13, padding: "5px 10px" }}>
+          <option value="">Todos los destinos</option>
+          {destOpts.map(d => <option key={d} value={d}>{d}</option>)}
+        </select>
+        <span style={{ marginLeft: "auto", fontSize: 12, color: C.sub, alignSelf: "center" }}>
+          {filtered.length} despacho{filtered.length !== 1 ? "s" : ""}
+        </span>
+      </div>
+      <div style={{ display: "flex", gap: 12, marginBottom: 14 }}>
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`,
+          borderRadius: 8, padding: "8px 14px", display: "flex", gap: 8, alignItems: "baseline" }}>
+          <span style={{ fontSize: 11, color: C.sub }}>Total despachado</span>
+          <span style={{ fontFamily: FONT_MONO, fontSize: 16, fontWeight: 700, color: "#60a5fa" }}>
+            {Math.round(totalLitros).toLocaleString("es-AR")} L
+          </span>
+        </div>
+      </div>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr style={{ background: C.surface }}>
+              <th style={th}>Fecha</th>
+              <th style={th}>Hora</th>
+              <th style={th}>Carga</th>
+              <th style={th}>Transportista</th>
+              <th style={th}>Destino</th>
+              <th style={th}>Producto</th>
+              <th style={th}>Silo</th>
+              <th style={{ ...th, textAlign: "right" }}>Litros</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.length === 0 && (
+              <tr><td colSpan={8} style={{ ...td(), textAlign: "center", color: C.sub, padding: "24px 0" }}>
+                Sin registros
+              </td></tr>
+            )}
+            {filtered.map(r => (
+              <tr key={r.id + r._date}>
+                <td style={td()}>{fmtDate(r._date)}</td>
+                <td style={td()}>{r.hora || "—"}</td>
+                <td style={td()}>{r.label || "—"}</td>
+                <td style={td()}>{r.transportista || "—"}</td>
+                <td style={td()}>{r.destino || "—"}</td>
+                <td style={td()}>{r.producto || "—"}</td>
+                <td style={td()}>{r.siloProveniente || "—"}</td>
+                <td style={td(true)}>{r.litros != null ? Math.round(r.litros).toLocaleString("es-AR") : "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
+const SecAdmin = ({ date, syncKey }) => {
+  const { isDesktop } = useViewport();
+  const [tab, setTab] = useState("resumen");
+  const [preset, setPreset] = useState("hoy");
+  const [customFrom, setCustomFrom] = useState(date);
+  const [customTo, setCustomTo] = useState(date);
+  const [ingresos, setIngresos] = useState([]);
+  const [cargas, setCargas] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  const range = computeRange(preset, customFrom, customTo);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    Promise.all([
+      loadRangeData(range.from, range.to, "ingresos"),
+      loadRangeData(range.from, range.to, "carga"),
+    ]).then(([ing, car]) => {
+      if (!active) return;
+      setIngresos(ing);
+      setCargas(car);
+      setLoading(false);
+    }).catch(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [range.from, range.to, syncKey]);
+
+  // ── KPIs ──────────────────────────────────────────────────────
+  const litrosIn  = ingresos.reduce((s, r) => s + (parseFloat(r.litrosFca) || 0), 0);
+  const litrosOut = cargas.reduce((s, r) => s + (parseFloat(r.litros) || 0), 0);
+  const balance   = litrosIn - litrosOut;
+  const tambosSet = new Set(ingresos.map(r => r.tambo).filter(Boolean));
+  const transSet  = new Set(cargas.map(r => r.transportista).filter(Boolean));
+
+  const rangeLabel = range.from === range.to
+    ? fmtDate(range.from)
+    : `${fmtDate(range.from)} → ${fmtDate(range.to)}`;
+
+  // ── Styles ────────────────────────────────────────────────────
+  const tabBtn = (active) => ({
+    background: active ? C.accentDim : "none",
+    color: active ? C.accent : C.sub,
+    border: "none", cursor: "pointer",
+    padding: isDesktop ? "8px 14px" : "7px 8px",
+    fontSize: isDesktop ? 13 : 11,
+    fontWeight: active ? 700 : 400,
+    borderRadius: 8,
+    display: "flex", alignItems: "center", gap: 5,
+    whiteSpace: "nowrap", flexShrink: 0,
+  });
+
+  const KpiCard = ({ Icon, label, value, unit, color = C.accent, sub = null }) => (
+    <div style={{
+      background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12,
+      padding: "16px 18px",
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+        <Icon size={15} strokeWidth={SW} color={color} />
+        <span style={{ fontSize: 11, color: C.sub, textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</span>
+      </div>
+      <div style={{ fontFamily: FONT_MONO, fontSize: 24, fontWeight: 700, color, lineHeight: 1 }}>
+        {typeof value === "number" ? value.toLocaleString("es-AR") : value}
+        <span style={{ fontSize: 12, fontWeight: 400, color: C.sub, marginLeft: 5 }}>{unit}</span>
+      </div>
+      {sub && <div style={{ fontSize: 11, color: C.muted, marginTop: 6 }}>{sub}</div>}
+    </div>
+  );
+
+  const Placeholder = ({ id }) => (
+    <div style={{
+      background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10,
+      padding: "48px 24px", textAlign: "center", color: C.sub,
+    }}>
+      <IcoAdmin size={30} strokeWidth={SW} color={C.accent} />
+      <div style={{ fontSize: 13, color: C.text, fontWeight: 600, marginTop: 12, marginBottom: 4 }}>
+        {ADMIN_TABS.find(([t]) => t === id)?.[2]} — próximamente
+      </div>
+      <div style={{ fontSize: 12 }}>En construcción.</div>
+    </div>
+  );
+
+  return (
+    <div style={{ maxWidth: 1100, margin: "0 auto", padding: isDesktop ? "20px 24px" : "12px 14px" }}>
+
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 18 }}>
+        <IcoAdmin size={22} strokeWidth={SW} color={C.accent} />
+        <div>
+          <div style={{ fontSize: 18, fontWeight: 700, color: C.text }}>Administración</div>
+          <div style={{ fontSize: 12, color: C.sub }}>Control de entradas, salidas y logística</div>
+        </div>
+      </div>
+
+      {/* Range Picker */}
+      <div style={{
+        background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10,
+        padding: "10px 14px", marginBottom: 16,
+        display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6,
+      }}>
+        <span style={{ fontSize: 11, color: C.sub, flexShrink: 0, textTransform: "uppercase", letterSpacing: "0.05em" }}>Período:</span>
+        {RANGE_PRESETS.map(([p, l]) => (
+          <button key={p} type="button" onClick={() => setPreset(p)} style={{
+            background: preset === p ? C.accent : C.bg,
+            color: preset === p ? "#000" : C.sub,
+            border: `1px solid ${preset === p ? C.accent : C.border}`,
+            borderRadius: 6, padding: "3px 9px", fontSize: 12,
+            fontWeight: preset === p ? 700 : 400, cursor: "pointer",
+          }}>{l}</button>
+        ))}
+        {preset === "custom" && (
+          <>
+            <input type="date" value={customFrom}
+              onChange={e => setCustomFrom(e.target.value)}
+              style={{ ...inp, width: "auto", fontSize: 13, padding: "3px 8px", flex: "none" }} />
+            <span style={{ color: C.sub, fontSize: 12 }}>→</span>
+            <input type="date" value={customTo}
+              onChange={e => setCustomTo(e.target.value)}
+              style={{ ...inp, width: "auto", fontSize: 13, padding: "3px 8px", flex: "none" }} />
+          </>
+        )}
+        <span style={{ marginLeft: "auto", fontSize: 12, color: C.accent, fontFamily: FONT_MONO, fontWeight: 600, whiteSpace: "nowrap" }}>
+          {rangeLabel}
+        </span>
+      </div>
+
+      {/* Tabs */}
+      <div style={{
+        display: "flex", overflowX: "auto", gap: 2,
+        borderBottom: `1px solid ${C.border}`, paddingBottom: 2, marginBottom: 18,
+        scrollbarWidth: "none",
+      }}>
+        {ADMIN_TABS.map(([id, Icon, label]) => (
+          <button key={id} type="button" onClick={() => setTab(id)} style={tabBtn(tab === id)}>
+            <Icon size={13} strokeWidth={SW} />
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* Loading */}
+      {loading && (
+        <div style={{ textAlign: "center", padding: "48px 0", color: C.sub, fontSize: 13 }}>
+          Cargando…
+        </div>
+      )}
+
+      {/* ── RESUMEN ── */}
+      {!loading && tab === "resumen" && (
+        <div>
+          <div style={{
+            display: "grid",
+            gridTemplateColumns: isDesktop ? "repeat(3, 1fr)" : "repeat(2, 1fr)",
+            gap: 12, marginBottom: 20,
+          }}>
+            <KpiCard Icon={IcoIngresos} label="Litros ingresados"  value={Math.round(litrosIn)}  unit="L" color={C.accent} />
+            <KpiCard Icon={IcoCarga}    label="Litros despachados" value={Math.round(litrosOut)} unit="L" color="#60a5fa" />
+            <KpiCard Icon={IcoBalance}  label="Balance neto"
+              value={Math.round(Math.abs(balance))} unit="L"
+              color={balance >= 0 ? C.success : C.danger}
+              sub={balance >= 0 ? "Superávit" : "Déficit"} />
+            <KpiCard Icon={CamionIcon}  label="Viajes de entrada"  value={ingresos.length}       unit="viajes" color={C.accent} />
+            <KpiCard Icon={IcoLeche}    label="Tambos activos"      value={tambosSet.size}         unit="tambos" color="#a78bfa" />
+            <KpiCard Icon={IcoCarga}    label="Despachos"           value={cargas.length}          unit="cargas" color="#f97316" />
+          </div>
+          {ingresos.length === 0 && cargas.length === 0 && (
+            <div style={{
+              background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10,
+              padding: "24px 20px", textAlign: "center", color: C.sub, fontSize: 13,
+            }}>
+              No hay registros en el período seleccionado.
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── INGRESOS ── */}
+      {!loading && tab === "ingresos" && <AdminTabIngresos ingresos={ingresos} isDesktop={isDesktop} />}
+
+      {/* ── SALIDAS ── */}
+      {!loading && tab === "salidas" && <AdminTabSalidas cargas={cargas} isDesktop={isDesktop} />}
+
+      {/* ── TAMBOS ── */}
+      {!loading && tab === "tambos" && (() => {
+        const byTambo = {};
+        for (const r of ingresos) {
+          const k = r.tambo || "—";
+          if (!byTambo[k]) byTambo[k] = { tambo: k, viajes: 0, litrosFca: 0, litrosTbo: 0, aguados: 0 };
+          byTambo[k].viajes++;
+          byTambo[k].litrosFca += parseFloat(r.litrosFca) || 0;
+          byTambo[k].litrosTbo += parseFloat(r.litrosTbo) || 0;
+          if ((parseFloat(r.aguadoFca) || 0) > 0) byTambo[k].aguados++;
+        }
+        const rows = Object.values(byTambo).sort((a, b) => b.litrosFca - a.litrosFca);
+        const th = { padding: "8px 10px", fontSize: 11, color: C.sub, textAlign: "left",
+          borderBottom: `1px solid ${C.border}`, fontWeight: 600,
+          textTransform: "uppercase", letterSpacing: "0.04em", whiteSpace: "nowrap" };
+        const td = (right = false) => ({
+          padding: "8px 10px", fontSize: 12, color: C.text,
+          borderBottom: `1px solid ${C.border}`,
+          fontFamily: right ? FONT_MONO : FONT_SANS, textAlign: right ? "right" : "left",
+        });
+        return rows.length === 0
+          ? <div style={{ textAlign: "center", color: C.sub, padding: "40px 0" }}>Sin datos en el período.</div>
+          : (
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead><tr style={{ background: C.surface }}>
+                  <th style={{ ...th, width: 28 }}>#</th>
+                  <th style={th}>Tambo</th>
+                  <th style={{ ...th, textAlign: "right" }}>Viajes</th>
+                  <th style={{ ...th, textAlign: "right" }}>L Fca.</th>
+                  <th style={{ ...th, textAlign: "right" }}>L Tbo.</th>
+                  <th style={{ ...th, textAlign: "right" }}>Dif. prom.</th>
+                  <th style={{ ...th, textAlign: "right" }}>Aguados</th>
+                </tr></thead>
+                <tbody>
+                  {rows.map((r, i) => {
+                    const promDif = r.viajes > 0 ? (r.litrosFca - r.litrosTbo) / r.viajes : 0;
+                    const hasAlert = r.aguados > 0;
+                    return (
+                      <tr key={r.tambo} style={{ background: i % 2 === 0 ? "transparent" : `${C.surface}55` }}>
+                        <td style={{ ...td(), color: C.muted }}>{i + 1}</td>
+                        <td style={td()}>
+                          <span style={{ fontWeight: 600 }}>{r.tambo}</span>
+                          {hasAlert && <span style={{ marginLeft: 6, fontSize: 10, color: C.danger,
+                            background: `${C.danger}20`, borderRadius: 4, padding: "1px 5px" }}>
+                            aguado ×{r.aguados}
+                          </span>}
+                        </td>
+                        <td style={td(true)}>{r.viajes}</td>
+                        <td style={td(true)}>{Math.round(r.litrosFca).toLocaleString("es-AR")}</td>
+                        <td style={td(true)}>{Math.round(r.litrosTbo).toLocaleString("es-AR")}</td>
+                        <td style={{ ...td(true), color: Math.abs(promDif) > 30 ? C.danger : C.sub }}>
+                          {(promDif >= 0 ? "+" : "") + Math.round(promDif).toLocaleString("es-AR")}
+                        </td>
+                        <td style={{ ...td(true), color: r.aguados > 0 ? C.danger : C.muted }}>
+                          {r.aguados || "—"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          );
+      })()}
+
+      {/* ── TRANSPORTISTAS ── */}
+      {!loading && tab === "transportistas" && (() => {
+        const byTrans = {};
+        for (const r of ingresos) {
+          const k = r.transportista || r.camion || "—";
+          if (!byTrans[k]) byTrans[k] = { trans: k, viajes: 0, litros: 0, destinos: new Set() };
+          byTrans[k].viajes++;
+          byTrans[k].litros += parseFloat(r.litrosFca) || 0;
+          if (r.destino) byTrans[k].destinos.add(r.destino);
+        }
+        for (const r of cargas) {
+          const k = r.transportista || "—";
+          if (!byTrans[k]) byTrans[k] = { trans: k, viajes: 0, litros: 0, destinos: new Set() };
+          byTrans[k].viajes++;
+          byTrans[k].litros += parseFloat(r.litros) || 0;
+          if (r.destino) byTrans[k].destinos.add(r.destino);
+        }
+        const rows = Object.values(byTrans)
+          .map(r => ({ ...r, destinos: [...r.destinos] }))
+          .sort((a, b) => b.viajes - a.viajes);
+        const th = { padding: "8px 10px", fontSize: 11, color: C.sub, textAlign: "left",
+          borderBottom: `1px solid ${C.border}`, fontWeight: 600,
+          textTransform: "uppercase", letterSpacing: "0.04em", whiteSpace: "nowrap" };
+        const td = (right = false) => ({
+          padding: "8px 10px", fontSize: 12, color: C.text,
+          borderBottom: `1px solid ${C.border}`,
+          fontFamily: right ? FONT_MONO : FONT_SANS, textAlign: right ? "right" : "left",
+        });
+        return rows.length === 0
+          ? <div style={{ textAlign: "center", color: C.sub, padding: "40px 0" }}>Sin datos en el período.</div>
+          : (
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead><tr style={{ background: C.surface }}>
+                  <th style={{ ...th, width: 28 }}>#</th>
+                  <th style={th}>Transportista</th>
+                  <th style={{ ...th, textAlign: "right" }}>Viajes</th>
+                  <th style={{ ...th, textAlign: "right" }}>Litros</th>
+                  <th style={{ ...th, textAlign: "right" }}>Prom/viaje</th>
+                  <th style={th}>Destinos</th>
+                </tr></thead>
+                <tbody>
+                  {rows.map((r, i) => (
+                    <tr key={r.trans} style={{ background: i % 2 === 0 ? "transparent" : `${C.surface}55` }}>
+                      <td style={{ ...td(), color: C.muted }}>{i + 1}</td>
+                      <td style={{ ...td(), fontWeight: 600 }}>{r.trans}</td>
+                      <td style={td(true)}>{r.viajes}</td>
+                      <td style={td(true)}>{Math.round(r.litros).toLocaleString("es-AR")}</td>
+                      <td style={td(true)}>
+                        {r.viajes > 0 ? Math.round(r.litros / r.viajes).toLocaleString("es-AR") : "—"}
+                      </td>
+                      <td style={{ ...td(), color: C.sub, fontSize: 11 }}>
+                        {r.destinos.length ? r.destinos.join(", ") : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          );
+      })()}
+
+      {/* ── DIFERENCIAS ── */}
+      {!loading && tab === "diferencias" && (() => {
+        const UMBRAL = 50;
+        const diffs = ingresos
+          .map(r => {
+            const fca = parseFloat(r.litrosFca) || 0;
+            const tbo = parseFloat(r.litrosTbo) || 0;
+            const dif = fca - tbo;
+            const pct = tbo > 0 ? (dif / tbo) * 100 : 0;
+            return { ...r, _dif: dif, _pct: pct };
+          })
+          .filter(r => Math.abs(r._dif) >= UMBRAL || (parseFloat(r.aguadoFca) || 0) > 0)
+          .sort((a, b) => Math.abs(b._dif) - Math.abs(a._dif));
+        const th = { padding: "8px 10px", fontSize: 11, color: C.sub, textAlign: "left",
+          borderBottom: `1px solid ${C.border}`, fontWeight: 600,
+          textTransform: "uppercase", letterSpacing: "0.04em", whiteSpace: "nowrap" };
+        const td = (right = false) => ({
+          padding: "8px 10px", fontSize: 12, color: C.text,
+          borderBottom: `1px solid ${C.border}`,
+          fontFamily: right ? FONT_MONO : FONT_SANS, textAlign: right ? "right" : "left",
+        });
+        return (
+          <div>
+            <div style={{ background: `${C.accent}14`, border: `1px solid ${C.accentDark}`,
+              borderRadius: 8, padding: "10px 14px", marginBottom: 14, fontSize: 12, color: C.text }}>
+              Se muestran ingresos con diferencia Fca/Tbo ≥ {UMBRAL} L o con registro de aguado.
+              Útil para control de liquidación de tambos.
+            </div>
+            {diffs.length === 0
+              ? <div style={{ textAlign: "center", color: C.sub, padding: "40px 0" }}>
+                  No hay diferencias relevantes en el período.
+                </div>
+              : <div style={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                    <thead><tr style={{ background: C.surface }}>
+                      <th style={th}>Fecha</th>
+                      <th style={th}>Hora</th>
+                      <th style={th}>Tambo</th>
+                      <th style={{ ...th, textAlign: "right" }}>L Fca.</th>
+                      <th style={{ ...th, textAlign: "right" }}>L Tbo.</th>
+                      <th style={{ ...th, textAlign: "right" }}>Dif.</th>
+                      <th style={{ ...th, textAlign: "right" }}>%</th>
+                      <th style={th}>Alerta</th>
+                    </tr></thead>
+                    <tbody>
+                      {diffs.map(r => {
+                        const isAguado = (parseFloat(r.aguadoFca) || 0) > 0;
+                        const difColor = r._dif < 0 ? C.danger : Math.abs(r._dif) >= UMBRAL ? "#f97316" : C.success;
+                        return (
+                          <tr key={r.id + r._date}>
+                            <td style={td()}>{fmtDate(r._date)}</td>
+                            <td style={td()}>{r.hora || "—"}</td>
+                            <td style={{ ...td(), fontWeight: 600 }}>{r.tambo || "—"}</td>
+                            <td style={td(true)}>{Math.round(r.litrosFca || 0).toLocaleString("es-AR")}</td>
+                            <td style={td(true)}>{Math.round(r.litrosTbo || 0).toLocaleString("es-AR")}</td>
+                            <td style={{ ...td(true), color: difColor, fontWeight: 700 }}>
+                              {(r._dif >= 0 ? "+" : "") + Math.round(r._dif).toLocaleString("es-AR")}
+                            </td>
+                            <td style={{ ...td(true), color: difColor }}>
+                              {r._pct.toFixed(1)}%
+                            </td>
+                            <td style={td()}>
+                              {isAguado && <span style={{ fontSize: 10, color: C.danger,
+                                background: `${C.danger}20`, borderRadius: 4, padding: "2px 6px",
+                                fontWeight: 700 }}>AGUADO</span>}
+                              {!isAguado && Math.abs(r._dif) >= UMBRAL &&
+                                <span style={{ fontSize: 10, color: "#f97316",
+                                  background: "#f9731620", borderRadius: 4, padding: "2px 6px",
+                                  fontWeight: 700 }}>DESVÍO</span>}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+            }
+          </div>
+        );
+      })()}
+
+      {/* ── EXPORTAR ── */}
+      {!loading && tab === "exportar" && (() => {
+        const exportCSV = () => {
+          const header = ["Fecha","Hora","Tambo","Producto","Destino","L Fca","L Tbo","Diferencia","Aguado Fca","Aguado Tbo","pH","Acidez","Obs"];
+          const rows = ingresos.map(r => [
+            r._date, r.hora||"", escapeCsv(r.tambo||""), escapeCsv(r.producto||""),
+            escapeCsv(r.destino||""), r.litrosFca||"", r.litrosTbo||"",
+            ((parseFloat(r.litrosFca)||0)-(parseFloat(r.litrosTbo)||0)).toFixed(0),
+            r.aguadoFca||"", r.aguadoTbo||"", r.phFca||"", r.acidezFca||"",
+            escapeCsv(r.obs||""),
+          ].join(","));
+          const csv = [header.join(","), ...rows].join("\n");
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" }));
+          a.download = `yatasto-ingresos-${range.from}-${range.to}.csv`;
+          a.click();
+        };
+        const exportSalidasCSV = () => {
+          const header = ["Fecha","Hora","Carga","Transportista","Destino","Producto","Silo","Litros"];
+          const rows = cargas.map(r => [
+            r._date, r.hora||"", escapeCsv(r.label||""),
+            escapeCsv(r.transportista||""), escapeCsv(r.destino||""),
+            escapeCsv(r.producto||""), escapeCsv(r.siloProveniente||""),
+            r.litros||"",
+          ].join(","));
+          const csv = [header.join(","), ...rows].join("\n");
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" }));
+          a.download = `yatasto-salidas-${range.from}-${range.to}.csv`;
+          a.click();
+        };
+        const exportHTML = () => {
+          const totalIn  = ingresos.reduce((s,r) => s+(parseFloat(r.litrosFca)||0), 0);
+          const totalOut = cargas.reduce((s,r) => s+(parseFloat(r.litros)||0), 0);
+          const byTamboMap = {};
+          for (const r of ingresos) {
+            const k = r.tambo||"—";
+            if (!byTamboMap[k]) byTamboMap[k] = 0;
+            byTamboMap[k] += parseFloat(r.litrosFca)||0;
+          }
+          const byTamboRows = Object.entries(byTamboMap)
+            .sort((a,b) => b[1]-a[1])
+            .map(([t,l]) => `<tr><td>${escapeHtml(t)}</td><td style="text-align:right;font-family:monospace">${Math.round(l).toLocaleString("es-AR")}</td></tr>`)
+            .join("");
+          const html = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"/>
+<title>Yatasto — Administración ${rangeLabel}</title>
+<style>
+  body{font-family:Arial,sans-serif;background:#0f0f0f;color:#e5e5e5;margin:0;padding:24px}
+  .header{border-bottom:2px solid #f59e0b;padding-bottom:12px;margin-bottom:20px}
+  .title{font-size:22px;font-weight:700;color:#f59e0b}
+  .sub{font-size:12px;color:#888;margin-top:4px}
+  .kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:24px}
+  .kpi{background:#1c1c1c;border:1px solid #333;border-radius:8px;padding:14px}
+  .kpi-label{font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px}
+  .kpi-val{font-size:22px;font-weight:700;font-family:monospace;color:#f59e0b}
+  table{width:100%;border-collapse:collapse;margin-bottom:24px}
+  th{font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.04em;padding:8px 10px;border-bottom:1px solid #333;text-align:left}
+  td{font-size:12px;color:#e5e5e5;padding:7px 10px;border-bottom:1px solid #222}
+  h2{font-size:14px;color:#f59e0b;text-transform:uppercase;letter-spacing:.08em;margin:20px 0 10px}
+  .footer{font-size:10px;color:#555;border-top:1px solid #333;padding-top:10px;margin-top:24px}
+  @media print{body{background:#fff;color:#000}.kpi{background:#f5f5f5;border-color:#ddd}.kpi-val{color:#b45309}th{color:#666}td{color:#222}}
+</style></head><body>
+<div class="header">
+  <div class="title">Lácteos Yatasto SA — Administración</div>
+  <div class="sub">Período: ${rangeLabel} · Generado: ${new Date().toLocaleString("es-AR")}</div>
+</div>
+<div class="kpis">
+  <div class="kpi"><div class="kpi-label">Litros ingresados</div><div class="kpi-val">${Math.round(totalIn).toLocaleString("es-AR")} L</div></div>
+  <div class="kpi"><div class="kpi-label">Litros despachados</div><div class="kpi-val">${Math.round(totalOut).toLocaleString("es-AR")} L</div></div>
+  <div class="kpi"><div class="kpi-label">Balance neto</div><div class="kpi-val">${Math.round(totalIn-totalOut).toLocaleString("es-AR")} L</div></div>
+  <div class="kpi"><div class="kpi-label">Viajes entrada</div><div class="kpi-val">${ingresos.length}</div></div>
+  <div class="kpi"><div class="kpi-label">Tambos activos</div><div class="kpi-val">${new Set(ingresos.map(r=>r.tambo).filter(Boolean)).size}</div></div>
+  <div class="kpi"><div class="kpi-label">Despachos</div><div class="kpi-val">${cargas.length}</div></div>
+</div>
+<h2>Ingresos por tambo</h2>
+<table><thead><tr><th>Tambo</th><th>Litros Fca.</th></tr></thead><tbody>${byTamboRows}</tbody></table>
+<h2>Detalle de ingresos</h2>
+<table><thead><tr><th>Fecha</th><th>Hora</th><th>Tambo</th><th>Producto</th><th>Destino</th><th>L Fca.</th><th>L Tbo.</th><th>Dif.</th></tr></thead><tbody>
+${ingresos.map(r=>{const d=(parseFloat(r.litrosFca)||0)-(parseFloat(r.litrosTbo)||0);return`<tr><td>${r._date}</td><td>${r.hora||""}</td><td>${escapeHtml(r.tambo||"")}</td><td>${escapeHtml(r.producto||"")}</td><td>${escapeHtml(r.destino||"")}</td><td style="text-align:right;font-family:monospace">${Math.round(r.litrosFca||0).toLocaleString("es-AR")}</td><td style="text-align:right;font-family:monospace">${Math.round(r.litrosTbo||0).toLocaleString("es-AR")}</td><td style="text-align:right;font-family:monospace;color:${d<0?"#dc2626":d>50?"#f97316":"#22c55e"}">${d>=0?"+":""}${Math.round(d).toLocaleString("es-AR")}</td></tr>`;}).join("")}
+</tbody></table>
+<h2>Detalle de salidas</h2>
+<table><thead><tr><th>Fecha</th><th>Hora</th><th>Carga</th><th>Transportista</th><th>Destino</th><th>Producto</th><th>Litros</th></tr></thead><tbody>
+${cargas.map(r=>`<tr><td>${r._date}</td><td>${r.hora||""}</td><td>${escapeHtml(r.label||"")}</td><td>${escapeHtml(r.transportista||"")}</td><td>${escapeHtml(r.destino||"")}</td><td>${escapeHtml(r.producto||"")}</td><td style="text-align:right;font-family:monospace">${Math.round(r.litros||0).toLocaleString("es-AR")}</td></tr>`).join("")}
+</tbody></table>
+<div class="footer">Lácteos Yatasto SA · Sistema de Gestión v2.0 · Solo para uso interno</div>
+</body></html>`;
+          const w = window.open("", "_blank");
+          if (w) { w.document.write(html); w.document.close(); w.print(); }
+        };
+        const btnStyle = (color = C.accent) => ({
+          background: color, color: "#000", border: "none", borderRadius: 8,
+          padding: "12px 20px", fontSize: 13, fontWeight: 700, cursor: "pointer",
+          display: "flex", alignItems: "center", gap: 8,
+        });
+        return (
+          <div>
+            <div style={{ fontSize: 13, color: C.sub, marginBottom: 20 }}>
+              Exportaciones para el período <strong style={{ color: C.accent }}>{rangeLabel}</strong>
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+              <button type="button" style={btnStyle(C.accent)} onClick={exportCSV}>
+                <TabExportar size={15} strokeWidth={SW} />
+                Exportar Ingresos CSV
+              </button>
+              <button type="button" style={btnStyle("#60a5fa")} onClick={exportSalidasCSV}>
+                <TabExportar size={15} strokeWidth={SW} />
+                Exportar Salidas CSV
+              </button>
+              <button type="button" style={btnStyle("#22c55e")} onClick={exportHTML}>
+                <TabExportar size={15} strokeWidth={SW} />
+                Informe PDF completo
+              </button>
+            </div>
+            <div style={{ marginTop: 16, fontSize: 11, color: C.muted }}>
+              El PDF abre en una pestaña nueva lista para imprimir (Ctrl+P / ⌘P).
+              Los CSV incluyen BOM UTF-8 para compatibilidad con Excel.
+            </div>
+          </div>
+        );
+      })()}
+
+    </div>
+  );
+};
+
 // ─── APP PRINCIPAL ────────────────────────────────────────────
 const SIDEBAR_W = 220;
 
@@ -4538,7 +5429,7 @@ export default function App() {
   const { needRefresh: [needRefresh], updateServiceWorker } = useRegisterSW();
 
   const navItems = perfil
-    ? [...NAV, { id: "supervisor", label: "Superv.", Icon: PERFILES[perfil]?.Icon || IcoSupervisor }]
+    ? [...NAV, { id: "supervisor", label: perfil === "admin" ? "Admin" : "Superv.", Icon: PERFILES[perfil]?.Icon || IcoSupervisor }]
     : NAV;
 
   // Verificar disponibilidad del storage al iniciar
@@ -5024,8 +5915,8 @@ export default function App() {
             )}
           </button>
 
-          {/* Botón cerrar/reabrir día — solo supervisor y jefe */}
-          {perfil && (
+          {/* Botón cerrar/reabrir día — solo supervisor y jefe, no admin */}
+          {perfil && perfil !== "admin" && (
             <button type="button"
               onClick={dayClosed ? (perfil === "jefe" ? handleReabrirDia : undefined) : handleCerrarDia}
               title={dayClosed ? (perfil === "jefe" ? "Reabrir día" : `Día cerrado por ${dayClosedBy}`) : "Cerrar día"}
@@ -5109,13 +6000,14 @@ export default function App() {
           </div>
         )}
         <div style={{ maxWidth: isDesktop ? 960 : "100%", margin: isDesktop ? "0 auto" : undefined }}>
-        {section === "ingresos" && <SecIngresos date={date} syncKey={syncKey} dayClosed={dayClosed} />}
-        {section === "cip" && <SecCIP date={date} syncKey={syncKey} />}
-        {section === "carga" && <SecCarga date={date} syncKey={syncKey} dayClosed={dayClosed} />}
-        {section === "movimientos" && <SecMovimientos date={date} syncKey={syncKey} dayClosed={dayClosed} />}
-        {section === "stock" && <SecStock date={date} syncKey={syncKey} />}
-        {section === "fortificados" && <SecFortificados date={date} syncKey={syncKey} dayClosed={dayClosed} />}
-        {section === "supervisor" && perfil && <SecDashboard date={date} perfil={perfil} perfilLabel={PERFILES[perfil]?.label || ""} syncKey={syncKey} />}
+        {section === "ingresos" && <SecIngresos date={date} syncKey={syncKey} dayClosed={dayClosed || perfil === "admin"} />}
+        {section === "cip" && <SecCIP date={date} syncKey={syncKey} readOnly={perfil === "admin"} />}
+        {section === "carga" && <SecCarga date={date} syncKey={syncKey} dayClosed={dayClosed || perfil === "admin"} />}
+        {section === "movimientos" && <SecMovimientos date={date} syncKey={syncKey} dayClosed={dayClosed || perfil === "admin"} />}
+        {section === "stock" && <SecStock date={date} syncKey={syncKey} readOnly={perfil === "admin"} />}
+        {section === "fortificados" && <SecFortificados date={date} syncKey={syncKey} dayClosed={dayClosed || perfil === "admin"} />}
+        {section === "supervisor" && perfil && perfil !== "admin" && <SecDashboard date={date} perfil={perfil} perfilLabel={PERFILES[perfil]?.label || ""} syncKey={syncKey} />}
+        {section === "supervisor" && perfil === "admin" && <SecAdmin date={date} syncKey={syncKey} />}
         </div>
       </div>
 
