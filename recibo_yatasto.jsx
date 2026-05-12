@@ -256,34 +256,43 @@ const QUALITY_REFS = {
 // Regla: entero sin punto decimal en rango [20, 40] → interpretar como Ecomilk.
 
 function isEcomilkDensity(v) {
-  const s = String(v == null ? "" : v).trim();
-  if (!s || s.includes(".")) return false;
+  const s = String(v == null ? "" : v).trim().replace(",", ".");
+  if (!s) return false;
   const n = Number(s);
-  return Number.isFinite(n) && Number.isInteger(n) && n >= 20 && n <= 40;
+  return Number.isFinite(n) && n >= 20 && n <= 40;
 }
 
-// Convierte cualquier formato válido al valor técnico con 3 decimales.
+// Convierte cualquier formato válido al valor técnico con 3 decimales (4 si Ecomilk con decimal).
 function normalizeDensity(v) {
   if (v === "" || v == null) return "";
-  if (isEcomilkDensity(v)) return (1 + parseInt(v, 10) / 1000).toFixed(3);
-  const n = parseFloat(v);
+  const s = String(v).trim().replace(",", ".");
+  if (isEcomilkDensity(s)) {
+    const n = parseFloat(s);
+    return (1 + n / 1000).toFixed(Number.isInteger(n) ? 3 : 4);
+  }
+  const n = parseFloat(s);
   return !isNaN(n) ? n.toFixed(3) : String(v);
 }
 
-// Para display en auditorías, reportes y exports: siempre 3 decimales.
+// Para display en auditorías, reportes y exports.
 // Retro-compatible: si un registro viejo tuviera "28" guardado, lo convierte al mostrarlo.
 function formatDensity(v) {
   if (v === "" || v == null) return "";
-  if (isEcomilkDensity(v)) return (1 + parseInt(v, 10) / 1000).toFixed(3);
-  const n = parseFloat(v);
+  const s = String(v).trim().replace(",", ".");
+  if (isEcomilkDensity(s)) {
+    const n = parseFloat(s);
+    return (1 + n / 1000).toFixed(Number.isInteger(n) ? 3 : 4);
+  }
+  const n = parseFloat(s);
   return !isNaN(n) ? n.toFixed(3) : String(v);
 }
 
 // Retorna null si el valor es válido; string de error si no.
 function validateDensity(raw) {
   if (raw === "" || raw == null) return null;
-  if (isEcomilkDensity(raw)) return null; // 20–40 entero → OK
-  const n = parseFloat(raw);
+  const s = String(raw).trim().replace(",", ".");
+  if (isEcomilkDensity(s)) return null; // 20–40 Ecomilk → OK
+  const n = parseFloat(s);
   if (isNaN(n)) return "Valor inválido";
   if (n < 1.020 || n > 1.040) return `Fuera de rango (1.020–1.040 ó 20–40 Ecomilk)`;
   return null;
@@ -872,10 +881,10 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
             <DensityPair v1={f.densFca} v2={f.densTbo} on1={set("densFca")} on2={set("densTbo")} />
             <Pair label="Aguado" v1={f.aguadoFca} v2={f.aguadoTbo} on1={set("aguadoFca")} on2={set("aguadoTbo")} />
             <div style={{ fontSize: 11, color: C.danger, marginTop: -8, marginBottom: 12 }}>Debe ser exactamente 0 — indica adulteración</div>
-            <Pair label="Leche de Descarte" v1={f.dcFca} v2={f.dcTbo} on1={set("dcFca")} on2={set("dcTbo")} />
+            <Pair label="Descenso Crioscópico" v1={f.dcFca} v2={f.dcTbo} on1={set("dcFca")} on2={set("dcTbo")} />
             <Pair label="Proteína" v1={f.protFca} v2={f.protTbo} on1={set("protFca")} on2={set("protTbo")} />
             <div style={{ fontSize: 11, color: C.sub, marginTop: -8, marginBottom: 12 }}>Ref: 2.9 – 3.5 %</div>
-            <F label="ATM"><Sel value={f.atm || ""} onChange={set("atm")} options={["Sí", "No"]} placeholder="ATM..." /></F>
+            <F label="ATB"><Sel value={f.atm || ""} onChange={set("atm")} options={["-", "+"]} placeholder="ATB..." /></F>
           </div>
         </>
       )}
@@ -906,8 +915,8 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
                    ["acidezFca", "Acidez"], ["phFca", "pH"]];
           } else {
             req = [["tambo", "Tambo"], ["litrosFca", "Litros Fábrica"], ["destino", "Destino"], ["producto", "Producto"],
-                   ["acidezFca", "Acidez Fca."], ["phFca", "pH Fca."], ["alcFca", "Prueba Alcohol Fca."],
-                   ["gbFca", "GB Fca."], ["sngFca", "SNG Fca."], ["densFca", "Densidad Fca."], ["protFca", "Proteína Fca."], ["atm", "ATM"]];
+                   ["acidezFca", "Acidez Fca."], ["phFca", "pH Fca."],
+                   ["gbFca", "GB Fca."], ["sngFca", "SNG Fca."], ["densFca", "Densidad Fca."], ["protFca", "Proteína Fca."], ["atm", "ATB"]];
           }
           const miss = req.filter(([k]) => !String(f[k] || "").trim()).map(([, v]) => v);
           if (miss.length) { setFieldError("Faltan completar:\n• " + miss.join("\n• ")); return; }
