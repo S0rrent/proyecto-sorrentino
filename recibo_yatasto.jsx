@@ -5397,6 +5397,27 @@ ${cargas.map(r=>`<tr><td>${r._date}</td><td>${r.hora||""}</td><td>${escapeHtml(r
   );
 };
 
+// ─── JEFE HUB — acceso a Dashboard + Oficina ─────────────────
+const SecJefeHub = ({ date, perfil, perfilLabel, syncKey }) => {
+  const [tab, setTab] = useState("dashboard");
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 16, padding: "0 4px" }}>
+        {[["dashboard", "Dashboard"], ["oficina", "Oficina"]].map(([id, label]) => (
+          <button key={id} type="button"
+            style={{ ...btnSecondary, flex: 1,
+              ...(tab === id ? { background: C.accentDim, color: C.accent, borderColor: C.accent } : {}) }}
+            onClick={() => setTab(id)}>
+            {label}
+          </button>
+        ))}
+      </div>
+      {tab === "dashboard" && <SecDashboard date={date} perfil={perfil} perfilLabel={perfilLabel} syncKey={syncKey} />}
+      {tab === "oficina" && <SecAdmin date={date} syncKey={syncKey} />}
+    </div>
+  );
+};
+
 // ─── APP PRINCIPAL ────────────────────────────────────────────
 const SIDEBAR_W = 220;
 
@@ -6006,7 +6027,8 @@ export default function App() {
         {section === "movimientos" && <SecMovimientos date={date} syncKey={syncKey} dayClosed={dayClosed || perfil === "admin"} />}
         {section === "stock" && <SecStock date={date} syncKey={syncKey} readOnly={perfil === "admin"} />}
         {section === "fortificados" && <SecFortificados date={date} syncKey={syncKey} dayClosed={dayClosed || perfil === "admin"} />}
-        {section === "supervisor" && perfil && perfil !== "admin" && <SecDashboard date={date} perfil={perfil} perfilLabel={PERFILES[perfil]?.label || ""} syncKey={syncKey} />}
+        {section === "supervisor" && perfil === "supervisor" && <SecDashboard date={date} perfil={perfil} perfilLabel={PERFILES[perfil]?.label || ""} syncKey={syncKey} />}
+        {section === "supervisor" && perfil === "jefe" && <SecJefeHub date={date} perfil={perfil} perfilLabel={PERFILES[perfil]?.label || ""} syncKey={syncKey} />}
         {section === "supervisor" && perfil === "admin" && <SecAdmin date={date} syncKey={syncKey} />}
         </div>
       </div>
