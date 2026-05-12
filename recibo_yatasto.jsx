@@ -74,7 +74,7 @@ const TURNO_CIERRE = { "07:00": "14:00", "14:00": "21:00", "21:00": "07:00" }; /
 const PRODUCTOS = ["Leche Cruda", "Leche Descremada", "Lactosa", "Suero"];
 const PRODS_STOCK = [
   "Leche Cruda", "Leche Entera", "Leche Descremada", "Leche Fortificada",
-  "Lactosa", "Suero", "Yogurt", "Sucio (vacío)",
+  "Lactosa", "Suero", "Yogurt", "Sucio (vacío)", "Limpio",
 ];
 const NAV = [
   { id: "ingresos",    label: "Ingr.",  Icon: IcoIngresos },
@@ -117,6 +117,7 @@ const PROD_COLOR = {
   "Suero": "#ffe000",
   "Yogurt": "#f4a0c0",
   "Sucio (vacío)": "#dc2626",
+  "Limpio": "#16a34a",
 };
 
 // Mapeo de nombres de silos → clave en STOCK_SILOS
@@ -422,8 +423,9 @@ const SiloSVG = ({ siloKey, litros, producto }) => {
   const siloTransition = prefersReduced ? "none" : `y ${DUR.silo} ${EASE_OUT}`;
   const cap = SILO_CAP[siloKey] || 100000;
   const isSucio = producto === "Sucio (vacío)";
+  const isLimpio = producto === "Limpio";
   const rawPct = Math.min(1, Math.max(0, (litros || 0) / cap));
-  const fillPct = isSucio && rawPct === 0 ? 0.06 : rawPct; // pequeño tinte rojo si está sucio
+  const fillPct = (isSucio || isLimpio) && rawPct === 0 ? 0.06 : rawPct;
   const fillColor = PROD_COLOR[producto] || (litros > 0 ? PROD_COLOR["Leche Cruda"] : null);
 
   // Región llenadora: y=2 (tope) a y=170 (fondo salida) → 168 px SVG
@@ -1685,8 +1687,18 @@ const SecStock = ({ date, syncKey = 0 }) => {
       load(date, "ingresos", []),
       load(date, "fortificados", []),
       calcAutoLitros(date),
-    ]).then(([d, ingresos, forts, autoTotals]) => {
+      load(date, "cip", {}),
+    ]).then(([d, ingresos, forts, autoTotals, cipData]) => {
       setAutoLitros(autoTotals);
+
+      // Silos con CIP completado hoy (tienen hora registrada)
+      const cipDone = {};
+      Object.entries((cipData.silos) || {}).forEach(([silo, rec]) => {
+        if (rec?.hora) {
+          const key = SILO_STOCK_KEY[silo] || silo;
+          if (STOCK_SILOS.includes(key)) cipDone[key] = true;
+        }
+      });
 
       // Inferir producto por silo: primero ingresos, luego fortifications los sobreescriben
       const inferred = {};
@@ -1713,12 +1725,16 @@ const SecStock = ({ date, syncKey = 0 }) => {
           };
           // Auto-producto desde ingresos
           if (!sd.producto && inferred[silo]) { upd(updated, { producto: inferred[silo] }); }
-          // Auto-Sucio cuando silo se vacía y tenía producto
+          // Estado cuando silo está vacío: Limpio si tiene CIP, Sucio si no
           const litros = autoTotals[silo] || 0;
           const curProd = (((updated[t] || {}).silos || {})[silo] || {}).producto || sd.producto;
-          if (litros === 0 && curProd && curProd !== "Sucio (vacío)") {
-            upd(updated, { producto: "Sucio (vacío)" });
-            if (!vaciados.includes(silo)) vaciados.push(silo);
+          if (litros === 0) {
+            if (cipDone[silo] && curProd !== "Limpio") {
+              upd(updated, { producto: "Limpio" });
+            } else if (!cipDone[silo] && curProd && curProd !== "Sucio (vacío)" && curProd !== "Limpio") {
+              upd(updated, { producto: "Sucio (vacío)" });
+              if (!vaciados.includes(silo)) vaciados.push(silo);
+            }
           }
         });
       });
@@ -1758,7 +1774,7 @@ const SecStock = ({ date, syncKey = 0 }) => {
             <div style={{ fontSize: 11, color: C.danger, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 2 }}>
               <span style={{ display: "flex", alignItems: "center", gap: 5 }}><AlertaError size={11} strokeWidth={SW} />Silos vaciados — requieren lavado CIP</span>
             </div>
-            <div style={{ fontSize: 13, color: C.text }}>{silosVaciados.join(", ")} → marcados como Sucio (vacío)</div>
+            <div style={{ fontSize: 13, color: C.text }}>{silosVaciados.join(", ")} → requieren CIP</div>
           </div>
           <button type="button" onClick={() => setSilosVaciados([])} style={{ background: "none", border: "none", color: C.sub, fontSize: 22, cursor: "pointer", padding: "0 4px" }}>×</button>
         </div>
