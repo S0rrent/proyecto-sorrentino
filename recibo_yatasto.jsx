@@ -831,9 +831,10 @@ const QUALITY_WARN_MAP = [
   { key: "densFca",   label: "Densidad",    ref: QUALITY_REFS["Densidad"]    },
 ];
 
-const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo }) => {
+const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo, siloStates = { totals: {}, productosBase: {} }, perfil = null }) => {
   const [f, setF] = useState(initial || emptyIng());
   const [aguadoAlerta, setAguadoAlerta] = useState(false);
+  const [cipForzado, setCipForzado] = useState(false);
   const [fieldError, setFieldError] = useState("");
   const set = k => v => { setFieldError(""); setF(p => ({ ...p, [k]: v })); };
   const pickTambo = nombre => {
@@ -855,6 +856,15 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
   const tambosPropios  = tambos.filter(t => transCarrierTambos.includes(t.nombre));
   const tambosOtros    = tambos.filter(t => !transCarrierTambos.includes(t.nombre));
   const isConcentrado = PRODS_CONCENTRADOS.includes(f.producto);
+
+  // Detección de silo sucio para el destino seleccionado
+  const destKey = f.destino ? (SILO_STOCK_KEY[f.destino] || f.destino) : null;
+  const destProd = destKey ? (siloStates.productosBase[destKey] || null) : null;
+  const destLitros = destKey ? (siloStates.totals[destKey] || 0) : 0;
+  const siloSucioLevel = destProd === "Sucio (vacío)"
+    ? (destLitros === 0 ? "bloqueado" : "inconsistente")
+    : null;
+  const canForce = perfil === "supervisor" || perfil === "jefe";
 
   // Advertencias de calidad derivadas del estado del formulario — sin useState, sin bloqueo.
   const qualityWarnings = isConcentrado ? [] : QUALITY_WARN_MAP.filter(({ key, ref }) => {
@@ -1006,6 +1016,28 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
           <div style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>El ingreso se guarda igual — revisar con supervisor si corresponde.</div>
         </div>
       )}
+      {siloSucioLevel === "bloqueado" && (
+        <div style={{ background: `${C.danger}15`, border: `1px solid ${C.danger}50`, borderRadius: 8, padding: "10px 14px", marginBottom: 8, display: "flex", gap: 10, alignItems: "flex-start" }}>
+          <AlertaWarn size={16} strokeWidth={2} color={C.danger} style={{ flexShrink: 0, marginTop: 1 }} />
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: C.danger, marginBottom: 3 }}>
+              Silo {f.destino} pendiente de CIP
+            </div>
+            <div style={{ fontSize: 12, color: C.sub, lineHeight: 1.5 }}>
+              Este silo está vacío y marcado como sucio. Debe realizarse la limpieza CIP antes de recibir producto.
+              {canForce ? " Como supervisor podés autorizar y forzar el ingreso." : " Solo el supervisor puede autorizar este ingreso."}
+            </div>
+          </div>
+        </div>
+      )}
+      {siloSucioLevel === "inconsistente" && (
+        <div style={{ background: "#7c2d1215", border: "1px solid #f9731640", borderRadius: 8, padding: "10px 14px", marginBottom: 8, display: "flex", gap: 10, alignItems: "flex-start" }}>
+          <AlertaWarn size={16} strokeWidth={2} color="#f97316" style={{ flexShrink: 0, marginTop: 1 }} />
+          <div style={{ fontSize: 12, color: "#f97316", lineHeight: 1.5 }}>
+            <strong>Estado inconsistente:</strong> el silo {f.destino} figura como "Sucio" pero registra {destLitros.toLocaleString("es-AR")} L. Verificar con supervisor antes de continuar.
+          </div>
+        </div>
+      )}
       {fieldError && (
         <div style={{ background: `${C.danger}18`, border: `1px solid ${C.danger}55`, borderRadius: 8, padding: "10px 12px", marginBottom: 8, fontSize: 13, color: C.danger, whiteSpace: "pre-line", lineHeight: 1.6 }}>
           {fieldError}
@@ -1025,6 +1057,12 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
           }
           const miss = req.filter(([k]) => !String(f[k] || "").trim()).map(([, v]) => v);
           if (miss.length) { setFieldError("Faltan completar:\n• " + miss.join("\n• ")); return; }
+          // Silo sucio bloqueado
+          if (siloSucioLevel === "bloqueado") {
+            if (!canForce) { setFieldError("El silo " + f.destino + " está pendiente de CIP. Solo el supervisor puede autorizar este ingreso."); return; }
+            setCipForzado(true);
+            return;
+          }
           // Aguado > 0 = adulteración — requiere confirmación explícita
           const aguFca = parseFloat(f.aguadoFca);
           const aguTbo = parseFloat(f.aguadoTbo);
@@ -1037,6 +1075,31 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
         }}>Guardar</button>
       </div>
       {onDelete && <button type="button" style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar este ingreso</button>}
+
+      {/* Modal de override CIP — solo supervisor/jefe */}
+      {cipForzado && (
+        <Modal title="⚠ Forzar ingreso a silo sucio" onClose={() => setCipForzado(false)} zIndex={300}>
+          <div style={{ background: `${C.danger}18`, border: `1px solid ${C.danger}44`, borderRadius: 10, padding: 14, marginBottom: 16 }}>
+            <div style={{ fontWeight: 700, color: C.danger, fontSize: 14, marginBottom: 6 }}>
+              Silo {f.destino} marcado como Sucio (vacío)
+            </div>
+            <div style={{ fontSize: 13, color: C.text, lineHeight: 1.5 }}>
+              Este silo está pendiente de limpieza CIP. Forzar el ingreso puede comprometer la calidad del producto.
+              La acción quedará registrada en el historial de auditoría con tu usuario.
+            </div>
+          </div>
+          <div style={{ fontSize: 13, color: C.sub, marginBottom: 16 }}>
+            Solo continuar si el desvío fue verificado y autorizado. El registro quedará en el historial.
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <button type="button" style={btnSecondary} onClick={() => setCipForzado(false)}>Cancelar</button>
+            <button type="button" style={{ ...btnPrimary, background: C.danger, borderColor: C.danger }}
+              onClick={() => { setCipForzado(false); onSave({ ...f, _forzadoCIP: true }); }}>
+              Autorizar y forzar ingreso
+            </button>
+          </div>
+        </Modal>
+      )}
 
       {/* Modal bloqueante de Aguado */}
       {aguadoAlerta && (
@@ -1064,7 +1127,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
   );
 };
 
-const SecIngresos = ({ date, syncKey = 0, dayClosed = false }) => {
+const SecIngresos = ({ date, syncKey = 0, dayClosed = false, perfil = null }) => {
   const [list, setList] = useState([]);
   const [modal, setModal] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -1072,17 +1135,26 @@ const SecIngresos = ({ date, syncKey = 0, dayClosed = false }) => {
   const [tamboModal, setTamboModal] = useState(false);
   const [newTambo, setNewTambo] = useState({ nombre: "", num: "" });
   const [filtro, setFiltro] = useState("");
+  const [siloStates, setSiloStates] = useState({ totals: {}, productosBase: {} });
   const [confirmUI, askConfirm] = useConfirm();
 
   useEffect(() => {
     load(date, "ingresos", []).then(d => { setList(d); setLoading(false); });
     loadCfg().then(cfg => setTambos([...TAMBOS_BASE, ...(cfg.tambosCustom || [])]));
+    calcAutoLitros(date).then(r => setSiloStates(r)).catch(() => {});
   }, [date, syncKey]);
 
   const persist = async updated => { setList(updated); await save(date, "ingresos", updated); };
   const onSave = async item => {
-    const ex = list.find(i => i.id === item.id);
-    await persist(ex ? list.map(i => i.id === item.id ? item : i) : [...list, item]);
+    const forzado = item._forzadoCIP;
+    const { _forzadoCIP, ...itemClean } = item;
+    if (forzado) {
+      await logAudit(date, "forzar_ingreso_silo_sucio", "ingreso",
+        `Ingreso forzado a silo ${item.destino || "?"} (estado Sucio) — ${item.litrosFca || 0} L de ${item.tambo || "?"}`,
+        PERFILES[perfil]?.label || perfil || "Supervisor");
+    }
+    const ex = list.find(i => i.id === itemClean.id);
+    await persist(ex ? list.map(i => i.id === itemClean.id ? itemClean : i) : [...list, itemClean]);
     setModal(null);
   };
   const onDelete = async id => {
@@ -1204,6 +1276,7 @@ const SecIngresos = ({ date, syncKey = 0, dayClosed = false }) => {
             onSave={onSave} onClose={() => setModal(null)}
             onDelete={modal !== "new" ? () => onDelete(modal.id) : null}
             tambos={tambos} onNuevoTambo={() => setTamboModal(true)}
+            siloStates={siloStates} perfil={perfil}
           />
         </Modal>
       )}
@@ -6520,7 +6593,7 @@ export default function App() {
           </div>
         )}
         <div style={{ maxWidth: isDesktop ? 960 : "100%", margin: isDesktop ? "0 auto" : undefined }}>
-        {section === "ingresos" && <SecIngresos date={date} syncKey={syncKey} dayClosed={dayClosed || perfil === "admin"} />}
+        {section === "ingresos" && <SecIngresos date={date} syncKey={syncKey} dayClosed={dayClosed || perfil === "admin"} perfil={perfil} />}
         {section === "cip" && <SecCIP date={date} syncKey={syncKey} readOnly={perfil === "admin"} />}
         {section === "carga" && <SecCarga date={date} syncKey={syncKey} dayClosed={dayClosed || perfil === "admin"} />}
         {section === "movimientos" && <SecMovimientos date={date} syncKey={syncKey} dayClosed={dayClosed || perfil === "admin"} />}
