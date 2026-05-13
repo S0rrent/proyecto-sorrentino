@@ -5482,35 +5482,36 @@ ${cargas.map(r=>`<tr><td>${r._date}</td><td>${r.hora||""}</td><td>${escapeHtml(r
       })()}
 
       {/* ── SALDO INICIAL ── (solo supervisor/jefe) */}
-      {tab === "saldo" && perfil !== "admin" && <SaldoInicialPanel />}
+      {tab === "saldo" && perfil !== "admin" && <SaldoInicialPanel perfil={perfil} />}
 
     </div>
   );
 };
 
 // ─── SALDO INICIAL ────────────────────────────────────────────
-const SaldoInicialPanel = () => {
-  const yesterday = (() => {
-    const d = new Date(); d.setDate(d.getDate() - 1);
-    return d.toISOString().split("T")[0];
-  })();
-  const [fecha, setFecha] = useState(yesterday);
-  const [silos, setSilos] = useState(() =>
+const SaldoInicialPanel = ({ perfil }) => {
+  const [confirmUI, askConfirm] = useConfirm();
+  const [baseSaldo, setBaseSaldo] = useState(null);
+  const [editSilos, setEditSilos] = useState(() =>
     Object.fromEntries(STOCK_SILOS.map(s => [s, { litros: "", producto: "" }]))
   );
-  const [status, setStatus] = useState(null); // null | "saving" | "saved"
+  const [editing, setEditing] = useState(false);
+  const [viewDate, setViewDate] = useState(getToday());
+  const [viewResult, setViewResult] = useState(null);
+  const [loadingView, setLoadingView] = useState(false);
+  const [status, setStatus] = useState(null); // null | "saving" | "chaining" | "saved"
 
-  // Pre-cargar saldo base existente (ancla manual; no el fast path de la cadena)
+  const canEdit = perfil === "supervisor" || perfil === "jefe";
+
   useEffect(() => {
     loadBaseSaldo().then(s => {
+      setBaseSaldo(s);
       if (!s) return;
-      setFecha(s.fromDate || yesterday);
-      setSilos(prev => {
+      setEditSilos(prev => {
         const next = { ...prev };
         Object.entries(s.data || {}).forEach(([k, v]) => {
           if (next[k] !== undefined) next[k] = { ...next[k], litros: v > 0 ? String(v) : "" };
         });
-        // Cargar también los productos guardados en el saldo base
         Object.entries(s.productos || {}).forEach(([k, p]) => {
           if (next[k] !== undefined && p) next[k] = { ...next[k], producto: p };
         });
@@ -5519,138 +5520,269 @@ const SaldoInicialPanel = () => {
     });
   }, []);
 
-  const total = STOCK_SILOS.reduce((acc, s) => acc + (parseFloat(silos[s].litros) || 0), 0);
-
   const handleSave = async () => {
+    const baseDate = baseSaldo?.fromDate || getPreviousDate(getToday());
+    const baseDateLabel = new Date(baseDate + "T00:00:00").toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" });
+    const ok = await askConfirm({
+      title: "Modificar Saldo Base Oficial",
+      message: `⚠️ Esta acción recalculará toda la cadena histórica desde el ${baseDateLabel} hasta hoy.\n\nTodos los valores calculados de stock e ingresos anteriores serán afectados.\n\n¿Confirmar modificación?`,
+      danger: true,
+      confirmLabel: "Guardar saldo base",
+    });
+    if (!ok) return;
+
     setStatus("saving");
     const data = Object.fromEntries(
-      STOCK_SILOS.map(s => [s, parseFloat(silos[s].litros) || 0])
+      STOCK_SILOS.map(s => [s, parseFloat(editSilos[s]?.litros) || 0])
     );
     const productos = Object.fromEntries(
-      STOCK_SILOS.filter(s => silos[s].producto).map(s => [s, silos[s].producto])
+      STOCK_SILOS.filter(s => editSilos[s]?.producto).map(s => [s, editSilos[s].producto])
     );
-    // Guardar como ancla permanente (SALDO_BASE_KEY) — nunca se sobreescribe con la cadena
-    await saveBaseSaldo(data, fecha, productos);
+
+    await saveBaseSaldo(data, baseDate, productos);
     _autoLitrosCache.clear();
 
-    // Si la fecha es anterior a ayer, construir la cadena hasta ayer y guardarla en SALDO_KEY
-    // como fast path para que el cálculo de hoy sea inmediato sin reencadenar todo
     const today = getToday();
     const yesterday = getPreviousDate(today);
-    if (fecha < yesterday) {
+    if (baseDate < yesterday) {
       setStatus("chaining");
-      const baseSaldo = { data, fromDate: fecha, productos };
-      const { totals, productosBase } = await buildChainedSaldo(baseSaldo, yesterday);
-      // SALDO_KEY = fast path para hoy (result encadenado hasta ayer)
-      // SALDO_BASE_KEY intacto → calcAutoLitros lo usará para fechas históricas < ayer
+      const { totals, productosBase } = await buildChainedSaldo({ data, fromDate: baseDate, productos }, yesterday);
       await saveSaldo(totals, yesterday, productosBase);
       _autoLitrosCache.clear();
-    } else if (fecha <= today) {
-      // fecha es ayer o hoy: guardar directamente en SALDO_KEY también
-      await saveSaldo(data, fecha, productos);
+    } else if (baseDate <= today) {
+      await saveSaldo(data, baseDate, productos);
     }
 
+    setBaseSaldo({ data, fromDate: baseDate, productos });
+    setEditing(false);
     setStatus("saved");
     setTimeout(() => setStatus(null), 5000);
   };
 
-  const nextDay = (() => {
-    const d = new Date(fecha + "T00:00:00");
-    d.setDate(d.getDate() + 1);
-    return d.toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" });
-  })();
+  const handleCalculate = async () => {
+    setLoadingView(true);
+    setViewResult(null);
+    try {
+      const result = await calcAutoLitros(viewDate);
+      setViewResult(result);
+    } finally {
+      setLoadingView(false);
+    }
+  };
+
+  const baseDate = baseSaldo?.fromDate;
+  const baseDateLabel = baseDate
+    ? new Date(baseDate + "T00:00:00").toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" })
+    : "—";
 
   return (
     <div>
-      <div style={{ ...card, marginBottom: 16, background: `${C.accent}10`, borderColor: `${C.accent}40` }}>
-        <div style={{ fontSize: 12, color: C.accent, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6 }}>
-          Saldo inicial de silos
+      {confirmUI}
+
+      {/* ── ZONA 1: Saldo Base Oficial ── */}
+      <div style={{ ...card, marginBottom: 16, borderColor: `${C.accent}50` }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span style={{
+              background: C.accent, color: "#000", fontSize: 10, fontWeight: 800,
+              letterSpacing: "0.08em", padding: "3px 8px", borderRadius: 4,
+              textTransform: "uppercase", flexShrink: 0,
+            }}>SALDO BASE OFICIAL</span>
+            {baseDate && (
+              <span style={{ fontSize: 12, color: C.sub }}>Cierre {baseDateLabel}</span>
+            )}
+          </div>
+          {canEdit && !editing && (
+            <button type="button"
+              style={{ ...btnSecondary, fontSize: 11, padding: "5px 12px", width: "auto", flexShrink: 0 }}
+              onClick={() => setEditing(true)}>
+              Modificar
+            </button>
+          )}
         </div>
-        <div style={{ fontSize: 13, color: C.sub, lineHeight: 1.6 }}>
-          Ingresá los litros reales de cada silo al cierre del día elegido.
-          A partir del día siguiente, esos valores se usan como punto de partida
-          para calcular ingresos, movimientos y cargas.
-        </div>
-      </div>
 
-      <F label="Fecha de cierre (referencia)">
-        <input type="date" style={inp} value={fecha}
-          onChange={e => setFecha(e.target.value)} max={getToday()} />
-      </F>
-
-      <div style={{ fontSize: 12, color: C.sub, marginBottom: 14 }}>
-        Los silos arrancarán el <strong style={{ color: C.text }}>{nextDay}</strong> con estos valores.
-      </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 16 }}>
-        {STOCK_SILOS.map(silo => {
-          const v = parseFloat(silos[silo].litros) || 0;
-          const cap = SILO_CAP[silo] || 100000;
-          const pct = Math.min(100, (v / cap) * 100);
-          return (
-            <div key={silo} style={{ ...card, padding: 10 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                <span style={{ fontSize: 12, fontWeight: 700, color: C.sub }}>
-                  {silo.startsWith("TQ") ? "TQ" : "SILO"} {silo.replace("TQ", "")}
-                </span>
-                <span style={{ fontSize: 10, color: C.muted }}>{pct.toFixed(0)}%</span>
+        {/* Vista colapsada — solo lectura */}
+        {!editing && (
+          <div>
+            {baseSaldo ? (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                {STOCK_SILOS.map(silo => {
+                  const litros = baseSaldo.data?.[silo] || 0;
+                  const prod = baseSaldo.productos?.[silo] || "";
+                  return (
+                    <div key={silo} style={{
+                      background: C.surface, borderRadius: 6, padding: "7px 10px",
+                      border: `1px solid ${litros > 0 ? C.border : "#2a2a2a"}`,
+                    }}>
+                      <div style={{ fontSize: 11, color: C.sub, fontWeight: 700 }}>
+                        {silo.startsWith("TQ") ? "TQ" : "SILO"} {silo.replace("TQ", "")}
+                      </div>
+                      <div style={{ fontSize: 13, color: litros > 0 ? C.text : C.muted, fontFamily: FONT_MONO }}>
+                        {litros > 0 ? litros.toLocaleString("es-AR") + " L" : "—"}
+                      </div>
+                      {prod && <div style={{ fontSize: 10, color: C.accent, marginTop: 2 }}>{prod}</div>}
+                    </div>
+                  );
+                })}
               </div>
-              <input
-                type="number" inputMode="decimal"
-                style={{ ...inp, fontSize: 13, marginBottom: 6 }}
-                placeholder="0 L"
-                value={silos[silo].litros}
-                onChange={e => setSilos(prev => ({ ...prev, [silo]: { ...prev[silo], litros: e.target.value } }))}
-              />
-              <div style={{ background: C.muted, borderRadius: 3, height: 4, overflow: "hidden" }}>
-                <div style={{
-                  height: "100%", borderRadius: 3,
-                  background: v > 0 ? C.accent : C.border,
-                  width: `${pct}%`,
-                  transition: "width 0.4s ease",
-                }} />
+            ) : (
+              <div style={{ fontSize: 13, color: C.muted, padding: "8px 0" }}>
+                No hay saldo base registrado.{canEdit ? " Usá el botón Modificar para cargarlo." : ""}
               </div>
-              <Sel
-                value={silos[silo].producto}
-                onChange={val => setSilos(prev => ({ ...prev, [silo]: { ...prev[silo], producto: val } }))}
-                options={PRODS_STOCK.filter(p => p !== "Sucio (vacío)" && p !== "Limpio")}
-                placeholder="Producto..."
-              />
+            )}
+            {status === "saved" && (
+              <div style={{
+                background: `${C.success}15`, border: `1px solid ${C.success}44`,
+                borderRadius: 8, padding: "10px 14px", fontSize: 13, color: C.success, marginTop: 10,
+              }}>
+                Saldo base actualizado y cadena de días recalculada.
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Modo edición */}
+        {editing && canEdit && (
+          <div>
+            <div style={{
+              background: `${C.danger}12`, border: `1px solid ${C.danger}44`,
+              borderRadius: 8, padding: "10px 14px", marginBottom: 14,
+              display: "flex", gap: 10, alignItems: "flex-start",
+            }}>
+              <AlertaWarn size={16} strokeWidth={2} color="#f97316" style={{ flexShrink: 0, marginTop: 1 }} />
+              <span style={{ fontSize: 12, color: "#f97316", lineHeight: 1.6 }}>
+                <strong>Modificar este saldo recalculará toda la cadena histórica</strong> desde el {baseDateLabel} hasta hoy.
+                Esta operación no se puede deshacer.
+              </span>
             </div>
-          );
-        })}
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
+              {STOCK_SILOS.map(silo => {
+                const v = parseFloat(editSilos[silo]?.litros) || 0;
+                const cap = SILO_CAP[silo] || 100000;
+                const pct = Math.min(100, (v / cap) * 100);
+                return (
+                  <div key={silo} style={{ ...card, padding: 10, marginBottom: 0 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: C.sub }}>
+                        {silo.startsWith("TQ") ? "TQ" : "SILO"} {silo.replace("TQ", "")}
+                      </span>
+                      <span style={{ fontSize: 10, color: C.muted }}>{pct.toFixed(0)}%</span>
+                    </div>
+                    <input
+                      type="number" inputMode="decimal"
+                      style={{ ...inp, fontSize: 13, marginBottom: 6 }}
+                      placeholder="0 L"
+                      value={editSilos[silo]?.litros || ""}
+                      onChange={e => setEditSilos(prev => ({
+                        ...prev, [silo]: { ...prev[silo], litros: e.target.value },
+                      }))}
+                    />
+                    <div style={{ background: C.muted, borderRadius: 3, height: 4, overflow: "hidden", marginBottom: 6 }}>
+                      <div style={{
+                        height: "100%", borderRadius: 3,
+                        background: v > 0 ? C.accent : C.border,
+                        width: `${pct}%`, transition: "width 0.4s ease",
+                      }} />
+                    </div>
+                    <Sel
+                      value={editSilos[silo]?.producto || ""}
+                      onChange={val => setEditSilos(prev => ({
+                        ...prev, [silo]: { ...prev[silo], producto: val },
+                      }))}
+                      options={PRODS_STOCK.filter(p => p !== "Sucio (vacío)" && p !== "Limpio")}
+                      placeholder="Producto..."
+                    />
+                  </div>
+                );
+              })}
+            </div>
+
+            <div style={{ fontSize: 13, color: C.sub, marginBottom: 12 }}>
+              Total: <strong style={{ color: C.text, fontFamily: FONT_MONO }}>
+                {STOCK_SILOS.reduce((acc, s) => acc + (parseFloat(editSilos[s]?.litros) || 0), 0).toLocaleString("es-AR")} L
+              </strong>
+            </div>
+
+            <div style={{ display: "flex", gap: 8 }}>
+              <button type="button" style={{ ...btnSecondary, flex: 1 }}
+                onClick={() => { setEditing(false); setStatus(null); }}>
+                Cancelar
+              </button>
+              <button type="button" style={{ ...btnPrimary, flex: 2 }}
+                disabled={status === "saving" || status === "chaining"}
+                onClick={handleSave}>
+                {status === "saving" ? "Guardando…"
+                  : status === "chaining" ? "Recalculando cadena…"
+                  : "Guardar saldo base"}
+              </button>
+            </div>
+
+            {status === "chaining" && (
+              <div style={{
+                background: `${C.accent}10`, border: `1px solid ${C.accent}40`,
+                borderRadius: 8, padding: "10px 14px", fontSize: 12, color: C.accent, marginTop: 10,
+              }}>
+                Reconstruyendo la cadena de días. No cerres esta pantalla.
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 12 }}>
-        <span style={{ fontSize: 13, color: C.sub }}>
-          Total: <strong style={{ color: C.text, fontFamily: FONT_MONO }}>{total.toLocaleString("es-AR")} L</strong>
-        </span>
-        <button type="button" style={{ ...btnPrimary, width: "100%" }}
-          disabled={status === "saving" || status === "chaining"} onClick={handleSave}>
-          {status === "saving" ? "Guardando saldo…"
-            : status === "chaining" ? "Recalculando días intermedios…"
-            : status === "saved" ? "✓ Listo"
-            : "Guardar saldo"}
-        </button>
-      </div>
+      {/* ── ZONA 2: Consultar estado calculado ── */}
+      <div style={{ ...card, borderColor: C.border }}>
+        <div style={{ fontSize: 12, color: C.sub, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 12 }}>
+          Consultar estado calculado
+        </div>
+        <div style={{ display: "flex", gap: 8, marginBottom: 12, alignItems: "flex-end" }}>
+          <div style={{ flex: 1 }}>
+            <F label="Fecha a consultar">
+              <input type="date" style={inp} value={viewDate} max={getToday()}
+                onChange={e => { setViewDate(e.target.value); setViewResult(null); }} />
+            </F>
+          </div>
+          <button type="button"
+            style={{ ...btnSecondary, width: "auto", padding: "13px 16px", flexShrink: 0 }}
+            disabled={loadingView} onClick={handleCalculate}>
+            {loadingView ? "…" : "Calcular"}
+          </button>
+        </div>
 
-      {status === "chaining" && (
-        <div style={{
-          background: `${C.accent}10`, border: `1px solid ${C.accent}40`,
-          borderRadius: 8, padding: "10px 14px", fontSize: 13, color: C.accent,
-        }}>
-          Reconstruyendo la cadena de días desde el {fecha} hasta ayer. No cerres esta pantalla.
-        </div>
-      )}
-      {status === "saved" && (
-        <div style={{
-          background: `${C.success}15`, border: `1px solid ${C.success}44`,
-          borderRadius: 8, padding: "10px 14px", fontSize: 13, color: C.success,
-        }}>
-          Saldo guardado y cadena de días actualizada. A partir del {nextDay} los silos
-          arrancan con estos litros y heredan automáticamente las operaciones de cada día.
-        </div>
-      )}
+        {viewResult && (
+          <div>
+            <div style={{
+              background: `${C.success}12`, border: `1px solid ${C.success}44`,
+              borderRadius: 6, padding: "8px 12px", fontSize: 11, color: C.success,
+              marginBottom: 12, lineHeight: 1.6,
+            }}>
+              Estado calculado al cierre del{" "}
+              <strong>{new Date(viewDate + "T00:00:00").toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" })}</strong>
+              {" "}— acumulado desde el saldo base + operaciones de cada día en la cadena. Solo lectura.
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+              {STOCK_SILOS.map(silo => {
+                const litros = viewResult.totals?.[silo] || 0;
+                const prod = viewResult.productosBase?.[silo] || "";
+                return (
+                  <div key={silo} style={{
+                    background: C.surface, borderRadius: 6, padding: "7px 10px",
+                    border: `1px solid ${litros > 0 ? C.border : "#2a2a2a"}`,
+                  }}>
+                    <div style={{ fontSize: 11, color: C.sub, fontWeight: 700 }}>
+                      {silo.startsWith("TQ") ? "TQ" : "SILO"} {silo.replace("TQ", "")}
+                    </div>
+                    <div style={{ fontSize: 13, color: litros > 0 ? C.text : C.muted, fontFamily: FONT_MONO }}>
+                      {litros > 0 ? litros.toLocaleString("es-AR") + " L" : "—"}
+                    </div>
+                    {prod && <div style={{ fontSize: 10, color: C.accent, marginTop: 2 }}>{prod}</div>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 };
