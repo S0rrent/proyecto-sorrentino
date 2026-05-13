@@ -2,7 +2,7 @@ import { useState, useEffect, Fragment } from "react";
 import { useRegisterSW } from "virtual:pwa-register/react";
 import { DARK, LIGHT, FONT_SANS, FONT_MONO, EASE_OUT, DUR } from "./tokens.js";
 import { useViewport } from "./hooks.js";
-import { db, onWriteQueueChange } from "./db-adapter.js";
+import { db, onWriteQueueChange, onSessionExpired, clearSessionExpired } from "./db-adapter.js";
 import {
   Ingresos as IcoIngresos, Movimientos as IcoMovimientos, Carga as IcoCarga,
   Fortificados as IcoFortificados, CIP as IcoCIP, Stock as IcoStock,
@@ -5954,6 +5954,7 @@ export default function App() {
   const [loginLoading, setLoginLoading] = useState(false);
   const [syncKey, setSyncKey] = useState(0); // incrementa cada 10s → refresca datos en todas las secciones
   const [storageOk, setStorageOk] = useState(true);
+  const [sessionExpired, setSessionExpired] = useState(false);
   const [queueLen, setQueueLen] = useState(0);
   const [queueRetrying, setQueueRetrying] = useState(false);
   const [backupSuggestion, setBackupSuggestion] = useState(false);
@@ -5985,6 +5986,8 @@ export default function App() {
     setQueueLen(len);
     setQueueRetrying(retrying);
   }), []);
+
+  useEffect(() => onSessionExpired(() => setSessionExpired(true)), []);
 
   // Cargar estado de cierre del día al cambiar fecha o en cada sync
   useEffect(() => {
@@ -6149,6 +6152,7 @@ export default function App() {
       await db.auth.signIn(PERFILES[rolKey].email, loginPass);
       setLoginUser(""); setLoginPass("");
       setPerfilModal(false);
+      if (sessionExpired) { setSessionExpired(false); clearSessionExpired(); }
     } catch {
       setLoginError("Usuario o contraseña incorrectos.");
     } finally {
@@ -6285,6 +6289,31 @@ export default function App() {
               : `${queueLen} cambio${queueLen > 1 ? "s" : ""} pendiente${queueLen > 1 ? "s" : ""} — sin conexión`
             }
           </div>
+        </div>
+      )}
+
+      {/* Banner sesión expirada */}
+      {sessionExpired && (
+        <div style={{
+          background: "#7c2d1215", borderBottom: "2px solid #f97316",
+          padding: "10px 16px", display: "flex", alignItems: "center", gap: 10,
+          position: "sticky", top: 0, zIndex: 301,
+          marginLeft: isDesktop ? SIDEBAR_W : 0,
+        }}>
+          <AlertaWarn size={20} strokeWidth={SW} color="#f97316" />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#f97316" }}>Sesión expirada — los cambios están en espera</div>
+            <div style={{ fontSize: 11, color: C.sub, marginTop: 1 }}>
+              {queueLen > 0
+                ? `${queueLen} cambio${queueLen > 1 ? "s" : ""} guardado${queueLen > 1 ? "s" : ""} localmente. Volvé a iniciar sesión para sincronizarlos.`
+                : "Volvé a iniciar sesión para continuar guardando."}
+            </div>
+          </div>
+          <button type="button"
+            onClick={() => setPerfilModal(true)}
+            style={{ background: "#f9731620", border: "1px solid #f9731650", color: "#f97316", borderRadius: 8, padding: "5px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
+            Iniciar sesión
+          </button>
         </div>
       )}
 

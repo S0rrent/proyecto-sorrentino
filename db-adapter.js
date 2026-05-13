@@ -34,6 +34,41 @@ let _queue = (() => {
 let _flushing = false;
 const _listeners = new Set();
 
+// ── Gestión de sesión expirada ───────────────────────────────────────────────
+// Cuando Supabase devuelve 401, se intenta refresh una sola vez.
+// Si falla, _sessionExpired=true pausa todas las escrituras directas hasta relogin.
+let _sessionExpired = false;
+let _refreshing = false;          // lock: evita dos refreshes simultáneos
+const _sessionListeners = new Set();
+
+function _is401(error) {
+  return error?.status === 401 || error?.code === "PGRST301" ||
+    (typeof error?.message === "string" && error.message.includes("JWT"));
+}
+
+async function _tryRefresh() {
+  try {
+    const { error } = await _sb.auth.refreshSession();
+    return !error;
+  } catch { return false; }
+}
+
+function _notifySessionExpired() {
+  _sessionListeners.forEach(fn => fn());
+}
+
+export function onSessionExpired(fn) {
+  _sessionListeners.add(fn);
+  return () => _sessionListeners.delete(fn);
+}
+
+export function clearSessionExpired() {
+  _sessionExpired = false;
+  _refreshing = false;
+  setTimeout(_flushQueue, 500); // retomar cola tras relogin
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 function _queuePersist() {
   try { localStorage.setItem(_QUEUE_LS, JSON.stringify(_queue)); } catch {}
 }
@@ -48,13 +83,15 @@ export function onWriteQueueChange(fn) {
 }
 
 async function _flushQueue() {
-  if (_flushing || _queue.length === 0) return;
+  if (_flushing || _queue.length === 0 || _sessionExpired) return;
   _flushing = true;
   _queueNotify();
 
   while (_queue.length > 0) {
+    if (_sessionExpired) break; // sesión expiró durante el drenado — detener
     const { key, value } = _queue[0];
     let ok = false;
+    let lastError = null;
     let delay = 2000;
     for (let attempt = 0; attempt < 4; attempt++) {
       try {
@@ -64,7 +101,8 @@ async function _flushQueue() {
         if (error) throw error;
         ok = true;
         break;
-      } catch {
+      } catch (e) {
+        lastError = e;
         if (attempt < 3) await new Promise(r => setTimeout(r, delay));
         delay *= 2;
       }
@@ -74,13 +112,36 @@ async function _flushQueue() {
       _queuePersist();
       _queueNotify();
     } else {
-      break; // sigue offline — detener y reintentar en 30s
+      // Si el fallo fue por 401, intentar refresh una sola vez y reintentar
+      if (_is401(lastError) && !_refreshing) {
+        _refreshing = true;
+        const refreshed = await _tryRefresh();
+        _refreshing = false;
+        if (refreshed) {
+          // Reintentar el mismo item con el nuevo token
+          try {
+            const { error } = await _sb
+              .from("yatasto_storage")
+              .upsert({ key, value, updated_at: new Date().toISOString() });
+            if (!error) {
+              _queue.shift();
+              _queuePersist();
+              _queueNotify();
+              continue;
+            }
+          } catch {}
+        }
+        // Refresh falló o segundo intento falló — pausar cola y avisar
+        _sessionExpired = true;
+        _notifySessionExpired();
+      }
+      break; // sigue offline o sesión expirada — detener
     }
   }
 
   _flushing = false;
   _queueNotify();
-  if (_queue.length > 0) setTimeout(_flushQueue, 30000);
+  if (_queue.length > 0 && !_sessionExpired) setTimeout(_flushQueue, 30000);
 }
 
 // Drenar cola al iniciar si quedó algo pendiente de sesión anterior
@@ -99,15 +160,41 @@ export const db = {
   },
 
   async set(key, value) {
+    // Si la sesión está marcada como expirada, encolar directamente sin intentar red
+    if (_sessionExpired) {
+      const idx = _queue.findIndex(q => q.key === key);
+      if (idx >= 0) _queue[idx].value = value;
+      else _queue.push({ key, value });
+      _queuePersist();
+      _queueNotify();
+      return;
+    }
     try {
       const { error } = await _sb
         .from("yatasto_storage")
         .upsert({ key, value, updated_at: new Date().toISOString() });
       if (error) throw error;
-    } catch {
+    } catch (e) {
+      // 401 JWT expirado: intentar refresh una vez y reintentar
+      if (_is401(e) && !_refreshing) {
+        _refreshing = true;
+        const refreshed = await _tryRefresh();
+        _refreshing = false;
+        if (refreshed) {
+          try {
+            const { error: e2 } = await _sb
+              .from("yatasto_storage")
+              .upsert({ key, value, updated_at: new Date().toISOString() });
+            if (!e2) return; // éxito tras refresh
+          } catch {}
+        }
+        // Refresh falló o segundo intento falló — marcar sesión expirada
+        _sessionExpired = true;
+        _notifySessionExpired();
+      }
       // Escritura directa falló — encolar para reintento
       const idx = _queue.findIndex(q => q.key === key);
-      if (idx >= 0) _queue[idx].value = value; // actualizar entrada existente
+      if (idx >= 0) _queue[idx].value = value;
       else _queue.push({ key, value });
       _queuePersist();
       _queueNotify();
