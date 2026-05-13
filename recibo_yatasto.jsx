@@ -368,6 +368,28 @@ async function logDelete(tipo, item, by) {
   await logAudit(getToday(), "delete", tipo, resumen, by);
 }
 
+// Backup completo: descarga todas las keys "yatasto:*" como JSON al dispositivo
+async function generateBackup() {
+  const rows = await db.list("yatasto:");
+  const pad = n => String(n).padStart(2, "0");
+  const now = new Date();
+  const payload = {
+    generado: now.toISOString(),
+    version: "1.0",
+    total_registros: rows.length,
+    datos: Object.fromEntries(rows.map(r => {
+      try { return [r.key, JSON.parse(r.value)]; } catch { return [r.key, r.value]; }
+    })),
+  };
+  const filename = `yatasto-backup-${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}.json`;
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+  try { localStorage.setItem("yatasto:ultimo-backup-date", now.toISOString().split("T")[0]); } catch {}
+}
+
 // Calcula litros netos por silo: saldo_anterior + ingresos + movimientos − cargas − fort_origen + fort_destino
 const _autoLitrosCache = new Map(); // key: date → { result, ts }
 const _AUTO_LITROS_TTL = 15000;     // 15 s — suficiente para una navegación completa
@@ -5477,6 +5499,37 @@ ${cargas.map(r=>`<tr><td>${r._date}</td><td>${r.hora||""}</td><td>${escapeHtml(r
               El PDF abre en una pestaña nueva lista para imprimir (Ctrl+P / ⌘P).
               Los CSV incluyen BOM UTF-8 para compatibilidad con Excel.
             </div>
+            <div style={{ marginTop: 24, borderTop: `1px solid ${C.border}`, paddingTop: 20 }}>
+              <div style={{ fontSize: 12, color: C.sub, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 10 }}>
+                Backup de seguridad
+              </div>
+              <div style={{ fontSize: 13, color: C.sub, marginBottom: 12, lineHeight: 1.6 }}>
+                Descarga un JSON con todos los registros de la base de datos.
+                Guardá este archivo en un lugar seguro como respaldo ante pérdida de datos.
+                {(() => {
+                  const lastBackup = localStorage.getItem("yatasto:ultimo-backup-date");
+                  const today = new Date().toISOString().split("T")[0];
+                  if (!lastBackup) return <span style={{ color: C.danger, fontWeight: 700 }}> No se generó ningún backup todavía.</span>;
+                  if (lastBackup < today) return <span style={{ color: "#f97316", fontWeight: 600 }}> Último backup: {new Date(lastBackup + "T00:00:00").toLocaleDateString("es-AR")}.</span>;
+                  return <span style={{ color: C.success, fontWeight: 600 }}> Backup del día descargado.</span>;
+                })()}
+              </div>
+              <button
+                type="button"
+                style={{ ...btnStyle("#6366f1"), fontSize: 13 }}
+                onClick={async e => {
+                  const btn = e.currentTarget;
+                  btn.disabled = true;
+                  btn.textContent = "Generando…";
+                  try { await generateBackup(); btn.textContent = "✓ Descargado"; }
+                  catch { btn.textContent = "Error — intentá de nuevo"; }
+                  finally { setTimeout(() => { btn.disabled = false; btn.textContent = "Descargar backup completo"; }, 3000); }
+                }}
+              >
+                <TabExportar size={15} strokeWidth={SW} />
+                Descargar backup completo
+              </button>
+            </div>
           </div>
         );
       })()}
@@ -5830,6 +5883,8 @@ export default function App() {
   const [storageOk, setStorageOk] = useState(true);
   const [queueLen, setQueueLen] = useState(0);
   const [queueRetrying, setQueueRetrying] = useState(false);
+  const [backupSuggestion, setBackupSuggestion] = useState(false);
+  const [backupLoading, setBackupLoading] = useState(false);
   const [dayClosed, setDayClosed] = useState(false);
   const [dayClosedBy, setDayClosedBy] = useState(null);
   const [dayClosedBlocked, setDayClosedBlocked] = useState(false);
@@ -5992,6 +6047,7 @@ export default function App() {
     await saveSaldo(finalTotals, date, finalProductos);
     setDayClosed(true);
     setDayClosedBy(est.closedBy);
+    setBackupSuggestion(true);
   };
   const handleReabrirDia = async () => {
     const ok = await askConfirm({
@@ -6446,6 +6502,21 @@ export default function App() {
               {dayClosedBy ? `Cerrado por ${dayClosedBy}. ` : ""}
               {perfil === "jefe" ? "Usá el candado en el header para reabrir." : "Solo el jefe puede reabrir el día."}
             </div>
+            {backupSuggestion && (
+              <button
+                type="button"
+                style={{ ...btnPrimary, marginTop: 20, width: "auto", padding: "10px 22px", fontSize: 13 }}
+                disabled={backupLoading}
+                onClick={async () => {
+                  setBackupLoading(true);
+                  try { await generateBackup(); setBackupSuggestion(false); }
+                  catch { setBackupSuggestion(false); }
+                  finally { setBackupLoading(false); }
+                }}
+              >
+                {backupLoading ? "Generando backup…" : "Descargar backup del día"}
+              </button>
+            )}
           </div>
         )}
         <div style={{ maxWidth: isDesktop ? 960 : "100%", margin: isDesktop ? "0 auto" : undefined }}>
