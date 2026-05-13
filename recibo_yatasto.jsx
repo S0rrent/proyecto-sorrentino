@@ -190,8 +190,12 @@ async function loadCfg() {
 async function loadSaldo() {
   try { const r = await db.get(SALDO_KEY); return r ? JSON.parse(r.value) : null; } catch { return null; }
 }
-async function saveSaldo(data, fromDate) {
-  try { await db.set(SALDO_KEY, JSON.stringify({ data, fromDate })); } catch { }
+async function saveSaldo(data, fromDate, productos) {
+  try {
+    const payload = { data, fromDate };
+    if (productos && Object.keys(productos).length > 0) payload.productos = productos;
+    await db.set(SALDO_KEY, JSON.stringify(payload));
+  } catch { }
 }
 async function saveCfg(data) {
   try { await db.set(CFG_KEY, JSON.stringify(data)); } catch (e) { console.error(e); }
@@ -366,22 +370,37 @@ async function calcAutoLitros(date) {
     loadSaldo(),
   ]);
   const totals = {};
+  // productosBase: carry-over de productos del día anterior, luego sobreescrito por operaciones del día
+  const productosBase = {};
+
   // Saldo de días anteriores
   if (saldo && saldo.fromDate && saldo.fromDate < date) {
     Object.entries(saldo.data || {}).forEach(([key, litros]) => {
       if (litros > 0) totals[key] = (totals[key] || 0) + litros;
     });
+    // Productos del saldo anterior como base (el silo tenía X producto al cierre)
+    Object.entries(saldo.productos || {}).forEach(([key, prod]) => {
+      if (prod) productosBase[key] = prod;
+    });
   }
   ingresos.forEach(ing => {
     const key = SILO_STOCK_KEY[ing.destino];
-    if (key) totals[key] = (totals[key] || 0) + (parseFloat(ing.litrosFca) || 0);
+    if (key) {
+      totals[key] = (totals[key] || 0) + (parseFloat(ing.litrosFca) || 0);
+      // Ingreso define el producto del silo (sobreescribe el carry-over)
+      if (ing.producto) productosBase[key] = ing.producto;
+    }
   });
   (movData.movs || []).forEach(mov => {
     const from = SILO_STOCK_KEY[mov.desde];
     const to = SILO_STOCK_KEY[mov.hasta];
     const L = parseFloat(mov.litros) || 0;
     if (from) totals[from] = (totals[from] || 0) - L;
-    if (to) totals[to] = (totals[to] || 0) + L;
+    if (to) {
+      totals[to] = (totals[to] || 0) + L;
+      // Movimiento lleva el producto del silo origen al destino
+      if (productosBase[from] && !productosBase[to]) productosBase[to] = productosBase[from];
+    }
   });
   cargas.forEach(c => {
     const from = SILO_STOCK_KEY[c.siloProveniente];
@@ -393,7 +412,10 @@ async function calcAutoLitros(date) {
     const to = SILO_STOCK_KEY[f.siloDestino];
     const L = parseFloat(f.litrosBase) || 0;
     if (from && L > 0) totals[from] = (totals[from] || 0) - L;
-    if (to && L > 0) totals[to] = (totals[to] || 0) + L;
+    if (to && L > 0) {
+      totals[to] = (totals[to] || 0) + L;
+      productosBase[to] = "Leche Fortificada"; // fortified overrides
+    }
     // Adiciones líquidas (L / mL) suman volumen al destino
     (f.adiciones || []).forEach(a => {
       const qty = parseFloat(a.cantidad) || 0;
@@ -401,14 +423,15 @@ async function calcAutoLitros(date) {
         if (a.unidad === "L") totals[to] = (totals[to] || 0) + qty;
         if (a.unidad === "mL") totals[to] = (totals[to] || 0) + qty / 1000;
         if (a.unidad === "cc") totals[to] = (totals[to] || 0) + qty / 1000;
-        if (a.unidad === "kg") totals[to] = (totals[to] || 0) + qty;      // 1 kg ≈ 1 L
+        if (a.unidad === "kg") totals[to] = (totals[to] || 0) + qty; // 1 kg ≈ 1 L
         if (a.unidad === "g") totals[to] = (totals[to] || 0) + qty / 1000;
         if (a.unidad === "mg") totals[to] = (totals[to] || 0) + qty / 1000000;
       }
     });
   });
-  _autoLitrosCache.set(date, { result: totals, ts: Date.now() });
-  return totals;
+  const result = { totals, productosBase };
+  _autoLitrosCache.set(date, { result, ts: Date.now() });
+  return result;
 }
 
 // ─── SVG SILO VISUAL ─────────────────────────────────────────
@@ -1684,11 +1707,9 @@ const SecStock = ({ date, syncKey = 0 }) => {
   useEffect(() => {
     Promise.all([
       load(date, "stock", {}),
-      load(date, "ingresos", []),
-      load(date, "fortificados", []),
       calcAutoLitros(date),
       load(date, "cip", {}),
-    ]).then(([d, ingresos, forts, autoTotals, cipData]) => {
+    ]).then(([d, { totals: autoTotals, productosBase }, cipData]) => {
       setAutoLitros(autoTotals);
 
       // Silos con CIP completado hoy (tienen hora registrada)
@@ -1698,18 +1719,6 @@ const SecStock = ({ date, syncKey = 0 }) => {
           const key = SILO_STOCK_KEY[silo] || silo;
           if (STOCK_SILOS.includes(key)) cipDone[key] = true;
         }
-      });
-
-      // Inferir producto por silo: primero ingresos, luego fortifications los sobreescriben
-      const inferred = {};
-      ingresos.forEach(ing => {
-        const key = SILO_STOCK_KEY[ing.destino];
-        if (key && ing.producto) inferred[key] = ing.producto;
-      });
-      forts.forEach(fort => {
-        if (!fort.siloDestino) return;
-        const key = SILO_STOCK_KEY[fort.siloDestino] || fort.siloDestino;
-        if (STOCK_SILOS.includes(key)) inferred[key] = "Leche Fortificada";
       });
 
       let updated = d;
@@ -1723,8 +1732,9 @@ const SecStock = ({ date, syncKey = 0 }) => {
             updated = { ...u, [t]: { ...(u[t] || {}), silos: { ...((u[t] || {}).silos || {}), [silo]: { ...sd, ...extra } } } };
             changed = true;
           };
-          // Auto-producto desde ingresos
-          if (!sd.producto && inferred[silo]) { upd(updated, { producto: inferred[silo] }); }
+          // Auto-producto: solo si el silo no tiene producto guardado manualmente.
+          // Prioridad: manual guardado > ingresos/forts (productosBase) > carry-over del saldo
+          if (!sd.producto && productosBase[silo]) { upd(updated, { producto: productosBase[silo] }); }
           // Estado cuando silo está vacío: Limpio si tiene CIP, Sucio si no
           const litros = autoTotals[silo] || 0;
           const curProd = (((updated[t] || {}).silos || {})[silo] || {}).producto || sd.producto;
@@ -1741,10 +1751,8 @@ const SecStock = ({ date, syncKey = 0 }) => {
 
       if (changed) save(date, "stock", updated);
       if (vaciados.length > 0) setSilosVaciados(vaciados);
-      // Guardar snapshot del día actual para carry-over automático al día siguiente
-      if (date === getToday() && Object.values(autoTotals).some(v => v > 0)) {
-        saveSaldo(autoTotals, date);
-      }
+      // El saldo se actualiza al cerrar el día (handleCerrarDia) o al arrancar la app.
+      // No se guarda aquí para evitar pisar valores manuales del panel "Saldo Silos".
       setData(updated);
       setLoading(false);
     });
@@ -4899,7 +4907,7 @@ const AdminTabSalidas = ({ cargas, isDesktop }) => {
   );
 };
 
-const SecAdmin = ({ date, syncKey }) => {
+const SecAdmin = ({ date, syncKey, perfil }) => {
   const { isDesktop } = useViewport();
   const [tab, setTab] = useState("resumen");
   const [preset, setPreset] = useState("hoy");
@@ -5030,7 +5038,7 @@ const SecAdmin = ({ date, syncKey }) => {
         borderBottom: `1px solid ${C.border}`, paddingBottom: 2, marginBottom: 18,
         scrollbarWidth: "none",
       }}>
-        {ADMIN_TABS.map(([id, Icon, label]) => (
+        {ADMIN_TABS.filter(([id]) => !(id === "saldo" && perfil === "admin")).map(([id, Icon, label]) => (
           <button key={id} type="button" onClick={() => setTab(id)} style={tabBtn(tab === id)}>
             <Icon size={13} strokeWidth={SW} />
             {label}
@@ -5410,8 +5418,8 @@ ${cargas.map(r=>`<tr><td>${r._date}</td><td>${r.hora||""}</td><td>${escapeHtml(r
         );
       })()}
 
-      {/* ── SALDO INICIAL ── */}
-      {tab === "saldo" && <SaldoInicialPanel />}
+      {/* ── SALDO INICIAL ── (solo supervisor/jefe) */}
+      {tab === "saldo" && perfil !== "admin" && <SaldoInicialPanel />}
 
     </div>
   );
@@ -5448,30 +5456,17 @@ const SaldoInicialPanel = () => {
 
   const handleSave = async () => {
     setStatus("saving");
-    // Guardar litros en saldo-silos (carry-over para el día siguiente)
+    // Litros por silo al cierre de la fecha elegida
     const data = Object.fromEntries(
       STOCK_SILOS.map(s => [s, parseFloat(silos[s].litros) || 0])
     );
-    await saveSaldo(data, fecha);
-    // Guardar productos en el registro de stock de esa fecha (para que aparezca en la vista Stock)
-    const hayProductos = STOCK_SILOS.some(s => silos[s].producto);
-    if (hayProductos) {
-      const stockExistente = await load(fecha, "stock", {});
-      const stockActualizado = { ...stockExistente };
-      TURNOS.forEach(t => {
-        stockActualizado[t] = { ...(stockActualizado[t] || {}) };
-        stockActualizado[t].silos = { ...((stockActualizado[t].silos) || {}) };
-        STOCK_SILOS.forEach(s => {
-          if (silos[s].producto) {
-            stockActualizado[t].silos[s] = {
-              ...(stockActualizado[t].silos[s] || {}),
-              producto: silos[s].producto,
-            };
-          }
-        });
-      });
-      await save(fecha, "stock", stockActualizado);
-    }
+    // Productos seleccionados (van en el saldo; calcAutoLitros los lee como productosBase)
+    const productos = Object.fromEntries(
+      STOCK_SILOS.filter(s => silos[s].producto).map(s => [s, silos[s].producto])
+    );
+    await saveSaldo(data, fecha, productos);
+    // Invalidar cache para que calcAutoLitros recalcule con el nuevo saldo
+    _autoLitrosCache.clear();
     setStatus("saved");
     setTimeout(() => setStatus(null), 4000);
   };
@@ -5543,11 +5538,11 @@ const SaldoInicialPanel = () => {
         })}
       </div>
 
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 12 }}>
         <span style={{ fontSize: 13, color: C.sub }}>
           Total: <strong style={{ color: C.text, fontFamily: FONT_MONO }}>{total.toLocaleString("es-AR")} L</strong>
         </span>
-        <button type="button" style={{ ...btnPrimary, minWidth: 160 }}
+        <button type="button" style={{ ...btnPrimary, width: "100%" }}
           disabled={status === "saving"} onClick={handleSave}>
           {status === "saving" ? "Guardando…" : status === "saved" ? "✓ Guardado" : "Guardar saldo"}
         </button>
@@ -5582,7 +5577,7 @@ const SecJefeHub = ({ date, perfil, perfilLabel, syncKey }) => {
         ))}
       </div>
       {tab === "dashboard" && <SecDashboard date={date} perfil={perfil} perfilLabel={perfilLabel} syncKey={syncKey} />}
-      {tab === "oficina" && <SecAdmin date={date} syncKey={syncKey} />}
+      {tab === "oficina" && <SecAdmin date={date} syncKey={syncKey} perfil={perfil} />}
     </div>
   );
 };
@@ -5684,8 +5679,8 @@ export default function App() {
     const yesterday = getPreviousDate(today);
     loadSaldo().then(async saldo => {
       if (saldo && saldo.fromDate === yesterday) return; // ya está actualizado
-      const totals = await calcAutoLitros(yesterday);
-      await saveSaldo(totals, yesterday);
+      const { totals, productosBase } = await calcAutoLitros(yesterday);
+      await saveSaldo(totals, yesterday, productosBase);
     });
   }, []);
 
@@ -5714,7 +5709,7 @@ export default function App() {
       const today = getToday();
       if (today !== lastDate) {
         const yesterday = getPreviousDate(today);
-        calcAutoLitros(yesterday).then(totals => saveSaldo(totals, yesterday));
+        calcAutoLitros(yesterday).then(({ totals, productosBase }) => saveSaldo(totals, yesterday, productosBase));
         lastDate = today;
       }
     }, 10000);
@@ -5740,9 +5735,9 @@ export default function App() {
     const est = { closed: true, closedAt: new Date().toISOString(), closedBy: PERFILES[perfil]?.label || "Supervisor" };
     await saveEstado(date, est);
     await logAudit(date, "close_day", "dia", `Día ${date} cerrado`, est.closedBy);
-    // Guardar saldo final para que mañana arranque con los litros correctos
-    const finalTotals = await calcAutoLitros(date);
-    await saveSaldo(finalTotals, date);
+    // Guardar saldo final (litros + productos) para que mañana arranque con el estado correcto
+    const { totals: finalTotals, productosBase: finalProductos } = await calcAutoLitros(date);
+    await saveSaldo(finalTotals, date, finalProductos);
     setDayClosed(true);
     setDayClosedBy(est.closedBy);
   };
@@ -6147,9 +6142,11 @@ export default function App() {
 
       {/* Date picker */}
       {datePicker && (
-        <div style={{ background: C.card, borderBottom: `1px solid ${C.border}`, padding: "12px 16px", display: "flex", gap: 8, marginLeft: isDesktop ? SIDEBAR_W : 0 }}>
-          <input type="date" value={date} onChange={e => { setDate(e.target.value); setDatePicker(false); }} style={{ ...inp, flex: 1 }} />
-          <button type="button" onClick={() => { setDate(getToday()); setDatePicker(false); }} style={{ ...btnPrimary, width: "auto", padding: "10px 16px", whiteSpace: "nowrap" }}>Hoy</button>
+        <div style={{ background: C.card, borderBottom: `1px solid ${C.border}`, padding: isDesktop ? "14px 24px" : "12px 16px", display: "flex", gap: 8, marginLeft: isDesktop ? SIDEBAR_W : 0 }}>
+          <input type="date" value={date} onChange={e => { setDate(e.target.value); setDatePicker(false); }}
+            style={{ ...inp, flex: 1, fontSize: isDesktop ? 16 : 14, padding: isDesktop ? "11px 16px" : "9px 12px" }} />
+          <button type="button" onClick={() => { setDate(getToday()); setDatePicker(false); }}
+            style={{ ...btnPrimary, width: "auto", padding: isDesktop ? "11px 20px" : "10px 16px", fontSize: isDesktop ? 15 : 13, whiteSpace: "nowrap" }}>Hoy</button>
         </div>
       )}
 
@@ -6172,7 +6169,7 @@ export default function App() {
       )}
 
       {/* Content */}
-      <div style={{ padding: isDesktop ? "16px 24px 24px" : "12px 16px 0", marginLeft: isDesktop ? SIDEBAR_W : 0, position: "relative" }}>
+      <div style={{ padding: isDesktop ? "16px 24px 24px" : "12px 12px 80px", marginLeft: isDesktop ? SIDEBAR_W : 0, position: "relative", overflowX: "hidden", minWidth: 0 }}>
         {/* Overlay día cerrado — bloquea edición sin ocultar contenido */}
         {dayClosed && section !== "supervisor" && (
           <div style={{
@@ -6198,7 +6195,7 @@ export default function App() {
         {section === "fortificados" && <SecFortificados date={date} syncKey={syncKey} dayClosed={dayClosed || perfil === "admin"} />}
         {section === "supervisor" && perfil === "supervisor" && <SecDashboard date={date} perfil={perfil} perfilLabel={PERFILES[perfil]?.label || ""} syncKey={syncKey} />}
         {section === "supervisor" && perfil === "jefe" && <SecJefeHub date={date} perfil={perfil} perfilLabel={PERFILES[perfil]?.label || ""} syncKey={syncKey} />}
-        {section === "supervisor" && perfil === "admin" && <SecAdmin date={date} syncKey={syncKey} />}
+        {section === "supervisor" && perfil === "admin" && <SecAdmin date={date} syncKey={syncKey} perfil={perfil} />}
         </div>
       </div>
 
