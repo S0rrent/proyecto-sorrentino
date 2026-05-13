@@ -152,11 +152,21 @@ export const db = {
   async get(key) {
     const { data, error } = await _sb
       .from("yatasto_storage")
-      .select("value")
+      .select("value,updated_at")
       .eq("key", key)
       .maybeSingle();
     if (error) throw error;
-    return data ? { value: data.value } : null;
+    return data ? { value: data.value, updatedAt: data.updated_at } : null;
+  },
+
+  async getTimestamp(key) {
+    const { data, error } = await _sb
+      .from("yatasto_storage")
+      .select("updated_at")
+      .eq("key", key)
+      .maybeSingle();
+    if (error) return null;
+    return data ? { updatedAt: data.updated_at } : null;
   },
 
   async set(key, value) {
@@ -167,13 +177,15 @@ export const db = {
       else _queue.push({ key, value });
       _queuePersist();
       _queueNotify();
-      return;
+      return null;
     }
+    const ts = new Date().toISOString();
     try {
       const { error } = await _sb
         .from("yatasto_storage")
-        .upsert({ key, value, updated_at: new Date().toISOString() });
+        .upsert({ key, value, updated_at: ts });
       if (error) throw error;
+      return ts; // éxito — retornar timestamp escrito
     } catch (e) {
       // 401 JWT expirado: intentar refresh una vez y reintentar
       if (_is401(e) && !_refreshing) {
@@ -182,10 +194,11 @@ export const db = {
         _refreshing = false;
         if (refreshed) {
           try {
+            const ts2 = new Date().toISOString();
             const { error: e2 } = await _sb
               .from("yatasto_storage")
-              .upsert({ key, value, updated_at: new Date().toISOString() });
-            if (!e2) return; // éxito tras refresh
+              .upsert({ key, value, updated_at: ts2 });
+            if (!e2) return ts2; // éxito tras refresh
           } catch {}
         }
         // Refresh falló o segundo intento falló — marcar sesión expirada
@@ -199,7 +212,7 @@ export const db = {
       _queuePersist();
       _queueNotify();
       setTimeout(_flushQueue, 2000);
-      // No relanzar — el llamador trata la escritura como "aceptada" (optimista)
+      return null; // encolado/fallado — sin timestamp
     }
   },
 

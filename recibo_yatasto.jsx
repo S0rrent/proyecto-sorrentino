@@ -167,18 +167,41 @@ const panel = { background: C.surface, borderRadius: 10, padding: 12, marginBott
 
 // ─── STORAGE ─────────────────────────────────────────────────
 async function load(date, sec, def) {
-  try { const r = await db.get(sKey(date, sec)); return r ? JSON.parse(r.value) : def; }
+  try {
+    const r = await db.get(sKey(date, sec));
+    _loadedAt.set(sKey(date, sec), r ? (r.updatedAt || null) : null);
+    return r ? JSON.parse(r.value) : def;
+  }
   catch { return def; }
 }
 async function save(date, sec, data) {
   if (_closedDates.has(date)) { _onSaveBlocked?.(); return; }
-  _autoLitrosCache.delete(date); // invalidar al escribir cualquier sección
-  try { await db.set(sKey(date, sec), JSON.stringify(data)); } catch (e) { console.error(e); }
+  _autoLitrosCache.delete(date);
+  const key = sKey(date, sec);
+  // C5: detectar modificación concurrente antes de escribir
+  const lastKnown = _loadedAt.get(key);
+  if (lastKnown !== undefined) {
+    try {
+      const remote = await db.getTimestamp(key);
+      if (remote?.updatedAt && remote.updatedAt !== lastKnown) {
+        _onSaveConflict?.({ sec, date });
+        return;
+      }
+    } catch { /* error de red — continuar con el save */ }
+  }
+  try {
+    const ts = await db.set(key, JSON.stringify(data));
+    if (ts) _loadedAt.set(key, ts);       // save exitoso: actualizar timestamp
+    else _loadedAt.delete(key);           // encolado/fallado: limpiar para no generar falsos positivos
+  } catch (e) { console.error(e); }
 }
 
 // Guarda de cierre de día — sincronizada desde App vía _markDayClosed()
 const _closedDates = new Set();
 let _onSaveBlocked = null;
+// C5: timestamps de última carga por clave de sección; detecta modificaciones concurrentes
+const _loadedAt = new Map();
+let _onSaveConflict = null;
 function _markDayClosed(date, closed) {
   if (closed) _closedDates.add(date); else _closedDates.delete(date);
 }
@@ -5962,6 +5985,7 @@ export default function App() {
   const [dayClosed, setDayClosed] = useState(false);
   const [dayClosedBy, setDayClosedBy] = useState(null);
   const [dayClosedBlocked, setDayClosedBlocked] = useState(false);
+  const [saveConflict, setSaveConflict] = useState(null); // C5: { sec, date }
   const [confirmUI, askConfirm] = useConfirm();
   const [turnoActual, setTurnoActual] = useState(getCurrentTurno());
   const isToday = date === getToday();
@@ -6006,6 +6030,12 @@ export default function App() {
       setTimeout(() => setDayClosedBlocked(false), 3000);
     };
     return () => { _onSaveBlocked = null; };
+  }, []);
+
+  // C5: registrar callback para cuando save() detecta conflicto multi-dispositivo
+  useEffect(() => {
+    _onSaveConflict = ({ sec, date }) => setSaveConflict({ sec, date });
+    return () => { _onSaveConflict = null; };
   }, []);
 
   // Sincronizar perfil con sesión de Supabase Auth
@@ -6270,6 +6300,41 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* Banner conflicto multi-dispositivo (C5) */}
+      {saveConflict && (() => {
+        const SECC = { ingresos: "Ingresos", cip: "CIP", carga: "Carga", movimientos: "Movimientos", stock: "Stock", fortificados: "Fortificados" };
+        const [, mm, dd] = (saveConflict.date || "").split("-");
+        const fechaFmt = mm && dd ? `${dd}/${mm}` : saveConflict.date;
+        return (
+          <div style={{
+            background: "#7c1d1d20", borderBottom: "2px solid #ef4444",
+            padding: "10px 16px", display: "flex", alignItems: "center", gap: 10,
+            position: "sticky", top: 0, zIndex: 302,
+            marginLeft: isDesktop ? SIDEBAR_W : 0,
+          }}>
+            <AlertaWarn size={20} strokeWidth={SW} color="#ef4444" />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#ef4444" }}>
+                {`Los datos de ${SECC[saveConflict.sec] || saveConflict.sec} del ${fechaFmt} fueron modificados desde otro dispositivo.`}
+              </div>
+              <div style={{ fontSize: 11, color: C.sub, marginTop: 1 }}>
+                Recargá la sección antes de guardar nuevamente.
+              </div>
+            </div>
+            <button type="button"
+              onClick={() => { setSyncKey(k => k + 1); setSaveConflict(null); }}
+              style={{ background: "#ef444420", border: "1px solid #ef444450", color: "#ef4444", borderRadius: 8, padding: "5px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
+              Recargar
+            </button>
+            <button type="button"
+              onClick={() => setSaveConflict(null)}
+              style={{ background: "transparent", border: "none", color: C.sub, cursor: "pointer", fontSize: 18, lineHeight: 1, padding: "0 2px" }}>
+              ✕
+            </button>
+          </div>
+        );
+      })()}
 
       {/* Banner cola de escritura — cambios pendientes de sincronizar */}
       {queueLen > 0 && (
