@@ -136,6 +136,7 @@ const PRODS_CONCENTRADOS = ["Lactosa", "Suero", "Concentrado"];
 // ─── UTILS ────────────────────────────────────────────────────
 const getToday = () => new Date().toISOString().split("T")[0];
 const getPreviousDate = (dateStr) => { const d = new Date(dateStr + "T00:00:00"); d.setDate(d.getDate() - 1); return d.toISOString().split("T")[0]; };
+const addDay = (dateStr) => { const d = new Date(dateStr + "T00:00:00"); d.setDate(d.getDate() + 1); return d.toISOString().split("T")[0]; };
 const getLastNDays = (n) => { const days = []; for (let i = n - 1; i >= 0; i--) { const d = new Date(); d.setDate(d.getDate() - i); days.push(d.toISOString().split("T")[0]); } return days; };
 const getDaysInRange = (from, to) => { const days = []; const cur = new Date(from + "T00:00:00"); const end = new Date(to + "T00:00:00"); while (cur <= end && days.length < 90) { days.push(cur.toISOString().slice(0, 10)); cur.setDate(cur.getDate() + 1); } return days; };
 const DIAS_ES = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
@@ -358,27 +359,37 @@ async function logDelete(tipo, item, by) {
 const _autoLitrosCache = new Map(); // key: date → { result, ts }
 const _AUTO_LITROS_TTL = 15000;     // 15 s — suficiente para una navegación completa
 
-async function calcAutoLitros(date) {
-  const hit = _autoLitrosCache.get(date);
-  if (hit && Date.now() - hit.ts < _AUTO_LITROS_TTL) return hit.result;
+// calcAutoLitros puede llamarse en dos modos:
+// - modo normal (sin args extra): lee el saldo desde DB
+// - modo cadena (con _baseTotals y _baseProductos): usa la base provista, no va a DB para el saldo
+async function calcAutoLitros(date, _baseTotals, _baseProductos) {
+  const chainMode = _baseTotals != null;
+
+  if (!chainMode) {
+    const hit = _autoLitrosCache.get(date);
+    if (hit && Date.now() - hit.ts < _AUTO_LITROS_TTL) return hit.result;
+  }
 
   const [ingresos, movData, cargas, forts, saldo] = await Promise.all([
     load(date, "ingresos", []),
     load(date, "movimientos", { movs: [], ctrls: [] }),
     load(date, "carga", []),
     load(date, "fortificados", []),
-    loadSaldo(),
+    chainMode ? Promise.resolve(null) : loadSaldo(),
   ]);
   const totals = {};
   // productosBase: carry-over de productos del día anterior, luego sobreescrito por operaciones del día
   const productosBase = {};
 
-  // Saldo de días anteriores
-  if (saldo && saldo.fromDate && saldo.fromDate < date) {
+  if (chainMode) {
+    // Base provista externamente (cadena de días)
+    Object.entries(_baseTotals).forEach(([k, v]) => { if (v > 0) totals[k] = v; });
+    Object.entries(_baseProductos || {}).forEach(([k, p]) => { if (p) productosBase[k] = p; });
+  } else if (saldo && saldo.fromDate && saldo.fromDate < date) {
+    // Saldo de días anteriores (modo normal)
     Object.entries(saldo.data || {}).forEach(([key, litros]) => {
       if (litros > 0) totals[key] = (totals[key] || 0) + litros;
     });
-    // Productos del saldo anterior como base (el silo tenía X producto al cierre)
     Object.entries(saldo.productos || {}).forEach(([key, prod]) => {
       if (prod) productosBase[key] = prod;
     });
@@ -430,8 +441,27 @@ async function calcAutoLitros(date) {
     });
   });
   const result = { totals, productosBase };
-  _autoLitrosCache.set(date, { result, ts: Date.now() });
+  // Solo cachear en modo normal (no en cadena, que es one-shot)
+  if (!chainMode) _autoLitrosCache.set(date, { result, ts: Date.now() });
   return result;
+}
+
+// buildChainedSaldo: dada una base (saldo de fecha X), recorre cada día hasta targetDate
+// calculando las operaciones de cada jornada sobre el resultado del día anterior.
+// Corrige el problema de gaps multi-día en el carry-over.
+async function buildChainedSaldo(baseSaldo, targetDate) {
+  let totals = { ...baseSaldo.data };
+  let productosBase = { ...(baseSaldo.productos || {}) };
+  let d = addDay(baseSaldo.fromDate);
+  let iters = 0;
+  while (d <= targetDate && iters < 180) {
+    const r = await calcAutoLitros(d, totals, productosBase);
+    totals = r.totals;
+    productosBase = r.productosBase;
+    d = addDay(d);
+    iters++;
+  }
+  return { totals, productosBase };
 }
 
 // ─── SVG SILO VISUAL ─────────────────────────────────────────
@@ -5456,19 +5486,30 @@ const SaldoInicialPanel = () => {
 
   const handleSave = async () => {
     setStatus("saving");
-    // Litros por silo al cierre de la fecha elegida
     const data = Object.fromEntries(
       STOCK_SILOS.map(s => [s, parseFloat(silos[s].litros) || 0])
     );
-    // Productos seleccionados (van en el saldo; calcAutoLitros los lee como productosBase)
     const productos = Object.fromEntries(
       STOCK_SILOS.filter(s => silos[s].producto).map(s => [s, silos[s].producto])
     );
+    // Guardar saldo base para la fecha elegida
     await saveSaldo(data, fecha, productos);
-    // Invalidar cache para que calcAutoLitros recalcule con el nuevo saldo
     _autoLitrosCache.clear();
+
+    // Si la fecha es anterior a ayer, reconstruir la cadena completa hasta ayer
+    // para que todos los días intermedios hereden correctamente las operaciones de cada jornada
+    const today = getToday();
+    const yesterday = getPreviousDate(today);
+    if (fecha < yesterday) {
+      setStatus("chaining");
+      const baseSaldo = { data, fromDate: fecha, productos };
+      const { totals, productosBase } = await buildChainedSaldo(baseSaldo, yesterday);
+      await saveSaldo(totals, yesterday, productosBase);
+      _autoLitrosCache.clear();
+    }
+
     setStatus("saved");
-    setTimeout(() => setStatus(null), 4000);
+    setTimeout(() => setStatus(null), 5000);
   };
 
   const nextDay = (() => {
@@ -5543,18 +5584,29 @@ const SaldoInicialPanel = () => {
           Total: <strong style={{ color: C.text, fontFamily: FONT_MONO }}>{total.toLocaleString("es-AR")} L</strong>
         </span>
         <button type="button" style={{ ...btnPrimary, width: "100%" }}
-          disabled={status === "saving"} onClick={handleSave}>
-          {status === "saving" ? "Guardando…" : status === "saved" ? "✓ Guardado" : "Guardar saldo"}
+          disabled={status === "saving" || status === "chaining"} onClick={handleSave}>
+          {status === "saving" ? "Guardando saldo…"
+            : status === "chaining" ? "Recalculando días intermedios…"
+            : status === "saved" ? "✓ Listo"
+            : "Guardar saldo"}
         </button>
       </div>
 
+      {status === "chaining" && (
+        <div style={{
+          background: `${C.accent}10`, border: `1px solid ${C.accent}40`,
+          borderRadius: 8, padding: "10px 14px", fontSize: 13, color: C.accent,
+        }}>
+          Reconstruyendo la cadena de días desde el {fecha} hasta ayer. No cerres esta pantalla.
+        </div>
+      )}
       {status === "saved" && (
         <div style={{
           background: `${C.success}15`, border: `1px solid ${C.success}44`,
           borderRadius: 8, padding: "10px 14px", fontSize: 13, color: C.success,
         }}>
-          Saldo guardado para el {fecha}. A partir del {nextDay} los silos
-          van a arrancar con estos litros.
+          Saldo guardado y cadena de días actualizada. A partir del {nextDay} los silos
+          arrancan con estos litros y heredan automáticamente las operaciones de cada día.
         </div>
       )}
     </div>
@@ -5673,13 +5725,22 @@ export default function App() {
     return () => { active = false; unsubscribe(); };
   }, []);
 
-  // Carry-over automático: al abrir la app traspasa el saldo del día anterior
+  // Carry-over automático: al abrir la app reconstruye la cadena de días hasta ayer.
+  // Si el saldo guardado es de hace más de 1 día, encadena todas las jornadas intermedias
+  // para que cada día aplique sus operaciones sobre el cierre del día anterior.
   useEffect(() => {
     const today = getToday();
     const yesterday = getPreviousDate(today);
     loadSaldo().then(async saldo => {
-      if (saldo && saldo.fromDate === yesterday) return; // ya está actualizado
-      const { totals, productosBase } = await calcAutoLitros(yesterday);
+      if (saldo && saldo.fromDate === yesterday) return; // ya está al día
+      let totals, productosBase;
+      if (saldo && saldo.fromDate && saldo.fromDate < yesterday) {
+        // Hay un gap: encadenar desde la fecha del saldo hasta ayer
+        ({ totals, productosBase } = await buildChainedSaldo(saldo, yesterday));
+      } else {
+        // No hay saldo previo o es futuro: calcular ayer directamente
+        ({ totals, productosBase } = await calcAutoLitros(yesterday));
+      }
       await saveSaldo(totals, yesterday, productosBase);
     });
   }, []);
@@ -5709,7 +5770,15 @@ export default function App() {
       const today = getToday();
       if (today !== lastDate) {
         const yesterday = getPreviousDate(today);
-        calcAutoLitros(yesterday).then(({ totals, productosBase }) => saveSaldo(totals, yesterday, productosBase));
+        loadSaldo().then(async saldo => {
+          let totals, productosBase;
+          if (saldo && saldo.fromDate && saldo.fromDate < yesterday) {
+            ({ totals, productosBase } = await buildChainedSaldo(saldo, yesterday));
+          } else {
+            ({ totals, productosBase } = await calcAutoLitros(yesterday));
+          }
+          await saveSaldo(totals, yesterday, productosBase);
+        });
         lastDate = today;
       }
     }, 10000);
@@ -5787,7 +5856,7 @@ export default function App() {
   };
 
   return (
-    <div style={{ background: C.bg, minHeight: "100vh", color: C.text, fontFamily: FONT_SANS, paddingBottom: isDesktop ? 0 : 72 }}>
+    <div style={{ background: C.bg, minHeight: "100vh", color: C.text, fontFamily: FONT_SANS, paddingBottom: isDesktop ? 0 : 72, overflowX: "clip" }}>
 
       {/* Banner de actualización PWA */}
       {needRefresh && (
@@ -6018,25 +6087,34 @@ export default function App() {
       {/* Modal informe */}
       {informe && <InformeModal date={date} onClose={() => setInforme(false)} />}
 
-      {/* Header */}
+      {/* Header — sticky; en mobile la fila interna es deslizable horizontalmente */}
       <div style={{
         background: C.surface, borderBottom: `1px solid ${C.border}`,
-        padding: "9px 14px", position: "sticky", top: 0, zIndex: 40,
-        display: "flex", justifyContent: "space-between", alignItems: "center",
+        position: "sticky", top: 0, zIndex: 40,
         boxShadow: _THEME === "light" ? "0 1px 8px rgba(0,0,0,0.07)" : "0 1px 8px rgba(0,0,0,0.4)",
         marginLeft: isDesktop ? SIDEBAR_W : 0,
       }}>
+        <div style={{
+          padding: "9px 14px",
+          display: "flex",
+          justifyContent: isDesktop ? "space-between" : "flex-start",
+          alignItems: "center",
+          gap: isDesktop ? 0 : 14,
+          overflowX: isDesktop ? "visible" : "auto",
+          scrollbarWidth: "none",
+          msOverflowStyle: "none",
+        }}>
         {/* Left: Logo + section indicator (mobile only) */}
         {!isDesktop ? (
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
             <YataLogo compact />
-            <div style={{ width: 1, height: 26, background: C.border }} />
-            <div style={{ fontSize: 12, color: C.sub, fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}>
+            <div style={{ width: 1, height: 26, background: C.border, flexShrink: 0 }} />
+            <div style={{ fontSize: 12, color: C.sub, fontWeight: 600, display: "flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}>
               {(() => { const n = navItems.find(item => item.id === section); return n ? <n.Icon size={14} strokeWidth={SW} /> : null; })()}
               <span>{navItems.find(n => n.id === section)?.label}</span>
             </div>
             {isToday && (
-              <span style={{ fontSize: 10, fontWeight: 700, color: C.accent, background: C.accentDim, borderRadius: 5, padding: "2px 6px", whiteSpace: "nowrap" }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: C.accent, background: C.accentDim, borderRadius: 5, padding: "2px 6px", whiteSpace: "nowrap", flexShrink: 0 }}>
                 {TURNO_LABELS[turnoActual]}
               </span>
             )}
@@ -6053,8 +6131,8 @@ export default function App() {
           </div>
         )}
 
-        {/* Right: action buttons */}
-        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+        {/* Right: action buttons — flexShrink 0 para que no se compriman en mobile */}
+        <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0, ...(isDesktop ? { marginLeft: "auto" } : {}) }}>
           {/* Sync status */}
           <div title={!storageOk ? "Error de conexión" : queueLen > 0 ? `${queueLen} cambio${queueLen > 1 ? "s" : ""} pendiente${queueLen > 1 ? "s" : ""}` : "Sincronizado"}
             style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 24, height: 24, flexShrink: 0 }}>
@@ -6138,6 +6216,7 @@ export default function App() {
             </button>
           )}
         </div>
+        </div>{/* /inner scrollable row */}
       </div>
 
       {/* Date picker */}
