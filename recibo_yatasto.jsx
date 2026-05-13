@@ -2,7 +2,7 @@ import { useState, useEffect, Fragment } from "react";
 import { useRegisterSW } from "virtual:pwa-register/react";
 import { DARK, LIGHT, FONT_SANS, FONT_MONO, EASE_OUT, DUR } from "./tokens.js";
 import { useViewport } from "./hooks.js";
-import { db, onWriteQueueChange } from "./db-adapter.js";
+import { db, onWriteQueueChange, onSessionExpired, clearSessionExpired } from "./db-adapter.js";
 import {
   Ingresos as IcoIngresos, Movimientos as IcoMovimientos, Carga as IcoCarga,
   Fortificados as IcoFortificados, CIP as IcoCIP, Stock as IcoStock,
@@ -167,18 +167,41 @@ const panel = { background: C.surface, borderRadius: 10, padding: 12, marginBott
 
 // ─── STORAGE ─────────────────────────────────────────────────
 async function load(date, sec, def) {
-  try { const r = await db.get(sKey(date, sec)); return r ? JSON.parse(r.value) : def; }
+  try {
+    const r = await db.get(sKey(date, sec));
+    _loadedAt.set(sKey(date, sec), r ? (r.updatedAt || null) : null);
+    return r ? JSON.parse(r.value) : def;
+  }
   catch { return def; }
 }
 async function save(date, sec, data) {
   if (_closedDates.has(date)) { _onSaveBlocked?.(); return; }
-  _autoLitrosCache.delete(date); // invalidar al escribir cualquier sección
-  try { await db.set(sKey(date, sec), JSON.stringify(data)); } catch (e) { console.error(e); }
+  _autoLitrosCache.delete(date);
+  const key = sKey(date, sec);
+  // C5: detectar modificación concurrente antes de escribir
+  const lastKnown = _loadedAt.get(key);
+  if (lastKnown !== undefined) {
+    try {
+      const remote = await db.getTimestamp(key);
+      if (remote?.updatedAt && remote.updatedAt !== lastKnown) {
+        _onSaveConflict?.({ sec, date });
+        return;
+      }
+    } catch { /* error de red — continuar con el save */ }
+  }
+  try {
+    const ts = await db.set(key, JSON.stringify(data));
+    if (ts) _loadedAt.set(key, ts);       // save exitoso: actualizar timestamp
+    else _loadedAt.delete(key);           // encolado/fallado: limpiar para no generar falsos positivos
+  } catch (e) { console.error(e); }
 }
 
 // Guarda de cierre de día — sincronizada desde App vía _markDayClosed()
 const _closedDates = new Set();
 let _onSaveBlocked = null;
+// C5: timestamps de última carga por clave de sección; detecta modificaciones concurrentes
+const _loadedAt = new Map();
+let _onSaveConflict = null;
 function _markDayClosed(date, closed) {
   if (closed) _closedDates.add(date); else _closedDates.delete(date);
 }
@@ -366,6 +389,28 @@ async function logDelete(tipo, item, by) {
   } catch { }
   // Registro por día (sin cap, consultable por fecha)
   await logAudit(getToday(), "delete", tipo, resumen, by);
+}
+
+// Backup completo: descarga todas las keys "yatasto:*" como JSON al dispositivo
+async function generateBackup() {
+  const rows = await db.list("yatasto:");
+  const pad = n => String(n).padStart(2, "0");
+  const now = new Date();
+  const payload = {
+    generado: now.toISOString(),
+    version: "1.0",
+    total_registros: rows.length,
+    datos: Object.fromEntries(rows.map(r => {
+      try { return [r.key, JSON.parse(r.value)]; } catch { return [r.key, r.value]; }
+    })),
+  };
+  const filename = `yatasto-backup-${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}.json`;
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+  try { localStorage.setItem("yatasto:ultimo-backup-date", now.toISOString().split("T")[0]); } catch {}
 }
 
 // Calcula litros netos por silo: saldo_anterior + ingresos + movimientos − cargas − fort_origen + fort_destino
@@ -809,9 +854,10 @@ const QUALITY_WARN_MAP = [
   { key: "densFca",   label: "Densidad",    ref: QUALITY_REFS["Densidad"]    },
 ];
 
-const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo }) => {
+const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo, siloStates = { totals: {}, productosBase: {} }, perfil = null }) => {
   const [f, setF] = useState(initial || emptyIng());
   const [aguadoAlerta, setAguadoAlerta] = useState(false);
+  const [cipForzado, setCipForzado] = useState(false);
   const [fieldError, setFieldError] = useState("");
   const set = k => v => { setFieldError(""); setF(p => ({ ...p, [k]: v })); };
   const pickTambo = nombre => {
@@ -833,6 +879,15 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
   const tambosPropios  = tambos.filter(t => transCarrierTambos.includes(t.nombre));
   const tambosOtros    = tambos.filter(t => !transCarrierTambos.includes(t.nombre));
   const isConcentrado = PRODS_CONCENTRADOS.includes(f.producto);
+
+  // Detección de silo sucio para el destino seleccionado
+  const destKey = f.destino ? (SILO_STOCK_KEY[f.destino] || f.destino) : null;
+  const destProd = destKey ? (siloStates.productosBase[destKey] || null) : null;
+  const destLitros = destKey ? (siloStates.totals[destKey] || 0) : 0;
+  const siloSucioLevel = destProd === "Sucio (vacío)"
+    ? (destLitros === 0 ? "bloqueado" : "inconsistente")
+    : null;
+  const canForce = perfil === "supervisor" || perfil === "jefe";
 
   // Advertencias de calidad derivadas del estado del formulario — sin useState, sin bloqueo.
   const qualityWarnings = isConcentrado ? [] : QUALITY_WARN_MAP.filter(({ key, ref }) => {
@@ -984,6 +1039,28 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
           <div style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>El ingreso se guarda igual — revisar con supervisor si corresponde.</div>
         </div>
       )}
+      {siloSucioLevel === "bloqueado" && (
+        <div style={{ background: `${C.danger}15`, border: `1px solid ${C.danger}50`, borderRadius: 8, padding: "10px 14px", marginBottom: 8, display: "flex", gap: 10, alignItems: "flex-start" }}>
+          <AlertaWarn size={16} strokeWidth={2} color={C.danger} style={{ flexShrink: 0, marginTop: 1 }} />
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: C.danger, marginBottom: 3 }}>
+              Silo {f.destino} pendiente de CIP
+            </div>
+            <div style={{ fontSize: 12, color: C.sub, lineHeight: 1.5 }}>
+              Este silo está vacío y marcado como sucio. Debe realizarse la limpieza CIP antes de recibir producto.
+              {canForce ? " Como supervisor podés autorizar y forzar el ingreso." : " Solo el supervisor puede autorizar este ingreso."}
+            </div>
+          </div>
+        </div>
+      )}
+      {siloSucioLevel === "inconsistente" && (
+        <div style={{ background: "#7c2d1215", border: "1px solid #f9731640", borderRadius: 8, padding: "10px 14px", marginBottom: 8, display: "flex", gap: 10, alignItems: "flex-start" }}>
+          <AlertaWarn size={16} strokeWidth={2} color="#f97316" style={{ flexShrink: 0, marginTop: 1 }} />
+          <div style={{ fontSize: 12, color: "#f97316", lineHeight: 1.5 }}>
+            <strong>Estado inconsistente:</strong> el silo {f.destino} figura como "Sucio" pero registra {destLitros.toLocaleString("es-AR")} L. Verificar con supervisor antes de continuar.
+          </div>
+        </div>
+      )}
       {fieldError && (
         <div style={{ background: `${C.danger}18`, border: `1px solid ${C.danger}55`, borderRadius: 8, padding: "10px 12px", marginBottom: 8, fontSize: 13, color: C.danger, whiteSpace: "pre-line", lineHeight: 1.6 }}>
           {fieldError}
@@ -1003,6 +1080,12 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
           }
           const miss = req.filter(([k]) => !String(f[k] || "").trim()).map(([, v]) => v);
           if (miss.length) { setFieldError("Faltan completar:\n• " + miss.join("\n• ")); return; }
+          // Silo sucio bloqueado
+          if (siloSucioLevel === "bloqueado") {
+            if (!canForce) { setFieldError("El silo " + f.destino + " está pendiente de CIP. Solo el supervisor puede autorizar este ingreso."); return; }
+            setCipForzado(true);
+            return;
+          }
           // Aguado > 0 = adulteración — requiere confirmación explícita
           const aguFca = parseFloat(f.aguadoFca);
           const aguTbo = parseFloat(f.aguadoTbo);
@@ -1015,6 +1098,31 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
         }}>Guardar</button>
       </div>
       {onDelete && <button type="button" style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar este ingreso</button>}
+
+      {/* Modal de override CIP — solo supervisor/jefe */}
+      {cipForzado && (
+        <Modal title="⚠ Forzar ingreso a silo sucio" onClose={() => setCipForzado(false)} zIndex={300}>
+          <div style={{ background: `${C.danger}18`, border: `1px solid ${C.danger}44`, borderRadius: 10, padding: 14, marginBottom: 16 }}>
+            <div style={{ fontWeight: 700, color: C.danger, fontSize: 14, marginBottom: 6 }}>
+              Silo {f.destino} marcado como Sucio (vacío)
+            </div>
+            <div style={{ fontSize: 13, color: C.text, lineHeight: 1.5 }}>
+              Este silo está pendiente de limpieza CIP. Forzar el ingreso puede comprometer la calidad del producto.
+              La acción quedará registrada en el historial de auditoría con tu usuario.
+            </div>
+          </div>
+          <div style={{ fontSize: 13, color: C.sub, marginBottom: 16 }}>
+            Solo continuar si el desvío fue verificado y autorizado. El registro quedará en el historial.
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <button type="button" style={btnSecondary} onClick={() => setCipForzado(false)}>Cancelar</button>
+            <button type="button" style={{ ...btnPrimary, background: C.danger, borderColor: C.danger }}
+              onClick={() => { setCipForzado(false); onSave({ ...f, _forzadoCIP: true }); }}>
+              Autorizar y forzar ingreso
+            </button>
+          </div>
+        </Modal>
+      )}
 
       {/* Modal bloqueante de Aguado */}
       {aguadoAlerta && (
@@ -1042,7 +1150,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo 
   );
 };
 
-const SecIngresos = ({ date, syncKey = 0, dayClosed = false }) => {
+const SecIngresos = ({ date, syncKey = 0, dayClosed = false, perfil = null }) => {
   const [list, setList] = useState([]);
   const [modal, setModal] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -1050,17 +1158,26 @@ const SecIngresos = ({ date, syncKey = 0, dayClosed = false }) => {
   const [tamboModal, setTamboModal] = useState(false);
   const [newTambo, setNewTambo] = useState({ nombre: "", num: "" });
   const [filtro, setFiltro] = useState("");
+  const [siloStates, setSiloStates] = useState({ totals: {}, productosBase: {} });
   const [confirmUI, askConfirm] = useConfirm();
 
   useEffect(() => {
     load(date, "ingresos", []).then(d => { setList(d); setLoading(false); });
     loadCfg().then(cfg => setTambos([...TAMBOS_BASE, ...(cfg.tambosCustom || [])]));
+    calcAutoLitros(date).then(r => setSiloStates(r)).catch(() => {});
   }, [date, syncKey]);
 
   const persist = async updated => { setList(updated); await save(date, "ingresos", updated); };
   const onSave = async item => {
-    const ex = list.find(i => i.id === item.id);
-    await persist(ex ? list.map(i => i.id === item.id ? item : i) : [...list, item]);
+    const forzado = item._forzadoCIP;
+    const { _forzadoCIP, ...itemClean } = item;
+    if (forzado) {
+      await logAudit(date, "forzar_ingreso_silo_sucio", "ingreso",
+        `Ingreso forzado a silo ${item.destino || "?"} (estado Sucio) — ${item.litrosFca || 0} L de ${item.tambo || "?"}`,
+        PERFILES[perfil]?.label || perfil || "Supervisor");
+    }
+    const ex = list.find(i => i.id === itemClean.id);
+    await persist(ex ? list.map(i => i.id === itemClean.id ? itemClean : i) : [...list, itemClean]);
     setModal(null);
   };
   const onDelete = async id => {
@@ -1182,6 +1299,7 @@ const SecIngresos = ({ date, syncKey = 0, dayClosed = false }) => {
             onSave={onSave} onClose={() => setModal(null)}
             onDelete={modal !== "new" ? () => onDelete(modal.id) : null}
             tambos={tambos} onNuevoTambo={() => setTamboModal(true)}
+            siloStates={siloStates} perfil={perfil}
           />
         </Modal>
       )}
@@ -5477,40 +5595,72 @@ ${cargas.map(r=>`<tr><td>${r._date}</td><td>${r.hora||""}</td><td>${escapeHtml(r
               El PDF abre en una pestaña nueva lista para imprimir (Ctrl+P / ⌘P).
               Los CSV incluyen BOM UTF-8 para compatibilidad con Excel.
             </div>
+            <div style={{ marginTop: 24, borderTop: `1px solid ${C.border}`, paddingTop: 20 }}>
+              <div style={{ fontSize: 12, color: C.sub, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 10 }}>
+                Backup de seguridad
+              </div>
+              <div style={{ fontSize: 13, color: C.sub, marginBottom: 12, lineHeight: 1.6 }}>
+                Descarga un JSON con todos los registros de la base de datos.
+                Guardá este archivo en un lugar seguro como respaldo ante pérdida de datos.
+                {(() => {
+                  const lastBackup = localStorage.getItem("yatasto:ultimo-backup-date");
+                  const today = new Date().toISOString().split("T")[0];
+                  if (!lastBackup) return <span style={{ color: C.danger, fontWeight: 700 }}> No se generó ningún backup todavía.</span>;
+                  if (lastBackup < today) return <span style={{ color: "#f97316", fontWeight: 600 }}> Último backup: {new Date(lastBackup + "T00:00:00").toLocaleDateString("es-AR")}.</span>;
+                  return <span style={{ color: C.success, fontWeight: 600 }}> Backup del día descargado.</span>;
+                })()}
+              </div>
+              <button
+                type="button"
+                style={{ ...btnStyle("#6366f1"), fontSize: 13 }}
+                onClick={async e => {
+                  const btn = e.currentTarget;
+                  btn.disabled = true;
+                  btn.textContent = "Generando…";
+                  try { await generateBackup(); btn.textContent = "✓ Descargado"; }
+                  catch { btn.textContent = "Error — intentá de nuevo"; }
+                  finally { setTimeout(() => { btn.disabled = false; btn.textContent = "Descargar backup completo"; }, 3000); }
+                }}
+              >
+                <TabExportar size={15} strokeWidth={SW} />
+                Descargar backup completo
+              </button>
+            </div>
           </div>
         );
       })()}
 
       {/* ── SALDO INICIAL ── (solo supervisor/jefe) */}
-      {tab === "saldo" && perfil !== "admin" && <SaldoInicialPanel />}
+      {tab === "saldo" && perfil !== "admin" && <SaldoInicialPanel perfil={perfil} />}
 
     </div>
   );
 };
 
 // ─── SALDO INICIAL ────────────────────────────────────────────
-const SaldoInicialPanel = () => {
-  const yesterday = (() => {
-    const d = new Date(); d.setDate(d.getDate() - 1);
-    return d.toISOString().split("T")[0];
-  })();
-  const [fecha, setFecha] = useState(yesterday);
-  const [silos, setSilos] = useState(() =>
+const SaldoInicialPanel = ({ perfil }) => {
+  const [confirmUI, askConfirm] = useConfirm();
+  const [baseSaldo, setBaseSaldo] = useState(null);
+  const [editSilos, setEditSilos] = useState(() =>
     Object.fromEntries(STOCK_SILOS.map(s => [s, { litros: "", producto: "" }]))
   );
-  const [status, setStatus] = useState(null); // null | "saving" | "saved"
+  const [editing, setEditing] = useState(false);
+  const [viewDate, setViewDate] = useState(getToday());
+  const [viewResult, setViewResult] = useState(null);
+  const [loadingView, setLoadingView] = useState(false);
+  const [status, setStatus] = useState(null); // null | "saving" | "chaining" | "saved"
 
-  // Pre-cargar saldo base existente (ancla manual; no el fast path de la cadena)
+  const canEdit = perfil === "supervisor" || perfil === "jefe";
+
   useEffect(() => {
     loadBaseSaldo().then(s => {
+      setBaseSaldo(s);
       if (!s) return;
-      setFecha(s.fromDate || yesterday);
-      setSilos(prev => {
+      setEditSilos(prev => {
         const next = { ...prev };
         Object.entries(s.data || {}).forEach(([k, v]) => {
           if (next[k] !== undefined) next[k] = { ...next[k], litros: v > 0 ? String(v) : "" };
         });
-        // Cargar también los productos guardados en el saldo base
         Object.entries(s.productos || {}).forEach(([k, p]) => {
           if (next[k] !== undefined && p) next[k] = { ...next[k], producto: p };
         });
@@ -5519,138 +5669,269 @@ const SaldoInicialPanel = () => {
     });
   }, []);
 
-  const total = STOCK_SILOS.reduce((acc, s) => acc + (parseFloat(silos[s].litros) || 0), 0);
-
   const handleSave = async () => {
+    const baseDate = baseSaldo?.fromDate || getPreviousDate(getToday());
+    const baseDateLabel = new Date(baseDate + "T00:00:00").toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" });
+    const ok = await askConfirm({
+      title: "Modificar Saldo Base Oficial",
+      message: `⚠️ Esta acción recalculará toda la cadena histórica desde el ${baseDateLabel} hasta hoy.\n\nTodos los valores calculados de stock e ingresos anteriores serán afectados.\n\n¿Confirmar modificación?`,
+      danger: true,
+      confirmLabel: "Guardar saldo base",
+    });
+    if (!ok) return;
+
     setStatus("saving");
     const data = Object.fromEntries(
-      STOCK_SILOS.map(s => [s, parseFloat(silos[s].litros) || 0])
+      STOCK_SILOS.map(s => [s, parseFloat(editSilos[s]?.litros) || 0])
     );
     const productos = Object.fromEntries(
-      STOCK_SILOS.filter(s => silos[s].producto).map(s => [s, silos[s].producto])
+      STOCK_SILOS.filter(s => editSilos[s]?.producto).map(s => [s, editSilos[s].producto])
     );
-    // Guardar como ancla permanente (SALDO_BASE_KEY) — nunca se sobreescribe con la cadena
-    await saveBaseSaldo(data, fecha, productos);
+
+    await saveBaseSaldo(data, baseDate, productos);
     _autoLitrosCache.clear();
 
-    // Si la fecha es anterior a ayer, construir la cadena hasta ayer y guardarla en SALDO_KEY
-    // como fast path para que el cálculo de hoy sea inmediato sin reencadenar todo
     const today = getToday();
     const yesterday = getPreviousDate(today);
-    if (fecha < yesterday) {
+    if (baseDate < yesterday) {
       setStatus("chaining");
-      const baseSaldo = { data, fromDate: fecha, productos };
-      const { totals, productosBase } = await buildChainedSaldo(baseSaldo, yesterday);
-      // SALDO_KEY = fast path para hoy (result encadenado hasta ayer)
-      // SALDO_BASE_KEY intacto → calcAutoLitros lo usará para fechas históricas < ayer
+      const { totals, productosBase } = await buildChainedSaldo({ data, fromDate: baseDate, productos }, yesterday);
       await saveSaldo(totals, yesterday, productosBase);
       _autoLitrosCache.clear();
-    } else if (fecha <= today) {
-      // fecha es ayer o hoy: guardar directamente en SALDO_KEY también
-      await saveSaldo(data, fecha, productos);
+    } else if (baseDate <= today) {
+      await saveSaldo(data, baseDate, productos);
     }
 
+    setBaseSaldo({ data, fromDate: baseDate, productos });
+    setEditing(false);
     setStatus("saved");
     setTimeout(() => setStatus(null), 5000);
   };
 
-  const nextDay = (() => {
-    const d = new Date(fecha + "T00:00:00");
-    d.setDate(d.getDate() + 1);
-    return d.toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" });
-  })();
+  const handleCalculate = async () => {
+    setLoadingView(true);
+    setViewResult(null);
+    try {
+      const result = await calcAutoLitros(viewDate);
+      setViewResult(result);
+    } finally {
+      setLoadingView(false);
+    }
+  };
+
+  const baseDate = baseSaldo?.fromDate;
+  const baseDateLabel = baseDate
+    ? new Date(baseDate + "T00:00:00").toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" })
+    : "—";
 
   return (
     <div>
-      <div style={{ ...card, marginBottom: 16, background: `${C.accent}10`, borderColor: `${C.accent}40` }}>
-        <div style={{ fontSize: 12, color: C.accent, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6 }}>
-          Saldo inicial de silos
+      {confirmUI}
+
+      {/* ── ZONA 1: Saldo Base Oficial ── */}
+      <div style={{ ...card, marginBottom: 16, borderColor: `${C.accent}50` }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span style={{
+              background: C.accent, color: "#000", fontSize: 10, fontWeight: 800,
+              letterSpacing: "0.08em", padding: "3px 8px", borderRadius: 4,
+              textTransform: "uppercase", flexShrink: 0,
+            }}>SALDO BASE OFICIAL</span>
+            {baseDate && (
+              <span style={{ fontSize: 12, color: C.sub }}>Cierre {baseDateLabel}</span>
+            )}
+          </div>
+          {canEdit && !editing && (
+            <button type="button"
+              style={{ ...btnSecondary, fontSize: 11, padding: "5px 12px", width: "auto", flexShrink: 0 }}
+              onClick={() => setEditing(true)}>
+              Modificar
+            </button>
+          )}
         </div>
-        <div style={{ fontSize: 13, color: C.sub, lineHeight: 1.6 }}>
-          Ingresá los litros reales de cada silo al cierre del día elegido.
-          A partir del día siguiente, esos valores se usan como punto de partida
-          para calcular ingresos, movimientos y cargas.
-        </div>
-      </div>
 
-      <F label="Fecha de cierre (referencia)">
-        <input type="date" style={inp} value={fecha}
-          onChange={e => setFecha(e.target.value)} max={getToday()} />
-      </F>
-
-      <div style={{ fontSize: 12, color: C.sub, marginBottom: 14 }}>
-        Los silos arrancarán el <strong style={{ color: C.text }}>{nextDay}</strong> con estos valores.
-      </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 16 }}>
-        {STOCK_SILOS.map(silo => {
-          const v = parseFloat(silos[silo].litros) || 0;
-          const cap = SILO_CAP[silo] || 100000;
-          const pct = Math.min(100, (v / cap) * 100);
-          return (
-            <div key={silo} style={{ ...card, padding: 10 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                <span style={{ fontSize: 12, fontWeight: 700, color: C.sub }}>
-                  {silo.startsWith("TQ") ? "TQ" : "SILO"} {silo.replace("TQ", "")}
-                </span>
-                <span style={{ fontSize: 10, color: C.muted }}>{pct.toFixed(0)}%</span>
+        {/* Vista colapsada — solo lectura */}
+        {!editing && (
+          <div>
+            {baseSaldo ? (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                {STOCK_SILOS.map(silo => {
+                  const litros = baseSaldo.data?.[silo] || 0;
+                  const prod = baseSaldo.productos?.[silo] || "";
+                  return (
+                    <div key={silo} style={{
+                      background: C.surface, borderRadius: 6, padding: "7px 10px",
+                      border: `1px solid ${litros > 0 ? C.border : "#2a2a2a"}`,
+                    }}>
+                      <div style={{ fontSize: 11, color: C.sub, fontWeight: 700 }}>
+                        {silo.startsWith("TQ") ? "TQ" : "SILO"} {silo.replace("TQ", "")}
+                      </div>
+                      <div style={{ fontSize: 13, color: litros > 0 ? C.text : C.muted, fontFamily: FONT_MONO }}>
+                        {litros > 0 ? litros.toLocaleString("es-AR") + " L" : "—"}
+                      </div>
+                      {prod && <div style={{ fontSize: 10, color: C.accent, marginTop: 2 }}>{prod}</div>}
+                    </div>
+                  );
+                })}
               </div>
-              <input
-                type="number" inputMode="decimal"
-                style={{ ...inp, fontSize: 13, marginBottom: 6 }}
-                placeholder="0 L"
-                value={silos[silo].litros}
-                onChange={e => setSilos(prev => ({ ...prev, [silo]: { ...prev[silo], litros: e.target.value } }))}
-              />
-              <div style={{ background: C.muted, borderRadius: 3, height: 4, overflow: "hidden" }}>
-                <div style={{
-                  height: "100%", borderRadius: 3,
-                  background: v > 0 ? C.accent : C.border,
-                  width: `${pct}%`,
-                  transition: "width 0.4s ease",
-                }} />
+            ) : (
+              <div style={{ fontSize: 13, color: C.muted, padding: "8px 0" }}>
+                No hay saldo base registrado.{canEdit ? " Usá el botón Modificar para cargarlo." : ""}
               </div>
-              <Sel
-                value={silos[silo].producto}
-                onChange={val => setSilos(prev => ({ ...prev, [silo]: { ...prev[silo], producto: val } }))}
-                options={PRODS_STOCK.filter(p => p !== "Sucio (vacío)" && p !== "Limpio")}
-                placeholder="Producto..."
-              />
+            )}
+            {status === "saved" && (
+              <div style={{
+                background: `${C.success}15`, border: `1px solid ${C.success}44`,
+                borderRadius: 8, padding: "10px 14px", fontSize: 13, color: C.success, marginTop: 10,
+              }}>
+                Saldo base actualizado y cadena de días recalculada.
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Modo edición */}
+        {editing && canEdit && (
+          <div>
+            <div style={{
+              background: `${C.danger}12`, border: `1px solid ${C.danger}44`,
+              borderRadius: 8, padding: "10px 14px", marginBottom: 14,
+              display: "flex", gap: 10, alignItems: "flex-start",
+            }}>
+              <AlertaWarn size={16} strokeWidth={2} color="#f97316" style={{ flexShrink: 0, marginTop: 1 }} />
+              <span style={{ fontSize: 12, color: "#f97316", lineHeight: 1.6 }}>
+                <strong>Modificar este saldo recalculará toda la cadena histórica</strong> desde el {baseDateLabel} hasta hoy.
+                Esta operación no se puede deshacer.
+              </span>
             </div>
-          );
-        })}
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
+              {STOCK_SILOS.map(silo => {
+                const v = parseFloat(editSilos[silo]?.litros) || 0;
+                const cap = SILO_CAP[silo] || 100000;
+                const pct = Math.min(100, (v / cap) * 100);
+                return (
+                  <div key={silo} style={{ ...card, padding: 10, marginBottom: 0 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: C.sub }}>
+                        {silo.startsWith("TQ") ? "TQ" : "SILO"} {silo.replace("TQ", "")}
+                      </span>
+                      <span style={{ fontSize: 10, color: C.muted }}>{pct.toFixed(0)}%</span>
+                    </div>
+                    <input
+                      type="number" inputMode="decimal"
+                      style={{ ...inp, fontSize: 13, marginBottom: 6 }}
+                      placeholder="0 L"
+                      value={editSilos[silo]?.litros || ""}
+                      onChange={e => setEditSilos(prev => ({
+                        ...prev, [silo]: { ...prev[silo], litros: e.target.value },
+                      }))}
+                    />
+                    <div style={{ background: C.muted, borderRadius: 3, height: 4, overflow: "hidden", marginBottom: 6 }}>
+                      <div style={{
+                        height: "100%", borderRadius: 3,
+                        background: v > 0 ? C.accent : C.border,
+                        width: `${pct}%`, transition: "width 0.4s ease",
+                      }} />
+                    </div>
+                    <Sel
+                      value={editSilos[silo]?.producto || ""}
+                      onChange={val => setEditSilos(prev => ({
+                        ...prev, [silo]: { ...prev[silo], producto: val },
+                      }))}
+                      options={PRODS_STOCK.filter(p => p !== "Sucio (vacío)" && p !== "Limpio")}
+                      placeholder="Producto..."
+                    />
+                  </div>
+                );
+              })}
+            </div>
+
+            <div style={{ fontSize: 13, color: C.sub, marginBottom: 12 }}>
+              Total: <strong style={{ color: C.text, fontFamily: FONT_MONO }}>
+                {STOCK_SILOS.reduce((acc, s) => acc + (parseFloat(editSilos[s]?.litros) || 0), 0).toLocaleString("es-AR")} L
+              </strong>
+            </div>
+
+            <div style={{ display: "flex", gap: 8 }}>
+              <button type="button" style={{ ...btnSecondary, flex: 1 }}
+                onClick={() => { setEditing(false); setStatus(null); }}>
+                Cancelar
+              </button>
+              <button type="button" style={{ ...btnPrimary, flex: 2 }}
+                disabled={status === "saving" || status === "chaining"}
+                onClick={handleSave}>
+                {status === "saving" ? "Guardando…"
+                  : status === "chaining" ? "Recalculando cadena…"
+                  : "Guardar saldo base"}
+              </button>
+            </div>
+
+            {status === "chaining" && (
+              <div style={{
+                background: `${C.accent}10`, border: `1px solid ${C.accent}40`,
+                borderRadius: 8, padding: "10px 14px", fontSize: 12, color: C.accent, marginTop: 10,
+              }}>
+                Reconstruyendo la cadena de días. No cerres esta pantalla.
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 12 }}>
-        <span style={{ fontSize: 13, color: C.sub }}>
-          Total: <strong style={{ color: C.text, fontFamily: FONT_MONO }}>{total.toLocaleString("es-AR")} L</strong>
-        </span>
-        <button type="button" style={{ ...btnPrimary, width: "100%" }}
-          disabled={status === "saving" || status === "chaining"} onClick={handleSave}>
-          {status === "saving" ? "Guardando saldo…"
-            : status === "chaining" ? "Recalculando días intermedios…"
-            : status === "saved" ? "✓ Listo"
-            : "Guardar saldo"}
-        </button>
-      </div>
+      {/* ── ZONA 2: Consultar estado calculado ── */}
+      <div style={{ ...card, borderColor: C.border }}>
+        <div style={{ fontSize: 12, color: C.sub, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 12 }}>
+          Consultar estado calculado
+        </div>
+        <div style={{ display: "flex", gap: 8, marginBottom: 12, alignItems: "flex-end" }}>
+          <div style={{ flex: 1 }}>
+            <F label="Fecha a consultar">
+              <input type="date" style={inp} value={viewDate} max={getToday()}
+                onChange={e => { setViewDate(e.target.value); setViewResult(null); }} />
+            </F>
+          </div>
+          <button type="button"
+            style={{ ...btnSecondary, width: "auto", padding: "13px 16px", flexShrink: 0 }}
+            disabled={loadingView} onClick={handleCalculate}>
+            {loadingView ? "…" : "Calcular"}
+          </button>
+        </div>
 
-      {status === "chaining" && (
-        <div style={{
-          background: `${C.accent}10`, border: `1px solid ${C.accent}40`,
-          borderRadius: 8, padding: "10px 14px", fontSize: 13, color: C.accent,
-        }}>
-          Reconstruyendo la cadena de días desde el {fecha} hasta ayer. No cerres esta pantalla.
-        </div>
-      )}
-      {status === "saved" && (
-        <div style={{
-          background: `${C.success}15`, border: `1px solid ${C.success}44`,
-          borderRadius: 8, padding: "10px 14px", fontSize: 13, color: C.success,
-        }}>
-          Saldo guardado y cadena de días actualizada. A partir del {nextDay} los silos
-          arrancan con estos litros y heredan automáticamente las operaciones de cada día.
-        </div>
-      )}
+        {viewResult && (
+          <div>
+            <div style={{
+              background: `${C.success}12`, border: `1px solid ${C.success}44`,
+              borderRadius: 6, padding: "8px 12px", fontSize: 11, color: C.success,
+              marginBottom: 12, lineHeight: 1.6,
+            }}>
+              Estado calculado al cierre del{" "}
+              <strong>{new Date(viewDate + "T00:00:00").toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" })}</strong>
+              {" "}— acumulado desde el saldo base + operaciones de cada día en la cadena. Solo lectura.
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+              {STOCK_SILOS.map(silo => {
+                const litros = viewResult.totals?.[silo] || 0;
+                const prod = viewResult.productosBase?.[silo] || "";
+                return (
+                  <div key={silo} style={{
+                    background: C.surface, borderRadius: 6, padding: "7px 10px",
+                    border: `1px solid ${litros > 0 ? C.border : "#2a2a2a"}`,
+                  }}>
+                    <div style={{ fontSize: 11, color: C.sub, fontWeight: 700 }}>
+                      {silo.startsWith("TQ") ? "TQ" : "SILO"} {silo.replace("TQ", "")}
+                    </div>
+                    <div style={{ fontSize: 13, color: litros > 0 ? C.text : C.muted, fontFamily: FONT_MONO }}>
+                      {litros > 0 ? litros.toLocaleString("es-AR") + " L" : "—"}
+                    </div>
+                    {prod && <div style={{ fontSize: 10, color: C.accent, marginTop: 2 }}>{prod}</div>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 };
@@ -5696,11 +5977,15 @@ export default function App() {
   const [loginLoading, setLoginLoading] = useState(false);
   const [syncKey, setSyncKey] = useState(0); // incrementa cada 10s → refresca datos en todas las secciones
   const [storageOk, setStorageOk] = useState(true);
+  const [sessionExpired, setSessionExpired] = useState(false);
   const [queueLen, setQueueLen] = useState(0);
   const [queueRetrying, setQueueRetrying] = useState(false);
+  const [backupSuggestion, setBackupSuggestion] = useState(false);
+  const [backupLoading, setBackupLoading] = useState(false);
   const [dayClosed, setDayClosed] = useState(false);
   const [dayClosedBy, setDayClosedBy] = useState(null);
   const [dayClosedBlocked, setDayClosedBlocked] = useState(false);
+  const [saveConflict, setSaveConflict] = useState(null); // C5: { sec, date }
   const [confirmUI, askConfirm] = useConfirm();
   const [turnoActual, setTurnoActual] = useState(getCurrentTurno());
   const isToday = date === getToday();
@@ -5726,6 +6011,8 @@ export default function App() {
     setQueueRetrying(retrying);
   }), []);
 
+  useEffect(() => onSessionExpired(() => setSessionExpired(true)), []);
+
   // Cargar estado de cierre del día al cambiar fecha o en cada sync
   useEffect(() => {
     loadEstado(date).then(est => {
@@ -5743,6 +6030,12 @@ export default function App() {
       setTimeout(() => setDayClosedBlocked(false), 3000);
     };
     return () => { _onSaveBlocked = null; };
+  }, []);
+
+  // C5: registrar callback para cuando save() detecta conflicto multi-dispositivo
+  useEffect(() => {
+    _onSaveConflict = ({ sec, date }) => setSaveConflict({ sec, date });
+    return () => { _onSaveConflict = null; };
   }, []);
 
   // Sincronizar perfil con sesión de Supabase Auth
@@ -5836,6 +6129,15 @@ export default function App() {
   };
 
   const handleCerrarDia = async () => {
+    if (queueLen > 0) {
+      await askConfirm({
+        title: "Cambios pendientes de sincronizar",
+        message: `Hay ${queueLen} cambio${queueLen > 1 ? "s" : ""} pendiente${queueLen > 1 ? "s" : ""} de guardar en el servidor.\n\nEsperá a que se sincronicen antes de cerrar el día para que el saldo quede correcto.\n\nCuando el ícono de conexión muestre "Sincronizado", intentá de nuevo.`,
+        danger: false,
+        confirmLabel: "Entendido",
+      });
+      return;
+    }
     const ok = await askConfirm({
       title: "Cerrar día",
       message: `¿Cerrar el día ${fmtDate(date)}?\n\nNo se podrán agregar ni modificar registros. Solo el jefe puede reabrir.`,
@@ -5851,6 +6153,7 @@ export default function App() {
     await saveSaldo(finalTotals, date, finalProductos);
     setDayClosed(true);
     setDayClosedBy(est.closedBy);
+    setBackupSuggestion(true);
   };
   const handleReabrirDia = async () => {
     const ok = await askConfirm({
@@ -5879,6 +6182,7 @@ export default function App() {
       await db.auth.signIn(PERFILES[rolKey].email, loginPass);
       setLoginUser(""); setLoginPass("");
       setPerfilModal(false);
+      if (sessionExpired) { setSessionExpired(false); clearSessionExpired(); }
     } catch {
       setLoginError("Usuario o contraseña incorrectos.");
     } finally {
@@ -5997,6 +6301,41 @@ export default function App() {
         </div>
       )}
 
+      {/* Banner conflicto multi-dispositivo (C5) */}
+      {saveConflict && (() => {
+        const SECC = { ingresos: "Ingresos", cip: "CIP", carga: "Carga", movimientos: "Movimientos", stock: "Stock", fortificados: "Fortificados" };
+        const [, mm, dd] = (saveConflict.date || "").split("-");
+        const fechaFmt = mm && dd ? `${dd}/${mm}` : saveConflict.date;
+        return (
+          <div style={{
+            background: "#7c1d1d20", borderBottom: "2px solid #ef4444",
+            padding: "10px 16px", display: "flex", alignItems: "center", gap: 10,
+            position: "sticky", top: 0, zIndex: 302,
+            marginLeft: isDesktop ? SIDEBAR_W : 0,
+          }}>
+            <AlertaWarn size={20} strokeWidth={SW} color="#ef4444" />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#ef4444" }}>
+                {`Los datos de ${SECC[saveConflict.sec] || saveConflict.sec} del ${fechaFmt} fueron modificados desde otro dispositivo.`}
+              </div>
+              <div style={{ fontSize: 11, color: C.sub, marginTop: 1 }}>
+                Recargá la sección antes de guardar nuevamente.
+              </div>
+            </div>
+            <button type="button"
+              onClick={() => { setSyncKey(k => k + 1); setSaveConflict(null); }}
+              style={{ background: "#ef444420", border: "1px solid #ef444450", color: "#ef4444", borderRadius: 8, padding: "5px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
+              Recargar
+            </button>
+            <button type="button"
+              onClick={() => setSaveConflict(null)}
+              style={{ background: "transparent", border: "none", color: C.sub, cursor: "pointer", fontSize: 18, lineHeight: 1, padding: "0 2px" }}>
+              ✕
+            </button>
+          </div>
+        );
+      })()}
+
       {/* Banner cola de escritura — cambios pendientes de sincronizar */}
       {queueLen > 0 && (
         <div style={{
@@ -6015,6 +6354,31 @@ export default function App() {
               : `${queueLen} cambio${queueLen > 1 ? "s" : ""} pendiente${queueLen > 1 ? "s" : ""} — sin conexión`
             }
           </div>
+        </div>
+      )}
+
+      {/* Banner sesión expirada */}
+      {sessionExpired && (
+        <div style={{
+          background: "#7c2d1215", borderBottom: "2px solid #f97316",
+          padding: "10px 16px", display: "flex", alignItems: "center", gap: 10,
+          position: "sticky", top: 0, zIndex: 301,
+          marginLeft: isDesktop ? SIDEBAR_W : 0,
+        }}>
+          <AlertaWarn size={20} strokeWidth={SW} color="#f97316" />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#f97316" }}>Sesión expirada — los cambios están en espera</div>
+            <div style={{ fontSize: 11, color: C.sub, marginTop: 1 }}>
+              {queueLen > 0
+                ? `${queueLen} cambio${queueLen > 1 ? "s" : ""} guardado${queueLen > 1 ? "s" : ""} localmente. Volvé a iniciar sesión para sincronizarlos.`
+                : "Volvé a iniciar sesión para continuar guardando."}
+            </div>
+          </div>
+          <button type="button"
+            onClick={() => setPerfilModal(true)}
+            style={{ background: "#f9731620", border: "1px solid #f9731650", color: "#f97316", borderRadius: 8, padding: "5px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
+            Iniciar sesión
+          </button>
         </div>
       )}
 
@@ -6305,10 +6669,25 @@ export default function App() {
               {dayClosedBy ? `Cerrado por ${dayClosedBy}. ` : ""}
               {perfil === "jefe" ? "Usá el candado en el header para reabrir." : "Solo el jefe puede reabrir el día."}
             </div>
+            {backupSuggestion && (
+              <button
+                type="button"
+                style={{ ...btnPrimary, marginTop: 20, width: "auto", padding: "10px 22px", fontSize: 13 }}
+                disabled={backupLoading}
+                onClick={async () => {
+                  setBackupLoading(true);
+                  try { await generateBackup(); setBackupSuggestion(false); }
+                  catch { setBackupSuggestion(false); }
+                  finally { setBackupLoading(false); }
+                }}
+              >
+                {backupLoading ? "Generando backup…" : "Descargar backup del día"}
+              </button>
+            )}
           </div>
         )}
         <div style={{ maxWidth: isDesktop ? 960 : "100%", margin: isDesktop ? "0 auto" : undefined }}>
-        {section === "ingresos" && <SecIngresos date={date} syncKey={syncKey} dayClosed={dayClosed || perfil === "admin"} />}
+        {section === "ingresos" && <SecIngresos date={date} syncKey={syncKey} dayClosed={dayClosed || perfil === "admin"} perfil={perfil} />}
         {section === "cip" && <SecCIP date={date} syncKey={syncKey} readOnly={perfil === "admin"} />}
         {section === "carga" && <SecCarga date={date} syncKey={syncKey} dayClosed={dayClosed || perfil === "admin"} />}
         {section === "movimientos" && <SecMovimientos date={date} syncKey={syncKey} dayClosed={dayClosed || perfil === "admin"} />}
