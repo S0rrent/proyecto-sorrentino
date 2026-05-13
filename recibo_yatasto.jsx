@@ -5968,6 +5968,15 @@ export default function App() {
   };
 
   const handleCerrarDia = async () => {
+    if (queueLen > 0) {
+      await askConfirm({
+        title: "Cambios pendientes de sincronizar",
+        message: `Hay ${queueLen} cambio${queueLen > 1 ? "s" : ""} pendiente${queueLen > 1 ? "s" : ""} de guardar en el servidor.\n\nEsperá a que se sincronicen antes de cerrar el día para que el saldo quede correcto.\n\nCuando el ícono de conexión muestre "Sincronizado", intentá de nuevo.`,
+        danger: false,
+        confirmLabel: "Entendido",
+      });
+      return;
+    }
     const ok = await askConfirm({
       title: "Cerrar día",
       message: `¿Cerrar el día ${fmtDate(date)}?\n\nNo se podrán agregar ni modificar registros. Solo el jefe puede reabrir.`,
