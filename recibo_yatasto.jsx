@@ -188,6 +188,8 @@ async function loadCfg() {
   catch { return def; }
 }
 // Saldo de silos entre días
+// SALDO_KEY = fast path para hoy: resultado encadenado hasta ayer (actualizado por cadena y cierre del día)
+// SALDO_BASE_KEY = ancla permanente: ingresado manualmente; nunca sobreescrito por la cadena
 async function loadSaldo() {
   try { const r = await db.get(SALDO_KEY); return r ? JSON.parse(r.value) : null; } catch { return null; }
 }
@@ -198,13 +200,24 @@ async function saveSaldo(data, fromDate, productos) {
     await db.set(SALDO_KEY, JSON.stringify(payload));
   } catch { }
 }
+async function loadBaseSaldo() {
+  try { const r = await db.get(SALDO_BASE_KEY); return r ? JSON.parse(r.value) : null; } catch { return null; }
+}
+async function saveBaseSaldo(data, fromDate, productos) {
+  try {
+    const payload = { data, fromDate };
+    if (productos && Object.keys(productos).length > 0) payload.productos = productos;
+    await db.set(SALDO_BASE_KEY, JSON.stringify(payload));
+  } catch { }
+}
 async function saveCfg(data) {
   try { await db.set(CFG_KEY, JSON.stringify(data)); } catch (e) { console.error(e); }
 }
-const ELIM_KEY   = "yatasto:eliminados";
-const USERS_KEY  = "yatasto:usuarios";
-const SALDO_KEY  = "yatasto:saldo-silos";
-const SR_KEY     = "yatasto:session-restore";  // sesión guardada antes de recargar tema
+const ELIM_KEY        = "yatasto:eliminados";
+const USERS_KEY       = "yatasto:usuarios";
+const SALDO_KEY       = "yatasto:saldo-silos";  // fast path: cadena hasta ayer
+const SALDO_BASE_KEY  = "yatasto:saldo-base";   // ancla manual permanente
+const SR_KEY          = "yatasto:session-restore";
 const estadoKey  = d => `yatasto:${d}:estado`;
 const auditKey   = d => `yatasto:audit:${d}`;
 
@@ -370,29 +383,44 @@ async function calcAutoLitros(date, _baseTotals, _baseProductos) {
     if (hit && Date.now() - hit.ts < _AUTO_LITROS_TTL) return hit.result;
   }
 
-  const [ingresos, movData, cargas, forts, saldo] = await Promise.all([
+  const [ingresos, movData, cargas, forts, saldo, baseSaldo] = await Promise.all([
     load(date, "ingresos", []),
     load(date, "movimientos", { movs: [], ctrls: [] }),
     load(date, "carga", []),
     load(date, "fortificados", []),
     chainMode ? Promise.resolve(null) : loadSaldo(),
+    chainMode ? Promise.resolve(null) : loadBaseSaldo(),
   ]);
   const totals = {};
   // productosBase: carry-over de productos del día anterior, luego sobreescrito por operaciones del día
   const productosBase = {};
 
   if (chainMode) {
-    // Base provista externamente (cadena de días)
+    // Base provista externamente (cadena de días) — modo chain no toca DB para el saldo
     Object.entries(_baseTotals).forEach(([k, v]) => { if (v > 0) totals[k] = v; });
     Object.entries(_baseProductos || {}).forEach(([k, p]) => { if (p) productosBase[k] = p; });
   } else if (saldo && saldo.fromDate && saldo.fromDate < date) {
-    // Saldo de días anteriores (modo normal)
+    // Fast path: SALDO_KEY tiene el resultado encadenado hasta (al menos) ayer → usarlo directo
     Object.entries(saldo.data || {}).forEach(([key, litros]) => {
       if (litros > 0) totals[key] = (totals[key] || 0) + litros;
     });
     Object.entries(saldo.productos || {}).forEach(([key, prod]) => {
       if (prod) productosBase[key] = prod;
     });
+  } else if (baseSaldo && baseSaldo.fromDate && baseSaldo.fromDate < date) {
+    // Fallback: SALDO_KEY es demasiado reciente (o no existe) para esta fecha histórica.
+    // Usar SALDO_BASE_KEY (ancla manual) y encadenar día a día hasta date-1.
+    const prevDate = getPreviousDate(date);
+    if (baseSaldo.fromDate === prevDate) {
+      // Base es exactamente el día anterior — usar directamente sin encadenar
+      Object.entries(baseSaldo.data || {}).forEach(([k, v]) => { if (v > 0) totals[k] = v; });
+      Object.entries(baseSaldo.productos || {}).forEach(([k, p]) => { if (p) productosBase[k] = p; });
+    } else {
+      // Encadenar desde baseSaldo hasta prevDate (date-1)
+      const chain = await buildChainedSaldo(baseSaldo, prevDate);
+      Object.entries(chain.totals).forEach(([k, v]) => { if (v > 0) totals[k] = v; });
+      Object.assign(productosBase, chain.productosBase);
+    }
   }
   ingresos.forEach(ing => {
     const key = SILO_STOCK_KEY[ing.destino];
@@ -1762,13 +1790,18 @@ const SecStock = ({ date, syncKey = 0 }) => {
             updated = { ...u, [t]: { ...(u[t] || {}), silos: { ...((u[t] || {}).silos || {}), [silo]: { ...sd, ...extra } } } };
             changed = true;
           };
-          // Auto-producto: solo si el silo no tiene producto guardado manualmente.
-          // Prioridad: manual guardado > ingresos/forts (productosBase) > carry-over del saldo
-          if (!sd.producto && productosBase[silo]) { upd(updated, { producto: productosBase[silo] }); }
-          // Estado cuando silo está vacío: Limpio si tiene CIP, Sucio si no
           const litros = autoTotals[silo] || 0;
           const curProd = (((updated[t] || {}).silos || {})[silo] || {}).producto || sd.producto;
-          if (litros === 0) {
+          if (litros > 0) {
+            // El silo tiene contenido.
+            // Si estaba marcado como "Sucio (vacío)" o "Limpio" por un cálculo anterior con saldo
+            // incorrecto (litros=0 cuando no debía ser), corregirlo con el producto real inferido.
+            const estadoIncorrecto = curProd === "Sucio (vacío)" || curProd === "Limpio";
+            if ((estadoIncorrecto || !sd.producto) && productosBase[silo]) {
+              upd(updated, { producto: productosBase[silo] });
+            }
+          } else {
+            // litros = 0: aplicar lógica de vaciado (Limpio si tuvo CIP, Sucio si no)
             if (cipDone[silo] && curProd !== "Limpio") {
               upd(updated, { producto: "Limpio" });
             } else if (!cipDone[silo] && curProd && curProd !== "Sucio (vacío)" && curProd !== "Limpio") {
@@ -5467,15 +5500,19 @@ const SaldoInicialPanel = () => {
   );
   const [status, setStatus] = useState(null); // null | "saving" | "saved"
 
-  // Pre-cargar saldo existente
+  // Pre-cargar saldo base existente (ancla manual; no el fast path de la cadena)
   useEffect(() => {
-    loadSaldo().then(s => {
+    loadBaseSaldo().then(s => {
       if (!s) return;
       setFecha(s.fromDate || yesterday);
       setSilos(prev => {
         const next = { ...prev };
         Object.entries(s.data || {}).forEach(([k, v]) => {
           if (next[k] !== undefined) next[k] = { ...next[k], litros: v > 0 ? String(v) : "" };
+        });
+        // Cargar también los productos guardados en el saldo base
+        Object.entries(s.productos || {}).forEach(([k, p]) => {
+          if (next[k] !== undefined && p) next[k] = { ...next[k], producto: p };
         });
         return next;
       });
@@ -5492,20 +5529,25 @@ const SaldoInicialPanel = () => {
     const productos = Object.fromEntries(
       STOCK_SILOS.filter(s => silos[s].producto).map(s => [s, silos[s].producto])
     );
-    // Guardar saldo base para la fecha elegida
-    await saveSaldo(data, fecha, productos);
+    // Guardar como ancla permanente (SALDO_BASE_KEY) — nunca se sobreescribe con la cadena
+    await saveBaseSaldo(data, fecha, productos);
     _autoLitrosCache.clear();
 
-    // Si la fecha es anterior a ayer, reconstruir la cadena completa hasta ayer
-    // para que todos los días intermedios hereden correctamente las operaciones de cada jornada
+    // Si la fecha es anterior a ayer, construir la cadena hasta ayer y guardarla en SALDO_KEY
+    // como fast path para que el cálculo de hoy sea inmediato sin reencadenar todo
     const today = getToday();
     const yesterday = getPreviousDate(today);
     if (fecha < yesterday) {
       setStatus("chaining");
       const baseSaldo = { data, fromDate: fecha, productos };
       const { totals, productosBase } = await buildChainedSaldo(baseSaldo, yesterday);
+      // SALDO_KEY = fast path para hoy (result encadenado hasta ayer)
+      // SALDO_BASE_KEY intacto → calcAutoLitros lo usará para fechas históricas < ayer
       await saveSaldo(totals, yesterday, productosBase);
       _autoLitrosCache.clear();
+    } else if (fecha <= today) {
+      // fecha es ayer o hoy: guardar directamente en SALDO_KEY también
+      await saveSaldo(data, fecha, productos);
     }
 
     setStatus("saved");
