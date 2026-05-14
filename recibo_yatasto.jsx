@@ -175,7 +175,7 @@ async function load(date, sec, def) {
   catch { return def; }
 }
 async function save(date, sec, data) {
-  if (_closedDates.has(date)) { _onSaveBlocked?.(); return; }
+  if (_closedDates.has(date)) { _onSaveBlocked?.(); return false; }
   _autoLitrosCache.delete(date);
   const key = sKey(date, sec);
   // C5: detectar modificación concurrente antes de escribir
@@ -185,15 +185,16 @@ async function save(date, sec, data) {
       const remote = await db.getTimestamp(key);
       if (remote?.updatedAt && remote.updatedAt !== lastKnown) {
         _onSaveConflict?.({ sec, date });
-        return;
+        return false;
       }
     } catch { /* error de red — continuar con el save */ }
   }
   try {
     const ts = await db.set(key, JSON.stringify(data));
-    if (ts) _loadedAt.set(key, ts);       // save exitoso: actualizar timestamp
-    else _loadedAt.delete(key);           // encolado/fallado: limpiar para no generar falsos positivos
+    if (ts) _loadedAt.set(key, ts);
+    else _loadedAt.delete(key);
   } catch (e) { console.error(e); }
+  return true;
 }
 
 // Guarda de cierre de día — sincronizada desde App vía _markDayClosed()
@@ -1167,7 +1168,11 @@ const SecIngresos = ({ date, syncKey = 0, dayClosed = false, perfil = null }) =>
     calcAutoLitros(date).then(r => setSiloStates(r)).catch(() => {});
   }, [date, syncKey]);
 
-  const persist = async updated => { setList(updated); await save(date, "ingresos", updated); };
+  const persist = async updated => {
+    const ok = await save(date, "ingresos", updated);
+    if (ok !== false) setList(updated);
+    return ok;
+  };
   const onSave = async item => {
     const forzado = item._forzadoCIP;
     const { _forzadoCIP, ...itemClean } = item;
@@ -1177,8 +1182,8 @@ const SecIngresos = ({ date, syncKey = 0, dayClosed = false, perfil = null }) =>
         PERFILES[perfil]?.label || perfil || "Supervisor");
     }
     const ex = list.find(i => i.id === itemClean.id);
-    await persist(ex ? list.map(i => i.id === itemClean.id ? itemClean : i) : [...list, itemClean]);
-    setModal(null);
+    const ok = await persist(ex ? list.map(i => i.id === itemClean.id ? itemClean : i) : [...list, itemClean]);
+    if (ok !== false) setModal(null);
   };
   const onDelete = async id => {
     const item = list.find(i => i.id === id);
@@ -1406,9 +1411,18 @@ const SecCIP = ({ date, syncKey = 0 }) => {
     loadCfg().then(cfg => setCamiones([...CAMIONES_BASE, ...(cfg.camionesCustom || [])]));
   }, [date, syncKey]);
 
-  const updateSilo = async (s, v) => { const u = { ...data, silos: { ...(data.silos || {}), [s]: v } }; setData(u); await save(date, "cip", u); };
-  const updateCamion = async (c, v) => { const u = { ...data, camiones: { ...(data.camiones || {}), [c]: v } }; setData(u); await save(date, "cip", u); };
-  const setFiltro = async (k, v) => { const u = { ...data, [k]: v }; setData(u); await save(date, "cip", u); };
+  const updateSilo = async (s, v) => {
+    const prev = data; const u = { ...data, silos: { ...(data.silos || {}), [s]: v } };
+    setData(u); if (await save(date, "cip", u) === false) setData(prev);
+  };
+  const updateCamion = async (c, v) => {
+    const prev = data; const u = { ...data, camiones: { ...(data.camiones || {}), [c]: v } };
+    setData(u); if (await save(date, "cip", u) === false) setData(prev);
+  };
+  const setFiltro = async (k, v) => {
+    const prev = data; const u = { ...data, [k]: v };
+    setData(u); if (await save(date, "cip", u) === false) setData(prev);
+  };
 
   const saveNuevoCamion = async () => {
     if (!newCamion.trim()) return;
@@ -1621,7 +1635,11 @@ const SecCarga = ({ date, syncKey = 0, dayClosed = false }) => {
   const [loading, setLoading] = useState(true);
   const [confirmUI, askConfirm] = useConfirm();
   useEffect(() => { load(date, "carga", []).then(d => { setList(d); setLoading(false); }); }, [date, syncKey]);
-  const persist = async u => { setList(u); await save(date, "carga", u); };
+  const persist = async u => {
+    const ok = await save(date, "carga", u);
+    if (ok !== false) setList(u);
+    return ok;
+  };
   const onSave = async item => {
     const existing = list.find(i => i.id === item.id);
     const exclude = existing ? () => parseFloat(existing.litros) || 0 : null;
@@ -1636,8 +1654,8 @@ const SecCarga = ({ date, syncKey = 0, dayClosed = false }) => {
       if (!ok) return;
     }
     const ex = list.find(i => i.id === item.id);
-    await persist(ex ? list.map(i => i.id === item.id ? item : i) : [...list, item]);
-    setModal(null);
+    const ok = await persist(ex ? list.map(i => i.id === item.id ? item : i) : [...list, item]);
+    if (ok !== false) setModal(null);
   };
   const onDelete = async id => {
     const item = list.find(i => i.id === id);
@@ -1767,7 +1785,11 @@ const SecMovimientos = ({ date, syncKey = 0, dayClosed = false }) => {
   const [loading, setLoading] = useState(true);
   const [confirmUI, askConfirm] = useConfirm();
   useEffect(() => { load(date, "movimientos", { movs: [], ctrls: [] }).then(d => { setData(d); setLoading(false); }); }, [date, syncKey]);
-  const persist = async u => { setData(u); await save(date, "movimientos", u); };
+  const persist = async u => {
+    const ok = await save(date, "movimientos", u);
+    if (ok !== false) setData(u);
+    return ok;
+  };
   const saveMov = async item => {
     const existing = data.movs.find(i => i.id === item.id);
     const exclude = existing ? () => parseFloat(existing.litros) || 0 : null;
@@ -1782,9 +1804,14 @@ const SecMovimientos = ({ date, syncKey = 0, dayClosed = false }) => {
       if (!ok) return;
     }
     const l = data.movs; const ex = l.find(i => i.id === item.id);
-    await persist({ ...data, movs: ex ? l.map(i => i.id === item.id ? item : i) : [...l, item] }); setModal(null);
+    const ok = await persist({ ...data, movs: ex ? l.map(i => i.id === item.id ? item : i) : [...l, item] });
+    if (ok !== false) setModal(null);
   };
-  const saveCtrl = async item => { const l = data.ctrls; const ex = l.find(i => i.id === item.id); await persist({ ...data, ctrls: ex ? l.map(i => i.id === item.id ? item : i) : [...l, item] }); setModal(null); };
+  const saveCtrl = async item => {
+    const l = data.ctrls; const ex = l.find(i => i.id === item.id);
+    const ok = await persist({ ...data, ctrls: ex ? l.map(i => i.id === item.id ? item : i) : [...l, item] });
+    if (ok !== false) setModal(null);
+  };
   const delMov = async id => {
     const item = data.movs.find(i => i.id === id);
     const resumen = item ? buildResumen("movimiento", item) : "";
@@ -1940,15 +1967,17 @@ const SecStock = ({ date, syncKey = 0 }) => {
   }, [date, syncKey]);
 
   const updateSilo = async (t, s, k, v) => {
+    const prev = data;
     const u = {
       ...data,
       [t]: { ...(data[t] || {}), silos: { ...((data[t] || {}).silos || {}), [s]: { ...(((data[t] || {}).silos || {})[s] || {}), [k]: v } } }
     };
-    setData(u); await save(date, "stock", u);
+    setData(u); if (await save(date, "stock", u) === false) setData(prev);
   };
   const updateResp = async (t, v) => {
+    const prev = data;
     const u = { ...data, [t]: { ...(data[t] || {}), resp: v } };
-    setData(u); await save(date, "stock", u);
+    setData(u); if (await save(date, "stock", u) === false) setData(prev);
   };
 
   if (loading) return <div style={{ padding: 40, textAlign: "center", color: C.sub }}>Cargando...</div>;
@@ -2222,7 +2251,11 @@ const SecFortificados = ({ date, syncKey = 0, dayClosed = false }) => {
     load(date, "fortificados", []).then(d => { setList(d); setLoading(false); });
   }, [date, syncKey]);
 
-  const persist = async u => { setList(u); await save(date, "fortificados", u); };
+  const persist = async u => {
+    const ok = await save(date, "fortificados", u);
+    if (ok !== false) setList(u);
+    return ok;
+  };
   const onSave = async item => {
     const existing = list.find(i => i.id === item.id);
     const exclude = existing ? () => parseFloat(existing.litrosBase) || 0 : null;
@@ -2237,8 +2270,8 @@ const SecFortificados = ({ date, syncKey = 0, dayClosed = false }) => {
       if (!ok) return;
     }
     const ex = list.find(i => i.id === item.id);
-    await persist(ex ? list.map(i => i.id === item.id ? item : i) : [...list, item]);
-    setModal(null);
+    const ok = await persist(ex ? list.map(i => i.id === item.id ? item : i) : [...list, item]);
+    if (ok !== false) setModal(null);
   };
   const onDelete = async id => {
     const item = list.find(i => i.id === id);
