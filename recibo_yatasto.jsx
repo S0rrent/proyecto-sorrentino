@@ -2034,7 +2034,7 @@ const SecStock = ({ date, syncKey = 0 }) => {
 
       {/* Tarjetas de silos — agrupadas */}
       {[{ label: "Silos", keys: SILOS_GRUPO }, { label: "Proceso", keys: PROCESO_GRUPO }].map(({ label, keys }) => (
-        <React.Fragment key={label}>
+        <Fragment key={label}>
           <div style={{ fontSize: 10, color: C.sub, textTransform: "uppercase", letterSpacing: "0.12em", fontWeight: 700, margin: "16px 0 8px", paddingBottom: 4, borderBottom: `1px solid ${C.border}44` }}>
             {label}
           </div>
@@ -2131,7 +2131,7 @@ const SecStock = ({ date, syncKey = 0 }) => {
               </div>
             );
           })}
-        </React.Fragment>
+        </Fragment>
       ))}
     </div>
   );
