@@ -10,6 +10,7 @@ export {
   FlaskConical   as Fortificados,
   SprayCan       as CIP,
   BarChart3      as Stock,
+  Boxes          as Produccion,
 
   // ── Perfiles ─────────────────────────────────────────────────
   UserCog   as Supervisor,
