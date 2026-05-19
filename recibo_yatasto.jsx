@@ -1945,17 +1945,22 @@ const emptyLote = (preOrigen = null) => ({
   responsable: "",
 });
 
-const ProduccionForm = ({ initial, onSave, onClose, onDelete, date, perfil }) => {
+const ProduccionForm = ({ initial, onSave, onClose, onDelete, date, perfil, isEdit = false }) => {
   const [f, setF] = useState(initial);
+  const [saving, setSaving] = useState(false);
+  const [confirmUI, askConfirm] = useConfirm();
   const set = k => v => setF(p => ({ ...p, [k]: v }));
+
+  const wasFinalized = initial?.estado === "finalizado";
+  const isReadOnly = wasFinalized && perfil !== "jefe";
 
   const setOrigen = (i, k, v) => setF(p => {
     const origenes = [...(p.origenes || [])];
     origenes[i] = { ...origenes[i], [k]: v };
     return { ...p, origenes };
   });
-  const addOrigen  = () => setF(p => ({ ...p, origenes: [...(p.origenes || []), { silo: "", litros: "" }] }));
-  const delOrigen  = i => setF(p => ({ ...p, origenes: (p.origenes || []).filter((_, idx) => idx !== i) }));
+  const addOrigen = () => setF(p => ({ ...p, origenes: [...(p.origenes || []), { silo: "", litros: "" }] }));
+  const delOrigen = i => setF(p => ({ ...p, origenes: (p.origenes || []).filter((_, idx) => idx !== i) }));
 
   const prodInfo = PRODS_PRODUCCION_LIST.find(p => p.nombre === f.producto);
   const totalLitros = (f.origenes || []).reduce((s, o) => s + (parseFloat(o.litros) || 0), 0);
@@ -1963,78 +1968,135 @@ const ProduccionForm = ({ initial, onSave, onClose, onDelete, date, perfil }) =>
   const volEnvasado = prodInfo ? cajas * prodInfo.up * prodInfo.vol : 0;
   const merma = totalLitros > 0 ? totalLitros - volEnvasado : null;
   const rendReal = (totalLitros > 0 && volEnvasado > 0) ? (volEnvasado / totalLitros * 100) : null;
-
   const estadoColor = { envasando: C.accent, finalizado: C.success, cancelado: C.danger };
 
-  const onSubmit = () => {
+  const onSubmit = async () => {
     if (!f.producto) { alert("Seleccioná un producto."); return; }
-    if (!(f.origenes || []).some(o => o.silo && parseFloat(o.litros) > 0)) {
+    const origenesFilled = (f.origenes || []).filter(o => o.silo && parseFloat(o.litros) > 0);
+    if (origenesFilled.length === 0) {
       alert("Agregá al menos un origen con silo y litros.");
       return;
     }
-    onSave({ ...f });
+
+    setSaving(true);
+    try {
+      // Validar balance de silos (solo cuando el lote consume litros)
+      if (f.estado !== "cancelado") {
+        const byKey = {};
+        origenesFilled.forEach(o => {
+          const k = SILO_STOCK_KEY[o.silo] || o.silo;
+          byKey[k] = (byKey[k] || 0) + (parseFloat(o.litros) || 0);
+        });
+        const originalWasCancelled = initial?.estado === "cancelado";
+        for (const [siloKey, totalL] of Object.entries(byKey)) {
+          const excludeFn = (isEdit && !originalWasCancelled)
+            ? () => (initial.origenes || []).reduce((s, o) => {
+                const k = SILO_STOCK_KEY[o.silo] || o.silo;
+                return k === siloKey ? s + (parseFloat(o.litros) || 0) : s;
+              }, 0)
+            : null;
+          const check = await checkSiloBalance(date, siloKey, totalL, excludeFn);
+          if (!check.ok) {
+            alert(`El silo ${siloKey} tiene ${Math.round(check.current).toLocaleString("es-AR")} L disponibles y estás intentando usar ${Math.round(totalL).toLocaleString("es-AR")} L.`);
+            return;
+          }
+        }
+      }
+
+      // Confirmar al pasar a "finalizado"
+      if (f.estado === "finalizado" && initial?.estado !== "finalizado") {
+        const ok = await askConfirm({
+          title: "Finalizar lote",
+          message: "Al finalizar el lote se consolidarán los consumos registrados.",
+          confirmLabel: "Finalizar",
+        });
+        if (!ok) return;
+      }
+
+      onSave({ ...f }, initial);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
-    <Modal title={initial?.id && initial.id === f.id && !initial._new ? "Editar lote" : "Nuevo lote de producción"} onClose={onClose}>
+    <Modal title={isEdit ? "Editar lote" : "Nuevo lote de producción"} onClose={onClose}>
+      {confirmUI}
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+
+        {isReadOnly && (
+          <div style={{
+            background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8,
+            padding: "8px 12px", fontSize: 11, color: C.sub,
+            display: "flex", alignItems: "center", gap: 6,
+          }}>
+            <IcoCerrado size={13} strokeWidth={SW} />
+            Lote finalizado — solo Jefe puede modificar campos principales.
+          </div>
+        )}
 
         {/* Estado */}
         <div style={{ display: "flex", gap: 8 }}>
           {["envasando", "finalizado", "cancelado"].map(est => (
-            <button key={est} type="button" onClick={() => set("estado")(est)} style={{
-              flex: 1, padding: "8px 4px", borderRadius: 8, fontSize: 11, fontWeight: 700,
-              border: `1.5px solid ${f.estado === est ? estadoColor[est] : C.border}`,
-              background: f.estado === est ? estadoColor[est] + "22" : C.surface,
-              color: f.estado === est ? estadoColor[est] : C.sub, cursor: "pointer",
-              textTransform: "capitalize",
-            }}>{est}</button>
+            <button key={est} type="button"
+              disabled={isReadOnly}
+              onClick={() => set("estado")(est)}
+              style={{
+                flex: 1, padding: "8px 4px", borderRadius: 8, fontSize: 11, fontWeight: 700,
+                border: `1.5px solid ${f.estado === est ? estadoColor[est] : C.border}`,
+                background: f.estado === est ? estadoColor[est] + "22" : C.surface,
+                color: f.estado === est ? estadoColor[est] : C.sub,
+                cursor: isReadOnly ? "default" : "pointer",
+                opacity: isReadOnly ? 0.6 : 1,
+                textTransform: "capitalize",
+              }}>{est}</button>
           ))}
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-          <F label="Hora"><Inp type="time" value={f.hora} onChange={set("hora")} /></F>
-          <F label="Responsable"><Inp value={f.responsable} onChange={set("responsable")} placeholder="Nombre..." /></F>
-        </div>
-
-        <F label="Producto">
-          <Sel value={f.producto} onChange={set("producto")} placeholder="Seleccionar producto..."
-            options={PRODS_PRODUCCION_LIST.map(p => p.nombre)} />
-        </F>
-        {prodInfo && (
-          <div style={{ fontSize: 11, color: C.sub, padding: "4px 8px", background: C.surface, borderRadius: 6 }}>
-            {prodInfo.up} und./caja · {prodInfo.vol < 1 ? `${prodInfo.vol * 1000} mL` : `${prodInfo.vol} L`} por unidad
-          </div>
-        )}
-
-        <F label="Número de lote"><Inp value={f.lote} onChange={set("lote")} placeholder="Ej: L-001" /></F>
-
-        {/* Orígenes */}
-        <div style={{ ...card, padding: 10 }}>
-          <div style={{ ...secTitle, marginBottom: 8, fontSize: 12 }}>Silos de origen</div>
-          {(f.origenes || []).map((o, i) => (
-            <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 6, marginBottom: 6, alignItems: "end" }}>
-              <F label={`Origen ${i + 1} — Silo`}>
-                <Sel value={o.silo} onChange={v => setOrigen(i, "silo", v)}
-                  options={SILOS_TODOS} placeholder="Silo..." />
-              </F>
-              <F label="Litros">
-                <Inp type="number" value={o.litros} onChange={v => setOrigen(i, "litros", v)} placeholder="0" />
-              </F>
-              {(f.origenes || []).length > 1 && (
-                <button type="button" onClick={() => delOrigen(i)} style={{ ...btnSecondary, padding: "8px 10px", marginBottom: 0 }}>✕</button>
-              )}
+        <fieldset disabled={isReadOnly} style={{ border: "none", padding: 0, margin: 0 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <F label="Hora"><Inp type="time" value={f.hora} onChange={set("hora")} /></F>
+              <F label="Responsable"><Inp value={f.responsable} onChange={set("responsable")} placeholder="Nombre..." /></F>
             </div>
-          ))}
-          <button type="button" onClick={addOrigen} style={{ ...btnSecondary, fontSize: 12, padding: "6px 12px" }}>
-            + Agregar origen
-          </button>
-        </div>
+            <F label="Producto">
+              <Sel value={f.producto} onChange={set("producto")} placeholder="Seleccionar producto..."
+                options={PRODS_PRODUCCION_LIST.map(p => p.nombre)} />
+            </F>
+            {prodInfo && (
+              <div style={{ fontSize: 11, color: C.sub, padding: "4px 8px", background: C.surface, borderRadius: 6 }}>
+                {prodInfo.up} und./caja · {prodInfo.vol < 1 ? `${prodInfo.vol * 1000} mL` : `${prodInfo.vol} L`} por unidad
+              </div>
+            )}
+            <F label="Número de lote"><Inp value={f.lote} onChange={set("lote")} placeholder="Ej: L-001" /></F>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-          <F label="Cajas producidas"><Inp type="number" value={f.cajas} onChange={set("cajas")} placeholder="0" /></F>
-          <div />
-        </div>
+            {/* Orígenes */}
+            <div style={{ ...card, padding: 10 }}>
+              <div style={{ ...secTitle, marginBottom: 8, fontSize: 12 }}>Silos de origen</div>
+              {(f.origenes || []).map((o, i) => (
+                <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 6, marginBottom: 6, alignItems: "end" }}>
+                  <F label={`Origen ${i + 1} — Silo`}>
+                    <Sel value={o.silo} onChange={v => setOrigen(i, "silo", v)} options={SILOS_TODOS} placeholder="Silo..." />
+                  </F>
+                  <F label="Litros">
+                    <Inp type="number" value={o.litros} onChange={v => setOrigen(i, "litros", v)} placeholder="0" />
+                  </F>
+                  {(f.origenes || []).length > 1 && (
+                    <button type="button" onClick={() => delOrigen(i)} style={{ ...btnSecondary, padding: "8px 10px", marginBottom: 0 }}>✕</button>
+                  )}
+                </div>
+              ))}
+              <button type="button" onClick={addOrigen} style={{ ...btnSecondary, fontSize: 12, padding: "6px 12px" }}>
+                + Agregar origen
+              </button>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <F label="Cajas producidas"><Inp type="number" value={f.cajas} onChange={set("cajas")} placeholder="0" /></F>
+              <div />
+            </div>
+          </div>
+        </fieldset>
 
         {/* Cálculos */}
         {totalLitros > 0 && (
@@ -2044,7 +2106,7 @@ const ProduccionForm = ({ initial, onSave, onClose, onDelete, date, perfil }) =>
               {[
                 ["Total ingresado", `${totalLitros.toLocaleString("es-AR")} L`],
                 ["Vol. envasado", volEnvasado > 0 ? `${volEnvasado.toFixed(0)} L` : "—"],
-                ["Merma", merma !== null ? `${merma.toFixed(0)} L (${merma < 0 ? "⚠" : ""})` : "—"],
+                ["Merma", merma !== null ? `${merma.toFixed(0)} L${merma < 0 ? " ⚠" : ""}` : "—"],
                 ["Rendimiento", rendReal !== null ? `${rendReal.toFixed(1)}%` : "—"],
               ].map(([lbl, val]) => (
                 <div key={lbl} style={{ padding: "4px 0", borderBottom: `1px solid ${C.border}33` }}>
@@ -2061,8 +2123,10 @@ const ProduccionForm = ({ initial, onSave, onClose, onDelete, date, perfil }) =>
             rows={2} style={{ ...inp, resize: "vertical", fontFamily: FONT_SANS }} placeholder="Notas opcionales..." />
         </F>
 
-        <button type="button" onClick={onSubmit} style={btnPrimary}>Guardar lote</button>
-        {onDelete && (
+        <button type="button" onClick={onSubmit} disabled={saving} style={{ ...btnPrimary, opacity: saving ? 0.7 : 1 }}>
+          {saving ? "Validando..." : "Guardar lote"}
+        </button>
+        {onDelete && !isReadOnly && (
           <button type="button" onClick={() => onDelete(f)} style={{ ...btnSecondary, color: C.danger, borderColor: C.danger + "55" }}>
             Eliminar
           </button>
@@ -2088,21 +2152,38 @@ const SecProduccion = ({ date, syncKey = 0, dayClosed = false, perfil = null }) 
     return ok;
   };
 
-  const onSave = async item => {
-    const updated = list.some(x => x.id === item.id)
+  const onSave = async (item, oldItem) => {
+    const isEditOp = list.some(x => x.id === item.id);
+    const updated = isEditOp
       ? list.map(x => x.id === item.id ? item : x)
       : [...list, item];
     const ok = await persist(updated);
     if (ok !== false) {
       _autoLitrosCache.delete(date);
-      await logAudit(date, list.some(x => x.id === item.id) ? "actualizar_produccion" : "nueva_produccion",
-        "produccion", `${item.producto} — Lote ${item.lote || "—"} — ${item.estado}`, perfil || "");
+      let resumen = `${item.producto} — Lote ${item.lote || "—"} — ${item.estado}`;
+      if (isEditOp && oldItem) {
+        const oldL = (oldItem.origenes || []).reduce((s, o) => s + (parseFloat(o.litros) || 0), 0);
+        const newL = (item.origenes || []).reduce((s, o) => s + (parseFloat(o.litros) || 0), 0);
+        const parts = [];
+        if (Math.round(oldL) !== Math.round(newL))
+          parts.push(`litros: ${Math.round(oldL).toLocaleString("es-AR")} → ${Math.round(newL).toLocaleString("es-AR")} L`);
+        if (oldItem.estado !== item.estado)
+          parts.push(`estado: ${oldItem.estado} → ${item.estado}`);
+        if (parts.length > 0) resumen += ` (${parts.join(", ")})`;
+      }
+      await logAudit(date, isEditOp ? "actualizar_produccion" : "nueva_produccion",
+        "produccion", resumen, perfil || "");
       setModal(null);
     }
   };
 
   const onDelete = async item => {
-    const confirmed = await askConfirm(`¿Eliminar lote ${item.lote || item.producto || "?"} ?`);
+    const confirmed = await askConfirm({
+      title: "Eliminar lote",
+      message: `¿Eliminar lote ${item.lote || item.producto || "?"}?`,
+      danger: true,
+      confirmLabel: "Eliminar",
+    });
     if (!confirmed) return;
     await persist(list.filter(x => x.id !== item.id));
     _autoLitrosCache.delete(date);
@@ -2176,6 +2257,7 @@ const SecProduccion = ({ date, syncKey = 0, dayClosed = false, perfil = null }) 
       {modal && (
         <ProduccionForm
           initial={modal === "new" ? emptyLote() : modal}
+          isEdit={modal !== "new"}
           onSave={onSave}
           onClose={() => setModal(null)}
           onDelete={modal !== "new" ? onDelete : null}
@@ -2922,12 +3004,13 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
       load(date, "stock", {}),
       load(date, "fortificados", []),
       load(date, "cip", {}),
+      load(date, "produccion", []),
       calcAutoLitros(date),
       db.get(ELIM_KEY).then(r => r ? JSON.parse(r.value) : []).catch(() => []),
       getActiveUsers(),
       db.get(auditKey(date)).then(r => r ? JSON.parse(r.value) : []).catch(() => []),
-    ]).then(([ing, cargas, movData, stock, forts, cip, _autoL, historial, activeUsers, auditLog]) => {
-      setD({ ing, cargas, movData, stock, forts, cip, autoLitros: _autoL.totals, historial, auditLog });
+    ]).then(([ing, cargas, movData, stock, forts, cip, produccion, _autoL, historial, activeUsers, auditLog]) => {
+      setD({ ing, cargas, movData, stock, forts, cip, produccion, autoLitros: _autoL.totals, historial, auditLog });
       setUsers(activeUsers);
     });
   }, [date, syncKey]);
@@ -4524,11 +4607,54 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
               <StatCard Icon={IcoBalance}     label="Balance"    value={balance}         unit="L" color={balColor} />
               <StatCard Icon={CamionIcon}     label="Camiones"   value={d.ing.length}    color={C.text} sub={`${tambosUnicos} tambos`} />
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8, marginBottom: 14 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8, marginBottom: 8 }}>
               <StatCard Icon={IcoDestino}      label="Cargas"  value={d.cargas.length}           color={C.text} />
               <StatCard Icon={IcoFortificados} label="Fort."   value={d.forts.length}            color={C.success} />
               <StatCard Icon={IcoMovimientos}  label="Movim."  value={(d.movData.movs || []).length} color={C.sub} />
             </div>
+
+            {/* Producción del día */}
+            {(d.produccion || []).length > 0 && (() => {
+              const activos = (d.produccion || []).filter(p => p.estado !== "cancelado");
+              const consumido = activos.reduce((s, p) =>
+                s + (p.origenes || []).reduce((ss, o) => ss + (parseFloat(o.litros) || 0), 0), 0);
+              const envasado = activos.reduce((s, p) => {
+                const info = PRODS_PRODUCCION_LIST.find(x => x.nombre === p.producto);
+                const caj = parseFloat(p.cajas) || 0;
+                return info ? s + caj * info.up * info.vol : s;
+              }, 0);
+              const mermaP = consumido > 0 ? consumido - envasado : null;
+              const rendP = (consumido > 0 && envasado > 0) ? (envasado / consumido * 100) : null;
+              const finalizados = activos.filter(p => p.estado === "finalizado").length;
+              return (
+                <div style={{
+                  ...card, padding: "12px 14px", marginBottom: 14,
+                  borderColor: C.accent + "33",
+                  background: _THEME === "light"
+                    ? `linear-gradient(135deg, #fff 0%, ${C.accent}08 100%)`
+                    : `linear-gradient(135deg, ${C.card} 0%, ${C.accent}10 100%)`,
+                }}>
+                  <div style={{ fontSize: 9, color: C.sub, textTransform: "uppercase", letterSpacing: "0.12em", fontWeight: 700, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
+                    <IcoProduccion size={12} strokeWidth={SW} />
+                    Producción · {(d.produccion || []).length} lote{(d.produccion || []).length !== 1 ? "s" : ""}
+                    {finalizados > 0 && <span style={{ color: C.success }}>{" "}· {finalizados} finalizado{finalizados !== 1 ? "s" : ""}</span>}
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 6 }}>
+                    {[
+                      ["Consumido", consumido > 0 ? `${Math.round(consumido).toLocaleString("es-AR")} L` : "—", C.accent],
+                      ["Envasado",  envasado > 0  ? `${Math.round(envasado).toLocaleString("es-AR")} L`  : "—", C.text],
+                      ["Merma",     mermaP !== null ? `${Math.round(mermaP).toLocaleString("es-AR")} L` : "—", mermaP !== null && mermaP < 0 ? C.danger : C.sub],
+                      ["Rend.",     rendP  !== null ? `${rendP.toFixed(1)}%` : "—", rendP !== null && rendP >= 90 ? C.success : C.accent],
+                    ].map(([lbl, val, col]) => (
+                      <div key={lbl} style={{ textAlign: "center" }}>
+                        <div style={{ fontSize: 15, fontWeight: 800, fontFamily: FONT_MONO, color: col, lineHeight: 1 }}>{val}</div>
+                        <div style={{ fontSize: 9, color: C.sub, textTransform: "uppercase", letterSpacing: "0.08em", marginTop: 3, fontWeight: 700 }}>{lbl}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Alerts */}
             {alertas.length === 0 ? (
