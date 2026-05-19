@@ -142,16 +142,38 @@ const SILO_STOCK_KEY = {
 const CARGA_PRODUCTOS_BASE = ["Leche Entera", "Leche Descremada", "Suero", "Lactosa", "Concentrado", "Crema", "Otro"];
 // Productos de producción con unidades/caja y volumen por unidad (litros)
 const PRODS_PRODUCCION_LIST = [
-  { nombre: "Leche Entera 1L",        up: 12, vol: 1.0  },
-  { nombre: "Leche Descremada 1L",    up: 12, vol: 1.0  },
-  { nombre: "Leche Entera 500mL",     up: 24, vol: 0.5  },
-  { nombre: "Leche Descremada 500mL", up: 24, vol: 0.5  },
-  { nombre: "Leche Entera 200mL",     up: 24, vol: 0.2  },
-  { nombre: "Leche Descremada 200mL", up: 24, vol: 0.2  },
-  { nombre: "Leche Fortificada 1L",   up: 12, vol: 1.0  },
-  { nombre: "Yogurt 200g",            up: 20, vol: 0.2  },
-  { nombre: "Postre 200g",            up: 20, vol: 0.2  },
-  { nombre: "Otro",                   up: 1,  vol: 1.0  },
+  // TETRA
+  { nombre: "TETRA Entera",             up: 12, vol: 1.0  },
+  { nombre: "TETRA Descremada",         up: 12, vol: 1.0  },
+  // ULTRA
+  { nombre: "ULTRA Entera",             up: 12, vol: 1.0  },
+  { nombre: "ULTRA Descremada",         up: 12, vol: 1.0  },
+  // YOGURT BEBIBLE
+  { nombre: "Yogurt Bebible Frutilla",  up: 24, vol: 0.2  },
+  { nombre: "Yogurt Bebible Durazno",   up: 24, vol: 0.2  },
+  { nombre: "Yogurt Bebible Vainilla",  up: 24, vol: 0.2  },
+  // YOGURT BATIDO
+  { nombre: "Yogurt Batido Frutilla",   up: 12, vol: 0.4  },
+  { nombre: "Yogurt Batido Vainilla",   up: 12, vol: 0.4  },
+  // YOGURT FIRME
+  { nombre: "Yogurt Firme Frutilla",    up: 20, vol: 0.2  },
+  { nombre: "Yogurt Firme Vainilla",    up: 20, vol: 0.2  },
+  // POSTRE 100g
+  { nombre: "Postre 100g Chocolate",    up: 24, vol: 0.1  },
+  { nombre: "Postre 100g DDL",          up: 24, vol: 0.1  },
+  { nombre: "Postre 100g Vainilla",     up: 24, vol: 0.1  },
+  // POSTRE 230g
+  { nombre: "Postre 230g Chocolate",    up: 20, vol: 0.23 },
+  { nombre: "Postre 230g DDL",          up: 20, vol: 0.23 },
+  { nombre: "Postre 230g Vainilla",     up: 20, vol: 0.23 },
+  // GELATINA
+  { nombre: "Gelatina Manzana",         up: 24, vol: 0.1  },
+  { nombre: "Gelatina Frutilla",        up: 24, vol: 0.1  },
+  // DDL
+  { nombre: "DDL Familiar 400g",        up: 12, vol: 0.4  },
+  { nombre: "DDL Repostero 400g",       up: 12, vol: 0.4  },
+  // Otro
+  { nombre: "Otro",                     up: 1,  vol: 1.0  },
 ];
 // Productos concentrados que usan formulario simplificado en ingresos
 const PRODS_CONCENTRADOS = ["Lactosa", "Suero", "Concentrado"];
@@ -538,16 +560,39 @@ async function calcAutoLitros(date, _baseTotals, _baseProductos) {
       }
     });
   });
-  // Producción: descuenta litros de los silos origen (excepto lotes cancelados)
+  // Producción: reservados (enviado/envasando) o descuentos reales (finalizado)
+  const reservados = {};
   produccion.forEach(p => {
     if (p.estado === "cancelado") return;
-    (p.origenes || []).forEach(o => {
-      const from = SILO_STOCK_KEY[o.silo];
-      const L = parseFloat(o.litros) || 0;
-      if (from && L > 0) totals[from] = (totals[from] || 0) - L;
-    });
+    if (p.estado === "finalizado") {
+      // Para lotes finalizados con merma: descontar todo el enviado (sobrante también se pierde)
+      const useMerma = p.destinoSobrante === "merma";
+      const sources = useMerma
+        ? (p.origenes || [])
+        : (p.litrosUsados && p.litrosUsados.length > 0 ? p.litrosUsados : (p.origenes || []));
+      sources.forEach(o => {
+        const from = SILO_STOCK_KEY[o.silo];
+        const L = parseFloat(o.litros) || 0;
+        if (from && L > 0) totals[from] = (totals[from] || 0) - L;
+      });
+      // Si el sobrante va a otro silo lo maneja el movimiento automático (procesado arriba)
+    } else if (!("litrosUsados" in p)) {
+      // Lote anterior a la nueva lógica (sin campo litrosUsados): descontar directamente
+      (p.origenes || []).forEach(o => {
+        const from = SILO_STOCK_KEY[o.silo];
+        const L = parseFloat(o.litros) || 0;
+        if (from && L > 0) totals[from] = (totals[from] || 0) - L;
+      });
+    } else {
+      // enviado / envasando con nueva lógica: reservar sin descontar stock real
+      (p.origenes || []).forEach(o => {
+        const from = SILO_STOCK_KEY[o.silo];
+        const L = parseFloat(o.litros) || 0;
+        if (from && L > 0) reservados[from] = (reservados[from] || 0) + L;
+      });
+    }
   });
-  const result = { totals, productosBase };
+  const result = { totals, productosBase, reservados };
   // Solo cachear en modo normal (no en cadena, que es one-shot)
   if (!chainMode) _autoLitrosCache.set(date, { result, ts: Date.now() });
   return result;
@@ -858,8 +903,9 @@ async function checkSiloBalance(date, siloRaw, litrosImpacto, excludeFn = null) 
   const litros = parseFloat(litrosImpacto) || 0;
   if (!siloRaw || litros <= 0) return { ok: true };
   const siloKey = SILO_STOCK_KEY[siloRaw] || siloRaw;
-  const { totals } = await calcAutoLitros(date);
-  let current = totals[siloKey] || 0;
+  const { totals, reservados } = await calcAutoLitros(date);
+  // Disponible real = stock acumulado menos lo que ya está reservado para producción
+  let current = (totals[siloKey] || 0) - (reservados[siloKey] || 0);
   if (excludeFn) current = current + (excludeFn() || 0); // re-sumar el aporte del item editado
   const next = current - litros;
   return { ok: next >= 0, current, next, silo: siloKey, missing: next < 0 ? -next : 0 };
@@ -1941,111 +1987,310 @@ const emptyLote = (preOrigen = null) => ({
   origenes: preOrigen ? [preOrigen] : [{ silo: "", litros: "" }],
   cajas: "",
   observaciones: "",
-  estado: "envasando",
+  estado: "enviado",
   responsable: "",
+  litrosUsados: null,       // [{silo, litros}] — se completa al finalizar
+  destinoSobrante: null,    // "origen" | "otro_silo" | "merma" | "proceso"
+  siloSobrante: null,
+  sobranteL: 0,
 });
 
-const ProduccionForm = ({ initial, onSave, onClose, onDelete, date, perfil }) => {
+const ProduccionForm = ({ initial, onSave, onClose, onDelete, date, perfil, isEdit = false }) => {
   const [f, setF] = useState(initial);
+  const [saving, setSaving] = useState(false);
+  const [confirmUI, askConfirm] = useConfirm();
   const set = k => v => setF(p => ({ ...p, [k]: v }));
+
+  const wasFinalized = initial?.estado === "finalizado";
+  const isReadOnly = wasFinalized && perfil !== "jefe";
 
   const setOrigen = (i, k, v) => setF(p => {
     const origenes = [...(p.origenes || [])];
     origenes[i] = { ...origenes[i], [k]: v };
     return { ...p, origenes };
   });
-  const addOrigen  = () => setF(p => ({ ...p, origenes: [...(p.origenes || []), { silo: "", litros: "" }] }));
-  const delOrigen  = i => setF(p => ({ ...p, origenes: (p.origenes || []).filter((_, idx) => idx !== i) }));
+  const addOrigen = () => setF(p => ({ ...p, origenes: [...(p.origenes || []), { silo: "", litros: "" }] }));
+  const delOrigen = i => setF(p => ({ ...p, origenes: (p.origenes || []).filter((_, idx) => idx !== i) }));
 
   const prodInfo = PRODS_PRODUCCION_LIST.find(p => p.nombre === f.producto);
-  const totalLitros = (f.origenes || []).reduce((s, o) => s + (parseFloat(o.litros) || 0), 0);
+  const totalEnviado = (f.origenes || []).reduce((s, o) => s + (parseFloat(o.litros) || 0), 0);
   const cajas = parseFloat(f.cajas) || 0;
   const volEnvasado = prodInfo ? cajas * prodInfo.up * prodInfo.vol : 0;
-  const merma = totalLitros > 0 ? totalLitros - volEnvasado : null;
-  const rendReal = (totalLitros > 0 && volEnvasado > 0) ? (volEnvasado / totalLitros * 100) : null;
 
-  const estadoColor = { envasando: C.accent, finalizado: C.success, cancelado: C.danger };
+  // Sobrante: calculado sobre litrosUsados vs origenes (solo en estado finalizado)
+  const totalSobrante = f.estado === "finalizado" && f.litrosUsados
+    ? (f.origenes || []).reduce((s, o, i) => {
+        const env = parseFloat(o.litros) || 0;
+        const us = parseFloat((f.litrosUsados)[i]?.litros) || 0;
+        return s + Math.max(0, env - us);
+      }, 0)
+    : 0;
+  const totalUsado = totalEnviado - totalSobrante;
+  const merma = totalUsado > 0 ? totalUsado - volEnvasado : null;
+  const rendReal = (totalUsado > 0 && volEnvasado > 0) ? (volEnvasado / totalUsado * 100) : null;
 
-  const onSubmit = () => {
+  const estadoColor = { enviado: C.sub, envasando: C.accent, finalizado: C.success, cancelado: C.danger };
+  const estadoLabel = { enviado: "Enviado", envasando: "Envasando", finalizado: "Finalizado", cancelado: "Cancelado" };
+
+  const setLitrosUsados = (i, v) => setF(p => {
+    const lu = [...(p.litrosUsados || (p.origenes || []).map(o => ({ silo: o.silo, litros: o.litros })))];
+    lu[i] = { ...lu[i], silo: (p.origenes || [])[i]?.silo || "", litros: v };
+    return { ...p, litrosUsados: lu };
+  });
+
+  const onSubmit = async () => {
     if (!f.producto) { alert("Seleccioná un producto."); return; }
-    if (!(f.origenes || []).some(o => o.silo && parseFloat(o.litros) > 0)) {
+    const origenesFilled = (f.origenes || []).filter(o => o.silo && parseFloat(o.litros) > 0);
+    if (origenesFilled.length === 0) {
       alert("Agregá al menos un origen con silo y litros.");
       return;
     }
-    onSave({ ...f });
+
+    // Validaciones específicas para finalizado
+    if (f.estado === "finalizado") {
+      for (let i = 0; i < (f.origenes || []).length; i++) {
+        const env = parseFloat((f.origenes[i] || {}).litros) || 0;
+        const us = parseFloat((f.litrosUsados || [])[i]?.litros);
+        if (isNaN(us) || us < 0) {
+          alert(`Ingresá los litros usados para ${f.origenes[i]?.silo || `origen ${i + 1}`}.`);
+          return;
+        }
+        if (us > env) {
+          alert(`El origen ${f.origenes[i]?.silo} recibió ${env} L y no puede haber usado ${us.toLocaleString("es-AR")} L.`);
+          return;
+        }
+      }
+      if (totalSobrante > 0 && !f.destinoSobrante) {
+        alert(`Hay ${Math.round(totalSobrante).toLocaleString("es-AR")} L de sobrante. Indicá qué hacer con ellos.`);
+        return;
+      }
+      if (f.destinoSobrante === "otro_silo" && !f.siloSobrante) {
+        alert("Seleccioná el silo destino del sobrante.");
+        return;
+      }
+    }
+
+    setSaving(true);
+    try {
+      // Validar balance sólo para lotes que reservan (enviado/envasando) — no para finalizado/cancelado
+      if (f.estado !== "cancelado" && f.estado !== "finalizado") {
+        const byKey = {};
+        origenesFilled.forEach(o => {
+          const k = SILO_STOCK_KEY[o.silo] || o.silo;
+          byKey[k] = (byKey[k] || 0) + (parseFloat(o.litros) || 0);
+        });
+        const originalWasCancelled = initial?.estado === "cancelado";
+        const originalWasFinalizado = initial?.estado === "finalizado";
+        for (const [siloKey, totalL] of Object.entries(byKey)) {
+          // excludeFn: suma lo que el lote actual ya tiene reservado/deducido para este silo
+          const excludeFn = (isEdit && !originalWasCancelled && !originalWasFinalizado)
+            ? () => (initial.origenes || []).reduce((s, o) => {
+                const k = SILO_STOCK_KEY[o.silo] || o.silo;
+                return k === siloKey ? s + (parseFloat(o.litros) || 0) : s;
+              }, 0)
+            : null;
+          const check = await checkSiloBalance(date, siloKey, totalL, excludeFn);
+          if (!check.ok) {
+            alert(`El silo ${siloKey} tiene ${Math.round(check.current).toLocaleString("es-AR")} L disponibles y estás intentando usar ${Math.round(totalL).toLocaleString("es-AR")} L.`);
+            return;
+          }
+        }
+      }
+
+      // Confirmar al pasar a "finalizado"
+      if (f.estado === "finalizado" && initial?.estado !== "finalizado") {
+        const ok = await askConfirm({
+          title: "Finalizar lote",
+          message: "Al finalizar el lote se consolidarán los consumos registrados.",
+          confirmLabel: "Finalizar",
+        });
+        if (!ok) return;
+      }
+
+      onSave({ ...f, sobranteL: totalSobrante }, initial);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
-    <Modal title={initial?.id && initial.id === f.id && !initial._new ? "Editar lote" : "Nuevo lote de producción"} onClose={onClose}>
+    <Modal title={isEdit ? "Editar lote" : "Nuevo lote de producción"} onClose={onClose}>
+      {confirmUI}
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
 
-        {/* Estado */}
-        <div style={{ display: "flex", gap: 8 }}>
-          {["envasando", "finalizado", "cancelado"].map(est => (
-            <button key={est} type="button" onClick={() => set("estado")(est)} style={{
-              flex: 1, padding: "8px 4px", borderRadius: 8, fontSize: 11, fontWeight: 700,
-              border: `1.5px solid ${f.estado === est ? estadoColor[est] : C.border}`,
-              background: f.estado === est ? estadoColor[est] + "22" : C.surface,
-              color: f.estado === est ? estadoColor[est] : C.sub, cursor: "pointer",
-              textTransform: "capitalize",
-            }}>{est}</button>
-          ))}
-        </div>
-
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-          <F label="Hora"><Inp type="time" value={f.hora} onChange={set("hora")} /></F>
-          <F label="Responsable"><Inp value={f.responsable} onChange={set("responsable")} placeholder="Nombre..." /></F>
-        </div>
-
-        <F label="Producto">
-          <Sel value={f.producto} onChange={set("producto")} placeholder="Seleccionar producto..."
-            options={PRODS_PRODUCCION_LIST.map(p => p.nombre)} />
-        </F>
-        {prodInfo && (
-          <div style={{ fontSize: 11, color: C.sub, padding: "4px 8px", background: C.surface, borderRadius: 6 }}>
-            {prodInfo.up} und./caja · {prodInfo.vol < 1 ? `${prodInfo.vol * 1000} mL` : `${prodInfo.vol} L`} por unidad
+        {isReadOnly && (
+          <div style={{
+            background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8,
+            padding: "8px 12px", fontSize: 11, color: C.sub,
+            display: "flex", alignItems: "center", gap: 6,
+          }}>
+            <IcoCerrado size={13} strokeWidth={SW} />
+            Lote finalizado — solo Jefe puede modificar campos principales.
           </div>
         )}
 
-        <F label="Número de lote"><Inp value={f.lote} onChange={set("lote")} placeholder="Ej: L-001" /></F>
-
-        {/* Orígenes */}
-        <div style={{ ...card, padding: 10 }}>
-          <div style={{ ...secTitle, marginBottom: 8, fontSize: 12 }}>Silos de origen</div>
-          {(f.origenes || []).map((o, i) => (
-            <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 6, marginBottom: 6, alignItems: "end" }}>
-              <F label={`Origen ${i + 1} — Silo`}>
-                <Sel value={o.silo} onChange={v => setOrigen(i, "silo", v)}
-                  options={SILOS_TODOS} placeholder="Silo..." />
-              </F>
-              <F label="Litros">
-                <Inp type="number" value={o.litros} onChange={v => setOrigen(i, "litros", v)} placeholder="0" />
-              </F>
-              {(f.origenes || []).length > 1 && (
-                <button type="button" onClick={() => delOrigen(i)} style={{ ...btnSecondary, padding: "8px 10px", marginBottom: 0 }}>✕</button>
-              )}
-            </div>
+        {/* Estado — 4 estados */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 6 }}>
+          {["enviado", "envasando", "finalizado", "cancelado"].map(est => (
+            <button key={est} type="button"
+              disabled={isReadOnly}
+              onClick={() => {
+                if (isReadOnly) return;
+                setF(p => {
+                  const next = { ...p, estado: est };
+                  // Inicializar litrosUsados al pasar a finalizado
+                  if (est === "finalizado" && (!p.litrosUsados || p.litrosUsados.length === 0)) {
+                    next.litrosUsados = (p.origenes || []).map(o => ({ silo: o.silo, litros: o.litros }));
+                  }
+                  return next;
+                });
+              }}
+              style={{
+                padding: "7px 4px", borderRadius: 8, fontSize: 10, fontWeight: 700,
+                border: `1.5px solid ${f.estado === est ? estadoColor[est] : C.border}`,
+                background: f.estado === est ? estadoColor[est] + "22" : C.surface,
+                color: f.estado === est ? estadoColor[est] : C.sub,
+                cursor: isReadOnly ? "default" : "pointer",
+                opacity: isReadOnly ? 0.6 : 1,
+              }}>{estadoLabel[est]}</button>
           ))}
-          <button type="button" onClick={addOrigen} style={{ ...btnSecondary, fontSize: 12, padding: "6px 12px" }}>
-            + Agregar origen
-          </button>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-          <F label="Cajas producidas"><Inp type="number" value={f.cajas} onChange={set("cajas")} placeholder="0" /></F>
-          <div />
-        </div>
+        <fieldset disabled={isReadOnly} style={{ border: "none", padding: 0, margin: 0 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <F label="Hora"><Inp type="time" value={f.hora} onChange={set("hora")} /></F>
+              <F label="Responsable"><Inp value={f.responsable} onChange={set("responsable")} placeholder="Nombre..." /></F>
+            </div>
+            <F label="Producto">
+              <Sel value={f.producto} onChange={set("producto")} placeholder="Seleccionar producto..."
+                options={PRODS_PRODUCCION_LIST.map(p => p.nombre)} />
+            </F>
+            {prodInfo && (
+              <div style={{ fontSize: 11, color: C.sub, padding: "4px 8px", background: C.surface, borderRadius: 6 }}>
+                {prodInfo.up} und./caja · {prodInfo.vol < 1 ? `${prodInfo.vol * 1000} mL` : `${prodInfo.vol} L`} por unidad
+              </div>
+            )}
+            <F label="Número de lote"><Inp value={f.lote} onChange={set("lote")} placeholder="Ej: L-001" /></F>
 
-        {/* Cálculos */}
-        {totalLitros > 0 && (
+            {/* Orígenes (silos enviados) */}
+            <div style={{ ...card, padding: 10 }}>
+              <div style={{ ...secTitle, marginBottom: 8, fontSize: 12 }}>Silos de origen — litros enviados</div>
+              {(f.origenes || []).map((o, i) => (
+                <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 6, marginBottom: 6, alignItems: "end" }}>
+                  <F label={`Origen ${i + 1} — Silo`}>
+                    <Sel value={o.silo} onChange={v => setOrigen(i, "silo", v)} options={SILOS_TODOS} placeholder="Silo..." />
+                  </F>
+                  <F label="Litros enviados">
+                    <Inp type="number" value={o.litros} onChange={v => setOrigen(i, "litros", v)} placeholder="0" />
+                  </F>
+                  {(f.origenes || []).length > 1 && (
+                    <button type="button" onClick={() => delOrigen(i)} style={{ ...btnSecondary, padding: "8px 10px", marginBottom: 0 }}>✕</button>
+                  )}
+                </div>
+              ))}
+              <button type="button" onClick={addOrigen} style={{ ...btnSecondary, fontSize: 12, padding: "6px 12px" }}>
+                + Agregar origen
+              </button>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <F label="Cajas producidas"><Inp type="number" value={f.cajas} onChange={set("cajas")} placeholder="0" /></F>
+              <div />
+            </div>
+          </div>
+        </fieldset>
+
+        {/* Litros realmente usados — solo cuando estado es "finalizado" */}
+        {f.estado === "finalizado" && (
+          <div style={{ ...card, padding: 10, borderColor: C.success + "55" }}>
+            <div style={{ ...secTitle, marginBottom: 8, fontSize: 12, color: C.success }}>Litros realmente usados</div>
+            {(f.origenes || []).map((o, i) => {
+              const env = parseFloat(o.litros) || 0;
+              const us = parseFloat((f.litrosUsados || [])[i]?.litros) || 0;
+              const sob = Math.max(0, env - us);
+              return (
+                <div key={i} style={{ marginBottom: 8, padding: 8, background: C.surface, borderRadius: 8 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: C.text, marginBottom: 6 }}>
+                    {o.silo || `Origen ${i + 1}`}
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, alignItems: "end" }}>
+                    <div>
+                      <div style={{ fontSize: 10, color: C.sub }}>Enviado</div>
+                      <div style={{ fontFamily: FONT_MONO, fontWeight: 700, fontSize: 14, color: C.text }}>
+                        {env.toLocaleString("es-AR")} L
+                      </div>
+                    </div>
+                    <F label="Usado (L)">
+                      <Inp type="number" value={(f.litrosUsados || [])[i]?.litros || ""}
+                        onChange={v => setLitrosUsados(i, v)} readOnly={isReadOnly} />
+                    </F>
+                    {sob > 0 && (
+                      <div>
+                        <div style={{ fontSize: 10, color: C.accent }}>Sobrante</div>
+                        <div style={{ fontFamily: FONT_MONO, fontWeight: 700, fontSize: 14, color: C.accent }}>
+                          {sob.toLocaleString("es-AR")} L
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+
+            {/* Routing de sobrante */}
+            {totalSobrante > 0 && (
+              <div style={{ marginTop: 10, padding: 10, background: C.surface, borderRadius: 8, border: `1px solid ${C.accent}44` }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: C.accent, marginBottom: 8 }}>
+                  Sobrante total: {Math.round(totalSobrante).toLocaleString("es-AR")} L — ¿Qué hacer?
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 8 }}>
+                  {[
+                    ["origen",   "Volver al silo origen"],
+                    ["otro_silo","Enviar a otro silo"],
+                    ["merma",    "Marcar como merma"],
+                    ["proceso",  "Mantener en proceso"],
+                  ].map(([val, lbl]) => (
+                    <button key={val} type="button"
+                      disabled={isReadOnly}
+                      onClick={() => !isReadOnly && set("destinoSobrante")(val)}
+                      style={{
+                        padding: "8px 6px", borderRadius: 8, fontSize: 11, fontWeight: 600,
+                        border: `1.5px solid ${f.destinoSobrante === val ? C.accent : C.border}`,
+                        background: f.destinoSobrante === val ? C.accent + "22" : C.surface,
+                        color: f.destinoSobrante === val ? C.accent : C.sub,
+                        cursor: isReadOnly ? "default" : "pointer",
+                      }}>{lbl}</button>
+                  ))}
+                </div>
+                {f.destinoSobrante === "otro_silo" && (
+                  <F label="Silo destino del sobrante">
+                    <Sel value={f.siloSobrante || ""} onChange={set("siloSobrante")}
+                      options={SILOS_TODOS} placeholder="Seleccionar silo..." />
+                  </F>
+                )}
+                {f.destinoSobrante === "merma" && (
+                  <div style={{ fontSize: 11, color: C.danger, marginTop: 4 }}>
+                    ⚠ Los {Math.round(totalSobrante).toLocaleString("es-AR")} L de sobrante se registrarán como pérdida.
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Resumen de producción */}
+        {totalUsado > 0 && (
           <div style={{ ...card, background: C.surface, padding: 10 }}>
             <div style={{ ...secTitle, fontSize: 11, marginBottom: 6 }}>Resumen de producción</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4 }}>
               {[
-                ["Total ingresado", `${totalLitros.toLocaleString("es-AR")} L`],
-                ["Vol. envasado", volEnvasado > 0 ? `${volEnvasado.toFixed(0)} L` : "—"],
-                ["Merma", merma !== null ? `${merma.toFixed(0)} L (${merma < 0 ? "⚠" : ""})` : "—"],
-                ["Rendimiento", rendReal !== null ? `${rendReal.toFixed(1)}%` : "—"],
+                ["Enviado al proceso", `${totalEnviado.toLocaleString("es-AR")} L`],
+                ["Realmente usado",    `${Math.round(totalUsado).toLocaleString("es-AR")} L`],
+                ["Vol. envasado",      volEnvasado > 0 ? `${volEnvasado.toFixed(0)} L` : "—"],
+                ["Merma",              merma !== null ? `${merma.toFixed(0)} L${merma < 0 ? " ⚠" : ""}` : "—"],
+                ["Rendimiento",        rendReal !== null ? `${rendReal.toFixed(1)}%` : "—"],
+                ["Sobrante",           totalSobrante > 0 ? `${Math.round(totalSobrante).toLocaleString("es-AR")} L` : "—"],
               ].map(([lbl, val]) => (
                 <div key={lbl} style={{ padding: "4px 0", borderBottom: `1px solid ${C.border}33` }}>
                   <div style={{ fontSize: 10, color: C.sub }}>{lbl}</div>
@@ -2061,8 +2306,10 @@ const ProduccionForm = ({ initial, onSave, onClose, onDelete, date, perfil }) =>
             rows={2} style={{ ...inp, resize: "vertical", fontFamily: FONT_SANS }} placeholder="Notas opcionales..." />
         </F>
 
-        <button type="button" onClick={onSubmit} style={btnPrimary}>Guardar lote</button>
-        {onDelete && (
+        <button type="button" onClick={onSubmit} disabled={saving} style={{ ...btnPrimary, opacity: saving ? 0.7 : 1 }}>
+          {saving ? "Validando..." : "Guardar lote"}
+        </button>
+        {onDelete && !isReadOnly && (
           <button type="button" onClick={() => onDelete(f)} style={{ ...btnSecondary, color: C.danger, borderColor: C.danger + "55" }}>
             Eliminar
           </button>
@@ -2088,21 +2335,66 @@ const SecProduccion = ({ date, syncKey = 0, dayClosed = false, perfil = null }) 
     return ok;
   };
 
-  const onSave = async item => {
-    const updated = list.some(x => x.id === item.id)
+  const onSave = async (item, oldItem) => {
+    const isEditOp = list.some(x => x.id === item.id);
+    const updated = isEditOp
       ? list.map(x => x.id === item.id ? item : x)
       : [...list, item];
     const ok = await persist(updated);
     if (ok !== false) {
       _autoLitrosCache.delete(date);
-      await logAudit(date, list.some(x => x.id === item.id) ? "actualizar_produccion" : "nueva_produccion",
-        "produccion", `${item.producto} — Lote ${item.lote || "—"} — ${item.estado}`, perfil || "");
+
+      // Auto-movimiento si el sobrante va a otro silo (sólo al primer finalizado)
+      if (
+        item.estado === "finalizado" &&
+        item.destinoSobrante === "otro_silo" &&
+        item.siloSobrante &&
+        item.sobranteL > 0 &&
+        oldItem?.estado !== "finalizado"
+      ) {
+        const desde = (item.origenes || [])[0]?.silo || "Producción";
+        const movData = await load(date, "movimientos", { movs: [], ctrls: [] });
+        const autoMov = {
+          id: crypto.randomUUID(),
+          hora: getNow(),
+          desde,
+          hasta: item.siloSobrante,
+          litros: String(Math.round(item.sobranteL)),
+          motivo: `Sobrante lote ${item.lote || item.producto || "?"} (automático)`,
+          resp: perfil || "",
+        };
+        await save(date, "movimientos", { ...movData, movs: [...(movData.movs || []), autoMov] });
+        _autoLitrosCache.delete(date);
+        await logAudit(date, "mov_sobrante_produccion", "movimiento",
+          `Sobrante ${item.sobranteL} L de ${desde} → ${item.siloSobrante} (lote ${item.lote || "?"})`, perfil || "");
+      }
+
+      let resumen = `${item.producto} — Lote ${item.lote || "—"} — ${item.estado}`;
+      if (isEditOp && oldItem) {
+        const oldL = (oldItem.origenes || []).reduce((s, o) => s + (parseFloat(o.litros) || 0), 0);
+        const newL = (item.origenes || []).reduce((s, o) => s + (parseFloat(o.litros) || 0), 0);
+        const parts = [];
+        if (Math.round(oldL) !== Math.round(newL))
+          parts.push(`litros: ${Math.round(oldL).toLocaleString("es-AR")} → ${Math.round(newL).toLocaleString("es-AR")} L`);
+        if (oldItem.estado !== item.estado)
+          parts.push(`estado: ${oldItem.estado} → ${item.estado}`);
+        if (item.sobranteL > 0)
+          parts.push(`sobrante: ${Math.round(item.sobranteL).toLocaleString("es-AR")} L → ${item.destinoSobrante}`);
+        if (parts.length > 0) resumen += ` (${parts.join(", ")})`;
+      }
+      await logAudit(date, isEditOp ? "actualizar_produccion" : "nueva_produccion",
+        "produccion", resumen, perfil || "");
       setModal(null);
     }
   };
 
   const onDelete = async item => {
-    const confirmed = await askConfirm(`¿Eliminar lote ${item.lote || item.producto || "?"} ?`);
+    const confirmed = await askConfirm({
+      title: "Eliminar lote",
+      message: `¿Eliminar lote ${item.lote || item.producto || "?"}?`,
+      danger: true,
+      confirmLabel: "Eliminar",
+    });
     if (!confirmed) return;
     await persist(list.filter(x => x.id !== item.id));
     _autoLitrosCache.delete(date);
@@ -2176,6 +2468,7 @@ const SecProduccion = ({ date, syncKey = 0, dayClosed = false, perfil = null }) 
       {modal && (
         <ProduccionForm
           initial={modal === "new" ? emptyLote() : modal}
+          isEdit={modal !== "new"}
           onSave={onSave}
           onClose={() => setModal(null)}
           onDelete={modal !== "new" ? onDelete : null}
@@ -2193,6 +2486,7 @@ const SecStock = ({ date, syncKey = 0, perfil = null }) => {
   const [loading, setLoading] = useState(true);
   const [turno, setTurno] = useState(getCurrentTurno());
   const [autoLitros, setAutoLitros] = useState({});
+  const [autoReservados, setAutoReservados] = useState({});
   const [silosVaciados, setSilosVaciados] = useState([]);
 
   useEffect(() => {
@@ -2200,8 +2494,9 @@ const SecStock = ({ date, syncKey = 0, perfil = null }) => {
       load(date, "stock", {}),
       calcAutoLitros(date),
       load(date, "cip", {}),
-    ]).then(([d, { totals: autoTotals, productosBase }, cipData]) => {
+    ]).then(([d, { totals: autoTotals, productosBase, reservados: rsv }, cipData]) => {
       setAutoLitros(autoTotals);
+      setAutoReservados(rsv || {});
 
       // Silos con CIP completado hoy (tienen hora registrada)
       const cipDone = {};
@@ -2319,6 +2614,8 @@ const SecStock = ({ date, syncKey = 0, perfil = null }) => {
           {keys.map(silo => {
             const sd = ((td.silos || {})[silo]) || {};
             const litrosAuto = Math.max(0, autoLitros[silo] || 0);
+            const reservadoL = autoReservados[silo] || 0;
+            const disponibleL = Math.max(0, litrosAuto - reservadoL);
             const cap = SILO_CAP[silo] || 100000;
             const fillPct = Math.min(1, litrosAuto / cap);
             const fillColor = PROD_COLOR[sd.producto] || (litrosAuto > 0 ? PROD_COLOR["Leche Cruda"] : null);
@@ -2363,12 +2660,22 @@ const SecStock = ({ date, syncKey = 0, perfil = null }) => {
                     </div>
 
                     {/* Litros en silo / capacidad */}
-                    <div style={{ fontSize: 11, color: C.sub, marginBottom: 10 }}>
+                    <div style={{ fontSize: 11, color: C.sub, marginBottom: reservadoL > 0 ? 4 : 10 }}>
                       <span style={{ color: litrosAuto > 0 ? C.text : C.sub, fontFamily: FONT_MONO, fontWeight: 600 }}>
                         {litrosAuto.toLocaleString("es-AR")}
                       </span>
                       <span style={{ color: C.muted }}> / {cap.toLocaleString("es-AR")} L</span>
                     </div>
+                    {reservadoL > 0 && (
+                      <div style={{ marginBottom: 10, padding: "4px 8px", borderRadius: 6, background: C.accent + "18", border: `1px solid ${C.accent}33` }}>
+                        <div style={{ fontSize: 10, color: C.accent, fontFamily: FONT_MONO }}>
+                          Reservado prod.: {reservadoL.toLocaleString("es-AR")} L
+                        </div>
+                        <div style={{ fontSize: 10, color: C.success, fontFamily: FONT_MONO }}>
+                          Disponible: {disponibleL.toLocaleString("es-AR")} L
+                        </div>
+                      </div>
+                    )}
 
                     {/* Selector de producto */}
                     <select
@@ -2922,12 +3229,13 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
       load(date, "stock", {}),
       load(date, "fortificados", []),
       load(date, "cip", {}),
+      load(date, "produccion", []),
       calcAutoLitros(date),
       db.get(ELIM_KEY).then(r => r ? JSON.parse(r.value) : []).catch(() => []),
       getActiveUsers(),
       db.get(auditKey(date)).then(r => r ? JSON.parse(r.value) : []).catch(() => []),
-    ]).then(([ing, cargas, movData, stock, forts, cip, _autoL, historial, activeUsers, auditLog]) => {
-      setD({ ing, cargas, movData, stock, forts, cip, autoLitros: _autoL.totals, historial, auditLog });
+    ]).then(([ing, cargas, movData, stock, forts, cip, produccion, _autoL, historial, activeUsers, auditLog]) => {
+      setD({ ing, cargas, movData, stock, forts, cip, produccion, autoLitros: _autoL.totals, autoReservados: _autoL.reservados || {}, historial, auditLog });
       setUsers(activeUsers);
     });
   }, [date, syncKey]);
@@ -3024,6 +3332,8 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
 
   const SiloBar = ({ silo }) => {
     const litros = d.autoLitros[silo] || 0;
+    const reservado = d.autoReservados?.[silo] || 0;
+    const disponible = Math.max(0, litros - reservado);
     const cap = SILO_CAP[silo] || 10000;
     const pct = Math.min(100, Math.max(0, (litros / cap) * 100));
     let prod = "";
@@ -3089,6 +3399,16 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
             </span>
           </div>
         </div>
+        {reservado > 0 && (
+          <div style={{ marginTop: 6, padding: "4px 8px", borderRadius: 6, background: C.accent + "15", border: `1px solid ${C.accent}33`, display: "flex", justifyContent: "space-between" }}>
+            <span style={{ fontSize: 10, color: C.accent, fontFamily: FONT_MONO }}>
+              Reservado prod.: {reservado.toLocaleString("es-AR")} L
+            </span>
+            <span style={{ fontSize: 10, color: C.success, fontFamily: FONT_MONO }}>
+              Disp.: {disponible.toLocaleString("es-AR")} L
+            </span>
+          </div>
+        )}
       </div>
     );
   };
@@ -4524,11 +4844,54 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
               <StatCard Icon={IcoBalance}     label="Balance"    value={balance}         unit="L" color={balColor} />
               <StatCard Icon={CamionIcon}     label="Camiones"   value={d.ing.length}    color={C.text} sub={`${tambosUnicos} tambos`} />
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8, marginBottom: 14 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8, marginBottom: 8 }}>
               <StatCard Icon={IcoDestino}      label="Cargas"  value={d.cargas.length}           color={C.text} />
               <StatCard Icon={IcoFortificados} label="Fort."   value={d.forts.length}            color={C.success} />
               <StatCard Icon={IcoMovimientos}  label="Movim."  value={(d.movData.movs || []).length} color={C.sub} />
             </div>
+
+            {/* Producción del día */}
+            {(d.produccion || []).length > 0 && (() => {
+              const activos = (d.produccion || []).filter(p => p.estado !== "cancelado");
+              const consumido = activos.reduce((s, p) =>
+                s + (p.origenes || []).reduce((ss, o) => ss + (parseFloat(o.litros) || 0), 0), 0);
+              const envasado = activos.reduce((s, p) => {
+                const info = PRODS_PRODUCCION_LIST.find(x => x.nombre === p.producto);
+                const caj = parseFloat(p.cajas) || 0;
+                return info ? s + caj * info.up * info.vol : s;
+              }, 0);
+              const mermaP = consumido > 0 ? consumido - envasado : null;
+              const rendP = (consumido > 0 && envasado > 0) ? (envasado / consumido * 100) : null;
+              const finalizados = activos.filter(p => p.estado === "finalizado").length;
+              return (
+                <div style={{
+                  ...card, padding: "12px 14px", marginBottom: 14,
+                  borderColor: C.accent + "33",
+                  background: _THEME === "light"
+                    ? `linear-gradient(135deg, #fff 0%, ${C.accent}08 100%)`
+                    : `linear-gradient(135deg, ${C.card} 0%, ${C.accent}10 100%)`,
+                }}>
+                  <div style={{ fontSize: 9, color: C.sub, textTransform: "uppercase", letterSpacing: "0.12em", fontWeight: 700, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
+                    <IcoProduccion size={12} strokeWidth={SW} />
+                    Producción · {(d.produccion || []).length} lote{(d.produccion || []).length !== 1 ? "s" : ""}
+                    {finalizados > 0 && <span style={{ color: C.success }}>{" "}· {finalizados} finalizado{finalizados !== 1 ? "s" : ""}</span>}
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 6 }}>
+                    {[
+                      ["Consumido", consumido > 0 ? `${Math.round(consumido).toLocaleString("es-AR")} L` : "—", C.accent],
+                      ["Envasado",  envasado > 0  ? `${Math.round(envasado).toLocaleString("es-AR")} L`  : "—", C.text],
+                      ["Merma",     mermaP !== null ? `${Math.round(mermaP).toLocaleString("es-AR")} L` : "—", mermaP !== null && mermaP < 0 ? C.danger : C.sub],
+                      ["Rend.",     rendP  !== null ? `${rendP.toFixed(1)}%` : "—", rendP !== null && rendP >= 90 ? C.success : C.accent],
+                    ].map(([lbl, val, col]) => (
+                      <div key={lbl} style={{ textAlign: "center" }}>
+                        <div style={{ fontSize: 15, fontWeight: 800, fontFamily: FONT_MONO, color: col, lineHeight: 1 }}>{val}</div>
+                        <div style={{ fontSize: 9, color: C.sub, textTransform: "uppercase", letterSpacing: "0.08em", marginTop: 3, fontWeight: 700 }}>{lbl}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Alerts */}
             {alertas.length === 0 ? (
