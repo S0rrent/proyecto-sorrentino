@@ -65,9 +65,11 @@ const PERFILES = {
   admin:        { usuario: "Administracion",email: "admin@yatasto.internal",      label: "Administración",   Icon: IcoAdmin },
 };
 const SILOS = ["100 NUEVO", "100 VIEJO", "80", "60", "42", "40F", "20", "15"];
-const SILOS_TODOS = [...SILOS, "TQ1", "TQ2", "TQ3", "TQ6", "TQ7", "TQ8", "TQ9", "POSTRE", "TINA", "DULCE"];
+const SILOS_TODOS = [...SILOS, "TQ1", "TQ2", "TQ3", "TQ5", "TQ6", "TQ7", "TQ8", "TQ9", "POSTRE", "TINA", "DULCE"];
 const CIP_SILOS = ["100 N", "100 V", "80", "60", "42", "40F", "20", "15", "LINEA 1", "LINEA 2"];
-const STOCK_SILOS = ["100 N", "100 V", "80", "60", "42", "40F", "20", "15", "TQ6", "TQ7"];
+const SILOS_GRUPO   = ["100 N","100 V","80","60","42","40F","20","15"];
+const PROCESO_GRUPO = ["TQ1","TQ2","TQ3","TQ5","TQ6","TQ7","TQ8","TQ9","TINA","DULCE","POSTRE"];
+const STOCK_SILOS   = [...SILOS_GRUPO, ...PROCESO_GRUPO];
 const TURNOS = ["07:00", "14:00", "21:00"];
 const TURNO_LABELS = { "07:00": "Mañana", "14:00": "Tarde", "21:00": "Noche" };
 const TURNO_CIERRE = { "07:00": "14:00", "14:00": "21:00", "21:00": "07:00" }; // hora de cierre
@@ -90,21 +92,27 @@ const SILO_CAP = {
   "100 N": 100000, "100 V": 100000,
   "80": 80000, "60": 60000, "42": 42000,
   "40F": 40000, "20": 20000, "15": 15000,
-  "TQ6": 6000, "TQ7": 7000,
+  "TQ1": 5000, "TQ2": 5000, "TQ3": 6000, "TQ5": 3000,
+  "TQ6": 15000, "TQ7": 15000, "TQ8": 3000, "TQ9": 4000,
+  "TINA": 6000, "DULCE": 1900, "POSTRE": 1850,
 };
 // Mínimos recomendados por silo (litros)
 const SILO_MIN = {
   "100 N": 5000, "100 V": 5000,
   "80": 4000, "60": 3000, "42": 2000,
   "40F": 2000, "20": 1000, "15": 1000,
-  "TQ6": 500, "TQ7": 500,
+  "TQ1": 300, "TQ2": 300, "TQ3": 300, "TQ5": 200,
+  "TQ6": 500, "TQ7": 500, "TQ8": 200, "TQ9": 200,
+  "TINA": 300, "DULCE": 100, "POSTRE": 100,
 };
 // Máximos recomendados por silo (litros) — 95% de capacidad aprox.
 const SILO_MAX = {
   "100 N": 95000, "100 V": 95000,
   "80": 76000, "60": 57000, "42": 40000,
   "40F": 38000, "20": 19000, "15": 14000,
-  "TQ6": 5700, "TQ7": 6650,
+  "TQ1": 4750, "TQ2": 4750, "TQ3": 5700, "TQ5": 2850,
+  "TQ6": 14250, "TQ7": 14250, "TQ8": 2850, "TQ9": 3800,
+  "TINA": 5700, "DULCE": 1800, "POSTRE": 1760,
 };
 
 // Color de llenado por producto
@@ -126,7 +134,9 @@ const SILO_STOCK_KEY = {
   "100 VIEJO": "100 V", "100 V": "100 V",
   "80": "80", "60": "60", "42": "42", "40F": "40F",
   "20": "20", "15": "15",
-  "TQ6": "TQ6", "TQ7": "TQ7",
+  "TQ1": "TQ1", "TQ2": "TQ2", "TQ3": "TQ3", "TQ5": "TQ5",
+  "TQ6": "TQ6", "TQ7": "TQ7", "TQ8": "TQ8", "TQ9": "TQ9",
+  "TINA": "TINA", "DULCE": "DULCE", "POSTRE": "POSTRE",
 };
 // Productos de despacho para carga de camiones
 const CARGA_PRODUCTOS_BASE = ["Leche Entera", "Leche Descremada", "Suero", "Lactosa", "Concentrado", "Crema", "Otro"];
@@ -825,7 +835,7 @@ async function checkSiloBalance(date, siloRaw, litrosImpacto, excludeFn = null) 
   const litros = parseFloat(litrosImpacto) || 0;
   if (!siloRaw || litros <= 0) return { ok: true };
   const siloKey = SILO_STOCK_KEY[siloRaw] || siloRaw;
-  const totals = await calcAutoLitros(date);
+  const { totals } = await calcAutoLitros(date);
   let current = totals[siloKey] || 0;
   if (excludeFn) current = current + (excludeFn() || 0); // re-sumar el aporte del item editado
   const next = current - litros;
@@ -2022,99 +2032,107 @@ const SecStock = ({ date, syncKey = 0 }) => {
         <Inp value={td.resp || ""} onChange={v => updateResp(turno, v)} placeholder="Nombre del responsable" />
       </div>
 
-      {/* Tarjetas de silos */}
-      {STOCK_SILOS.map(silo => {
-        const sd = ((td.silos || {})[silo]) || {};
-        const litrosAuto = Math.max(0, autoLitros[silo] || 0);
-        const cap = SILO_CAP[silo] || 100000;
-        const fillPct = Math.min(1, litrosAuto / cap);
-        const fillColor = PROD_COLOR[sd.producto] || (litrosAuto > 0 ? PROD_COLOR["Leche Cruda"] : null);
-        const hasData = litrosAuto > 0 || sd.producto || sd.ph;
-        const pct = (fillPct * 100).toFixed(1);
-
-        return (
-          <div key={silo} style={{ ...card, borderColor: hasData ? C.accentDark : C.border, padding: 12 }}>
-            {/* Header: nombre + litros acumulados */}
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
-              <span style={{ fontWeight: 700, fontSize: 14, color: C.text, letterSpacing: "0.04em" }}>
-                {silo.startsWith("TQ") ? "TQ" : "SILO"} {silo.replace("TQ", "")}
-              </span>
-              <div style={{ textAlign: "right" }}>
-                <div style={{ fontSize: 10, color: C.sub, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 1 }}>Acumulado del día</div>
-                <span style={{ fontFamily: FONT_MONO, fontWeight: 700, fontSize: 16, color: litrosAuto > 0 ? C.accent : C.sub }}>
-                  {litrosAuto.toLocaleString("es-AR")} L
-                </span>
-              </div>
-            </div>
-
-            {/* SVG silo + datos numéricos */}
-            <div style={{ display: "grid", gridTemplateColumns: "80px 1fr", gap: 12, alignItems: "center", marginBottom: 10 }}>
-              <SiloSVG siloKey={silo} litros={litrosAuto} producto={sd.producto || ""} />
-              <div>
-                {/* Barra de nivel */}
-                <div style={{ marginBottom: 8 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: C.sub, marginBottom: 4 }}>
-                    <span style={{ textTransform: "uppercase", letterSpacing: "0.08em" }}>Nivel</span>
-                    <span style={{ fontWeight: 700, color: litrosAuto > 0 ? C.text : C.sub }}>{pct}%</span>
-                  </div>
-                  <div style={{ background: C.muted, borderRadius: 4, height: 6, overflow: "hidden" }}>
-                    <div style={{
-                      height: "100%", borderRadius: 4,
-                      background: fillColor || "#3a4460",
-                      width: `${fillPct * 100}%`,
-                      transition: "width 1.2s ease, background 0.6s ease",
-                      boxShadow: fillColor ? `0 0 6px ${fillColor}66` : "none",
-                    }} />
-                  </div>
-                </div>
-
-                {/* Litros en silo / capacidad */}
-                <div style={{ fontSize: 11, color: C.sub, marginBottom: 10 }}>
-                  <span style={{ color: litrosAuto > 0 ? C.text : C.sub, fontFamily: FONT_MONO, fontWeight: 600 }}>
-                    {litrosAuto.toLocaleString("es-AR")}
-                  </span>
-                  <span style={{ color: C.muted }}> / {cap.toLocaleString("es-AR")} L</span>
-                </div>
-
-                {/* Selector de producto */}
-                <select
-                  style={{
-                    ...inp, fontSize: 12, padding: "7px 10px", WebkitAppearance: "none",
-                    ...(sd.producto && fillColor ? { borderColor: fillColor, boxShadow: `0 0 0 1px ${fillColor}44` } : {})
-                  }}
-                  value={sd.producto || ""}
-                  onChange={e => updateSilo(turno, silo, "producto", e.target.value)}
-                >
-                  <option value="">Sin producto</option>
-                  {PRODS_STOCK.map(p => (
-                    <option key={p} value={p}>{p}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            {/* pH / Grasa / °D / °C */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-              <F label="pH">
-                <input style={{ ...inp, padding: "8px 10px", fontSize: 13 }} type="number" inputMode="decimal"
-                  value={sd.ph || ""} onChange={e => updateSilo(turno, silo, "ph", e.target.value)} step="0.01" />
-              </F>
-              <F label="Grasa %">
-                <input style={{ ...inp, padding: "8px 10px", fontSize: 13 }} type="number" inputMode="decimal"
-                  value={sd.grasa || ""} onChange={e => updateSilo(turno, silo, "grasa", e.target.value)} step="0.01" />
-              </F>
-              <F label="°D">
-                <input style={{ ...inp, padding: "8px 10px", fontSize: 13 }} type="number" inputMode="decimal"
-                  value={sd.gD || ""} onChange={e => updateSilo(turno, silo, "gD", e.target.value)} step="0.1" />
-              </F>
-              <F label="°C">
-                <input style={{ ...inp, padding: "8px 10px", fontSize: 13 }} type="number" inputMode="decimal"
-                  value={sd.gC || ""} onChange={e => updateSilo(turno, silo, "gC", e.target.value)} step="0.1" />
-              </F>
-            </div>
+      {/* Tarjetas de silos — agrupadas */}
+      {[{ label: "Silos", keys: SILOS_GRUPO }, { label: "Proceso", keys: PROCESO_GRUPO }].map(({ label, keys }) => (
+        <React.Fragment key={label}>
+          <div style={{ fontSize: 10, color: C.sub, textTransform: "uppercase", letterSpacing: "0.12em", fontWeight: 700, margin: "16px 0 8px", paddingBottom: 4, borderBottom: `1px solid ${C.border}44` }}>
+            {label}
           </div>
-        );
-      })}
+          {keys.map(silo => {
+            const sd = ((td.silos || {})[silo]) || {};
+            const litrosAuto = Math.max(0, autoLitros[silo] || 0);
+            const cap = SILO_CAP[silo] || 100000;
+            const fillPct = Math.min(1, litrosAuto / cap);
+            const fillColor = PROD_COLOR[sd.producto] || (litrosAuto > 0 ? PROD_COLOR["Leche Cruda"] : null);
+            const hasData = litrosAuto > 0 || sd.producto || sd.ph;
+            const pct = (fillPct * 100).toFixed(1);
+
+            return (
+              <div key={silo} style={{ ...card, borderColor: hasData ? C.accentDark : C.border, padding: 12 }}>
+                {/* Header: nombre + litros acumulados */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
+                  <span style={{ fontWeight: 700, fontSize: 14, color: C.text, letterSpacing: "0.04em" }}>
+                    {silo.startsWith("TQ") ? "TQ" : (["TINA","DULCE","POSTRE"].includes(silo) ? "" : "SILO ")}
+                    {silo.replace("TQ", "")}
+                  </span>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontSize: 10, color: C.sub, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 1 }}>Acumulado del día</div>
+                    <span style={{ fontFamily: FONT_MONO, fontWeight: 700, fontSize: 16, color: litrosAuto > 0 ? C.accent : C.sub }}>
+                      {litrosAuto.toLocaleString("es-AR")} L
+                    </span>
+                  </div>
+                </div>
+
+                {/* SVG silo + datos numéricos */}
+                <div style={{ display: "grid", gridTemplateColumns: "80px 1fr", gap: 12, alignItems: "center", marginBottom: 10 }}>
+                  <SiloSVG siloKey={silo} litros={litrosAuto} producto={sd.producto || ""} />
+                  <div>
+                    {/* Barra de nivel */}
+                    <div style={{ marginBottom: 8 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: C.sub, marginBottom: 4 }}>
+                        <span style={{ textTransform: "uppercase", letterSpacing: "0.08em" }}>Nivel</span>
+                        <span style={{ fontWeight: 700, color: litrosAuto > 0 ? C.text : C.sub }}>{pct}%</span>
+                      </div>
+                      <div style={{ background: C.muted, borderRadius: 4, height: 6, overflow: "hidden" }}>
+                        <div style={{
+                          height: "100%", borderRadius: 4,
+                          background: fillColor || "#3a4460",
+                          width: `${fillPct * 100}%`,
+                          transition: "width 1.2s ease, background 0.6s ease",
+                          boxShadow: fillColor ? `0 0 6px ${fillColor}66` : "none",
+                        }} />
+                      </div>
+                    </div>
+
+                    {/* Litros en silo / capacidad */}
+                    <div style={{ fontSize: 11, color: C.sub, marginBottom: 10 }}>
+                      <span style={{ color: litrosAuto > 0 ? C.text : C.sub, fontFamily: FONT_MONO, fontWeight: 600 }}>
+                        {litrosAuto.toLocaleString("es-AR")}
+                      </span>
+                      <span style={{ color: C.muted }}> / {cap.toLocaleString("es-AR")} L</span>
+                    </div>
+
+                    {/* Selector de producto */}
+                    <select
+                      style={{
+                        ...inp, fontSize: 12, padding: "7px 10px", WebkitAppearance: "none",
+                        ...(sd.producto && fillColor ? { borderColor: fillColor, boxShadow: `0 0 0 1px ${fillColor}44` } : {})
+                      }}
+                      value={sd.producto || ""}
+                      onChange={e => updateSilo(turno, silo, "producto", e.target.value)}
+                    >
+                      <option value="">Sin producto</option>
+                      {PRODS_STOCK.map(p => (
+                        <option key={p} value={p}>{p}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* pH / Grasa / °D / °C */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                  <F label="pH">
+                    <input style={{ ...inp, padding: "8px 10px", fontSize: 13 }} type="number" inputMode="decimal"
+                      value={sd.ph || ""} onChange={e => updateSilo(turno, silo, "ph", e.target.value)} step="0.01" />
+                  </F>
+                  <F label="Grasa %">
+                    <input style={{ ...inp, padding: "8px 10px", fontSize: 13 }} type="number" inputMode="decimal"
+                      value={sd.grasa || ""} onChange={e => updateSilo(turno, silo, "grasa", e.target.value)} step="0.01" />
+                  </F>
+                  <F label="°D">
+                    <input style={{ ...inp, padding: "8px 10px", fontSize: 13 }} type="number" inputMode="decimal"
+                      value={sd.gD || ""} onChange={e => updateSilo(turno, silo, "gD", e.target.value)} step="0.1" />
+                  </F>
+                  <F label="°C">
+                    <input style={{ ...inp, padding: "8px 10px", fontSize: 13 }} type="number" inputMode="decimal"
+                      value={sd.gC || ""} onChange={e => updateSilo(turno, silo, "gC", e.target.value)} step="0.1" />
+                  </F>
+                </div>
+              </div>
+            );
+          })}
+        </React.Fragment>
+      ))}
     </div>
   );
 };
@@ -2363,7 +2381,7 @@ const InformeModal = ({ date, onClose }) => {
       load(date, "stock", {}),
       load(date, "fortificados", []),
       calcAutoLitros(date),
-    ]).then(([ing, cip, carg, mov, stk, fort, litros]) => setD({ ing, cip, carg, mov, stk, fort, litros }));
+    ]).then(([ing, cip, carg, mov, stk, fort, { totals: litros }]) => setD({ ing, cip, carg, mov, stk, fort, litros }));
   }, [date]);
 
   const Blk = ({ title, children }) => (
@@ -2629,8 +2647,8 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
       db.get(ELIM_KEY).then(r => r ? JSON.parse(r.value) : []).catch(() => []),
       getActiveUsers(),
       db.get(auditKey(date)).then(r => r ? JSON.parse(r.value) : []).catch(() => []),
-    ]).then(([ing, cargas, movData, stock, forts, cip, autoLitros, historial, activeUsers, auditLog]) => {
-      setD({ ing, cargas, movData, stock, forts, cip, autoLitros, historial, auditLog });
+    ]).then(([ing, cargas, movData, stock, forts, cip, _autoL, historial, activeUsers, auditLog]) => {
+      setD({ ing, cargas, movData, stock, forts, cip, autoLitros: _autoL.totals, historial, auditLog });
       setUsers(activeUsers);
     });
   }, [date, syncKey]);
@@ -2754,7 +2772,11 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, alignItems: "center" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <div style={{ width: 8, height: 8, borderRadius: "50%", background: statusColor, boxShadow: `0 0 6px ${statusColor}` }} />
-            <span style={{ fontSize: 13, fontWeight: 700, color: C.text }}>Silo {silo}</span>
+            <span style={{ fontSize: 13, fontWeight: 700, color: C.text }}>
+              {silo.startsWith("TQ") ? `TQ${silo.replace("TQ","")}`
+                : ["TINA","DULCE","POSTRE"].includes(silo) ? silo
+                : `Silo ${silo}`}
+            </span>
             {isAlert && <span style={{ fontSize: 9, background: C.accent + "22", color: C.accent, borderRadius: 5, padding: "1px 6px", fontWeight: 700, letterSpacing: "0.05em" }}>⚠ LLENO</span>}
           </div>
           <span style={{ fontSize: 15, fontFamily: FONT_MONO, fontWeight: 800, color: isEmpty ? C.danger : C.accent }}>
@@ -2840,7 +2862,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
           load(day, "stock", {}),
           load(day, "fortificados", []),
         ]);
-        const autoL = await calcAutoLitros(day);
+        const { totals: autoL } = await calcAutoLitros(day);
         return { day, ing, cargas, movData, stk, forts, autoL };
       }));
       const { ing, cargas, movData, stk, forts, autoL } = allDayData[0];
@@ -3422,7 +3444,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
         load(exportDate, "stock", {}),
         load(exportDate, "fortificados", []),
       ]);
-      const autoL = await calcAutoLitros(exportDate);
+      const { totals: autoL } = await calcAutoLitros(exportDate);
 
       // ── KPIs ─────────────────────────────────────────────────
       const totIng   = ing.reduce((s, i) => s + (parseFloat(i.litrosFca) || 0), 0);
@@ -4260,7 +4282,14 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
       {tab === "silos" && (
         <div>
           <div style={{ ...secTitle, marginBottom: 10 }}>Estado de silos — {fmtDate(date)}</div>
-          {STOCK_SILOS.map(s => <SiloBar key={s} silo={s} />)}
+          <div style={{ fontSize: 10, color: C.sub, textTransform: "uppercase", letterSpacing: "0.12em", fontWeight: 700, marginBottom: 8, paddingBottom: 4, borderBottom: `1px solid ${C.border}44` }}>
+            Silos
+          </div>
+          {SILOS_GRUPO.map(s => <SiloBar key={s} silo={s} />)}
+          <div style={{ fontSize: 10, color: C.sub, textTransform: "uppercase", letterSpacing: "0.12em", fontWeight: 700, margin: "16px 0 8px", paddingBottom: 4, borderBottom: `1px solid ${C.border}44` }}>
+            Proceso
+          </div>
+          {PROCESO_GRUPO.map(s => <SiloBar key={s} silo={s} />)}
         </div>
       )}
 
