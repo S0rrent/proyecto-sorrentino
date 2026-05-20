@@ -142,40 +142,44 @@ const SILO_STOCK_KEY = {
 const CARGA_PRODUCTOS_BASE = ["Leche Entera", "Leche Descremada", "Suero", "Lactosa", "Concentrado", "Crema", "Otro"];
 // Categorías de producción y sus variantes para el wizard
 const PROD_CATEGORIAS = {
-  Tetra:    ["Entera", "Descremada"],
-  Ultra:    ["Entera", "Descremada"],
-  Bebible:  ["Frutilla", "Durazno", "Vainilla"],
-  Batido:   ["Frutilla", "Vainilla"],
-  Firme:    ["Frutilla", "Vainilla"],
-  Postre:   ["100g Chocolate", "100g DDL", "100g Vainilla", "230g Chocolate", "230g DDL", "230g Vainilla"],
-  Gelatina: ["Manzana", "Frutilla"],
-  DDL:      ["Familiar 400g", "Repostero 400g"],
-  Otro:     null,
+  "Leche Tetra":    ["Entera", "Descremada"],
+  "Leche Ultra":    ["Entera", "Descremada"],
+  "Yogurt Bebible": ["Frutilla", "Durazno", "Vainilla"],
+  "Yogurt Batido":  ["Frutilla", "Vainilla"],
+  "Yogurt Firme":   ["Frutilla", "Vainilla"],
+  "Flan":           ["Vainilla", "Chocolate"],
+  "Postre 100g":    ["Chocolate", "DDL", "Vainilla"],
+  "Postre 230g":    ["Chocolate", "DDL", "Vainilla"],
+  "Gelatina":       ["Manzana", "Frutilla"],
+  "DDL":            ["Familiar 400g", "Repostero 400g"],
+  "Otro":           null,
 };
 // Productos de producción con unidades/caja y volumen por unidad (litros)
 const PRODS_PRODUCCION_LIST = [
-  { cat: "Tetra",    variant: "Entera",        nombre: "TETRA Entera",            up: 12, vol: 1.0  },
-  { cat: "Tetra",    variant: "Descremada",     nombre: "TETRA Descremada",        up: 12, vol: 1.0  },
-  { cat: "Ultra",    variant: "Entera",         nombre: "ULTRA Entera",            up: 12, vol: 1.0  },
-  { cat: "Ultra",    variant: "Descremada",     nombre: "ULTRA Descremada",        up: 12, vol: 1.0  },
-  { cat: "Bebible",  variant: "Frutilla",       nombre: "Yogurt Bebible Frutilla", up: 24, vol: 0.2  },
-  { cat: "Bebible",  variant: "Durazno",        nombre: "Yogurt Bebible Durazno",  up: 24, vol: 0.2  },
-  { cat: "Bebible",  variant: "Vainilla",       nombre: "Yogurt Bebible Vainilla", up: 24, vol: 0.2  },
-  { cat: "Batido",   variant: "Frutilla",       nombre: "Yogurt Batido Frutilla",  up: 12, vol: 0.4  },
-  { cat: "Batido",   variant: "Vainilla",       nombre: "Yogurt Batido Vainilla",  up: 12, vol: 0.4  },
-  { cat: "Firme",    variant: "Frutilla",       nombre: "Yogurt Firme Frutilla",   up: 20, vol: 0.2  },
-  { cat: "Firme",    variant: "Vainilla",       nombre: "Yogurt Firme Vainilla",   up: 20, vol: 0.2  },
-  { cat: "Postre",   variant: "100g Chocolate", nombre: "Postre 100g Chocolate",   up: 24, vol: 0.1  },
-  { cat: "Postre",   variant: "100g DDL",       nombre: "Postre 100g DDL",         up: 24, vol: 0.1  },
-  { cat: "Postre",   variant: "100g Vainilla",  nombre: "Postre 100g Vainilla",    up: 24, vol: 0.1  },
-  { cat: "Postre",   variant: "230g Chocolate", nombre: "Postre 230g Chocolate",   up: 20, vol: 0.23 },
-  { cat: "Postre",   variant: "230g DDL",       nombre: "Postre 230g DDL",         up: 20, vol: 0.23 },
-  { cat: "Postre",   variant: "230g Vainilla",  nombre: "Postre 230g Vainilla",    up: 20, vol: 0.23 },
-  { cat: "Gelatina", variant: "Manzana",        nombre: "Gelatina Manzana",        up: 24, vol: 0.1  },
-  { cat: "Gelatina", variant: "Frutilla",       nombre: "Gelatina Frutilla",       up: 24, vol: 0.1  },
-  { cat: "DDL",      variant: "Familiar 400g",  nombre: "DDL Familiar 400g",       up: 12, vol: 0.4  },
-  { cat: "DDL",      variant: "Repostero 400g", nombre: "DDL Repostero 400g",      up: 12, vol: 0.4  },
-  { cat: "Otro",     variant: "Otro",           nombre: "Otro",                    up: 1,  vol: 1.0  },
+  { cat: "Leche Tetra",    variant: "Entera",        nombre: "TETRA Entera",            up: 12, vol: 1.0  },
+  { cat: "Leche Tetra",    variant: "Descremada",     nombre: "TETRA Descremada",        up: 12, vol: 1.0  },
+  { cat: "Leche Ultra",    variant: "Entera",         nombre: "ULTRA Entera",            up: 12, vol: 1.0  },
+  { cat: "Leche Ultra",    variant: "Descremada",     nombre: "ULTRA Descremada",        up: 12, vol: 1.0  },
+  { cat: "Yogurt Bebible", variant: "Frutilla",       nombre: "Yogurt Bebible Frutilla", up: 24, vol: 0.2  },
+  { cat: "Yogurt Bebible", variant: "Durazno",        nombre: "Yogurt Bebible Durazno",  up: 24, vol: 0.2  },
+  { cat: "Yogurt Bebible", variant: "Vainilla",       nombre: "Yogurt Bebible Vainilla", up: 24, vol: 0.2  },
+  { cat: "Yogurt Batido",  variant: "Frutilla",       nombre: "Yogurt Batido Frutilla",  up: 12, vol: 0.4  },
+  { cat: "Yogurt Batido",  variant: "Vainilla",       nombre: "Yogurt Batido Vainilla",  up: 12, vol: 0.4  },
+  { cat: "Yogurt Firme",   variant: "Frutilla",       nombre: "Yogurt Firme Frutilla",   up: 20, vol: 0.2  },
+  { cat: "Yogurt Firme",   variant: "Vainilla",       nombre: "Yogurt Firme Vainilla",   up: 20, vol: 0.2  },
+  { cat: "Flan",           variant: "Vainilla",       nombre: "Flan Vainilla",           up: 24, vol: 0.1  },
+  { cat: "Flan",           variant: "Chocolate",      nombre: "Flan Chocolate",          up: 24, vol: 0.1  },
+  { cat: "Postre 100g",    variant: "Chocolate",      nombre: "Postre 100g Chocolate",   up: 24, vol: 0.1  },
+  { cat: "Postre 100g",    variant: "DDL",            nombre: "Postre 100g DDL",         up: 24, vol: 0.1  },
+  { cat: "Postre 100g",    variant: "Vainilla",       nombre: "Postre 100g Vainilla",    up: 24, vol: 0.1  },
+  { cat: "Postre 230g",    variant: "Chocolate",      nombre: "Postre 230g Chocolate",   up: 20, vol: 0.23 },
+  { cat: "Postre 230g",    variant: "DDL",            nombre: "Postre 230g DDL",         up: 20, vol: 0.23 },
+  { cat: "Postre 230g",    variant: "Vainilla",       nombre: "Postre 230g Vainilla",    up: 20, vol: 0.23 },
+  { cat: "Gelatina",       variant: "Manzana",        nombre: "Gelatina Manzana",        up: 24, vol: 0.1  },
+  { cat: "Gelatina",       variant: "Frutilla",       nombre: "Gelatina Frutilla",       up: 24, vol: 0.1  },
+  { cat: "DDL",            variant: "Familiar 400g",  nombre: "DDL Familiar 400g",       up: 12, vol: 0.4  },
+  { cat: "DDL",            variant: "Repostero 400g", nombre: "DDL Repostero 400g",      up: 12, vol: 0.4  },
+  { cat: "Otro",           variant: "Otro",           nombre: "Otro",                    up: 1,  vol: 1.0  },
 ];
 // Productos concentrados que usan formulario simplificado en ingresos
 const PRODS_CONCENTRADOS = ["Lactosa", "Suero", "Concentrado"];
@@ -591,6 +595,14 @@ async function calcAutoLitros(date, _baseTotals, _baseProductos) {
         const from = SILO_STOCK_KEY[o.silo];
         const L = parseFloat(o.litros) || 0;
         if (from && L > 0) reservados[from] = (reservados[from] || 0) + L;
+      });
+    }
+    // Sobrante "reservado": lote finalizado pero el sobrante sigue reservado (no vuelve al stock libre)
+    if (p.estado === "finalizado" && p.destinoSobrante === "reservado" && p.sobranteL > 0 && p.litrosUsados?.length > 0) {
+      (p.origenes || []).forEach((o, i) => {
+        const from = SILO_STOCK_KEY[o.silo];
+        const sob = Math.max(0, (parseFloat(o.litros) || 0) - (parseFloat((p.litrosUsados)[i]?.litros) || 0));
+        if (from && sob > 0) reservados[from] = (reservados[from] || 0) + sob;
       });
     }
   });
@@ -2007,28 +2019,12 @@ const ProduccionForm = ({ initial, onSave, onClose, onDelete, date, perfil, isEd
   const [saving, setSaving] = useState(false);
   const [selCat, setSelCat] = useState(null);
   const [newOrigen, setNewOrigen] = useState({ silo: "", litros: "" });
+  const [finalizarBack, setFinalizarBack] = useState("accion");
   const [confirmUI, askConfirm] = useConfirm();
 
   const prodInfo = PRODS_PRODUCCION_LIST.find(p => p.nombre === f.producto);
   const totalEnviado = (f.origenes || []).reduce((s, o) => s + (parseFloat(o.litros) || 0), 0);
 
-  // Sobrante (solo relevante en vista finalizar con litrosUsados inicializados)
-  const computeSobrante = (origenes, litrosUsados) =>
-    (origenes || []).reduce((s, o, i) => {
-      const env = parseFloat(o.litros) || 0;
-      const us = parseFloat((litrosUsados || [])[i]?.litros) || 0;
-      return s + Math.max(0, env - us);
-    }, 0);
-  const totalSobrante = f.estado === "finalizado" && f.litrosUsados
-    ? computeSobrante(f.origenes, f.litrosUsados) : 0;
-
-  const setLitrosUsados = (i, v) => setF(p => {
-    const lu = [...(p.litrosUsados || (p.origenes || []).map(o => ({ silo: o.silo, litros: o.litros })))];
-    lu[i] = { ...lu[i], silo: (p.origenes || [])[i]?.silo || "", litros: v };
-    return { ...p, litrosUsados: lu };
-  });
-
-  // Origenes filled + real-index tracking for safe delete
   const origenesWithIdx = (f.origenes || [])
     .map((o, idx) => ({ ...o, _idx: idx }))
     .filter(o => o.silo && parseFloat(o.litros) > 0);
@@ -2088,21 +2084,23 @@ const ProduccionForm = ({ initial, onSave, onClose, onDelete, date, perfil, isEd
     }
   };
 
-  const doFinalize = async () => {
-    const origsFilled = (f.origenes || []).filter(o => o.silo);
-    for (let i = 0; i < origsFilled.length; i++) {
-      const env = parseFloat(origsFilled[i].litros) || 0;
-      const us = parseFloat((f.litrosUsados || [])[i]?.litros);
-      if (isNaN(us) || us < 0) { alert(`Ingresá los litros usados para ${origsFilled[i].silo || `origen ${i + 1}`}.`); return; }
-      if (us > env) { alert(`${origsFilled[i].silo}: enviados ${env} L, no se puede usar ${us.toLocaleString("es-AR")} L.`); return; }
-    }
-    if (!(parseFloat(f.cajas) > 0)) { alert("Ingresá la cantidad de cajas producidas."); return; }
-    if (totalSobrante > 0 && !f.destinoSobrante) { alert(`Hay ${Math.round(totalSobrante).toLocaleString("es-AR")} L de sobrante. Indicá qué hacer con ellos.`); return; }
+  const doFinalizeAuto = async () => {
+    const cajasN = parseFloat(f.cajas) || 0;
+    if (!(cajasN > 0)) { alert("Ingresá la cantidad de cajas producidas."); return; }
+    const litrosCalc = prodInfo ? cajasN * prodInfo.up * prodInfo.vol : totalEnviado;
+    const litrosEfectivos = Math.min(litrosCalc, totalEnviado);
+    const sobranteCalc = Math.max(0, totalEnviado - litrosEfectivos);
+    if (sobranteCalc > 0 && !f.destinoSobrante) { alert(`Sobraron ${Math.round(sobranteCalc).toLocaleString("es-AR")} L. Indicá qué hacer con ellos.`); return; }
     if (f.destinoSobrante === "otro_silo" && !f.siloSobrante) { alert("Seleccioná el silo destino del sobrante."); return; }
-    if (!(await askConfirm({ title: "Finalizar lote", message: "Se consolidarán los consumos registrados.", confirmLabel: "Finalizar" }))) return;
+    if (!(await askConfirm({ title: "Finalizar lote", message: "Se registrarán los consumos calculados automáticamente.", confirmLabel: "Finalizar" }))) return;
+    const filled = (f.origenes || []).filter(o => o.silo && parseFloat(o.litros) > 0);
+    const litrosUsadosCalc = filled.map(o => ({
+      silo: o.silo,
+      litros: String(Math.round(totalEnviado > 0 ? (parseFloat(o.litros) / totalEnviado) * litrosEfectivos : 0)),
+    }));
     setSaving(true);
     try {
-      onSave({ ...f, estado: "finalizado", sobranteL: totalSobrante }, initial);
+      onSave({ ...f, estado: "finalizado", litrosUsados: litrosUsadosCalc, sobranteL: sobranteCalc }, initial);
     } finally {
       setSaving(false);
     }
@@ -2126,7 +2124,7 @@ const ProduccionForm = ({ initial, onSave, onClose, onDelete, date, perfil, isEd
     return (
       <Modal title="Nuevo lote — Producto" onClose={onClose}>
         {confirmUI}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
           {cats.map(cat => (
             <button key={cat} type="button"
               onClick={() => {
@@ -2139,9 +2137,9 @@ const ProduccionForm = ({ initial, onSave, onClose, onDelete, date, perfil, isEd
                 }
               }}
               style={{
-                padding: "18px 6px", borderRadius: 10, fontWeight: 700, fontSize: 14,
+                padding: "16px 6px", borderRadius: 10, fontWeight: 700, fontSize: 13,
                 border: `1.5px solid ${C.border}`, background: C.surface, color: C.text,
-                cursor: "pointer", textAlign: "center",
+                cursor: "pointer", textAlign: "center", lineHeight: 1.3,
               }}>{cat}</button>
           ))}
         </div>
@@ -2163,7 +2161,7 @@ const ProduccionForm = ({ initial, onSave, onClose, onDelete, date, perfil, isEd
               <button key={v} type="button"
                 onClick={() => { setF(p => ({ ...p, producto: prod?.nombre || v })); setView("origenes"); }}
                 style={{
-                  padding: "14px 16px", borderRadius: 10, fontWeight: 600, fontSize: 15,
+                  padding: "16px 18px", borderRadius: 10, fontWeight: 600, fontSize: 16,
                   border: `1.5px solid ${C.border}`, background: C.surface, color: C.text,
                   cursor: "pointer", textAlign: "left",
                   display: "flex", justifyContent: "space-between", alignItems: "center",
@@ -2272,7 +2270,7 @@ const ProduccionForm = ({ initial, onSave, onClose, onDelete, date, perfil, isEd
 
         <div style={{ ...card, padding: 10, marginBottom: 14 }}>
           {origenesWithIdx.map(o => (
-            <div key={o._idx} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", borderBottom: `1px solid ${C.border}33` }}>
+            <div key={o._idx} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: `1px solid ${C.border}33` }}>
               <span style={{ fontSize: 14, fontWeight: 600 }}>{o.silo}</span>
               <span style={{ fontFamily: FONT_MONO, fontSize: 14, fontWeight: 700, color: C.accent }}>
                 {(parseFloat(o.litros) || 0).toLocaleString("es-AR")} L
@@ -2287,10 +2285,8 @@ const ProduccionForm = ({ initial, onSave, onClose, onDelete, date, perfil, isEd
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <button type="button"
             onClick={() => {
-              setF(p => ({
-                ...p, estado: "finalizado",
-                litrosUsados: p.litrosUsados || (p.origenes || []).map(o => ({ silo: o.silo, litros: o.litros })),
-              }));
+              setF(p => ({ ...p, destinoSobrante: null, siloSobrante: null }));
+              setFinalizarBack("accion");
               setView("finalizar");
             }}
             style={{ ...btnPrimary, fontSize: 16, fontWeight: 800, padding: "16px", letterSpacing: 0.5 }}>
@@ -2319,80 +2315,80 @@ const ProduccionForm = ({ initial, onSave, onClose, onDelete, date, perfil, isEd
 
   // ── VIEW: finalizar ───────────────────────────────────────────
   if (view === "finalizar") {
-    const luArr = f.litrosUsados || (f.origenes || []).map(o => ({ silo: o.silo, litros: o.litros }));
-    const sobrante = computeSobrante(f.origenes, luArr);
     const cajasN = parseFloat(f.cajas) || 0;
-    const volEnv = prodInfo && cajasN > 0 ? cajasN * prodInfo.up * prodInfo.vol : 0;
-    const totalUsado = totalEnviado - sobrante;
-    const rend = totalUsado > 0 && volEnv > 0 ? (volEnv / totalUsado * 100) : null;
+    const litrosCalc = prodInfo && cajasN > 0 ? cajasN * prodInfo.up * prodInfo.vol : 0;
+    const litrosEfectivos = Math.min(litrosCalc, totalEnviado);
+    const sobranteCalc = totalEnviado > 0 ? Math.max(0, totalEnviado - litrosEfectivos) : 0;
+    const overshoot = cajasN > 0 && totalEnviado > 0 && litrosCalc > totalEnviado;
+    const rendCalc = litrosEfectivos > 0 && litrosCalc > 0 ? (litrosCalc / litrosEfectivos * 100) : null;
 
     return (
       <Modal title="Finalizar lote" onClose={onClose}>
         {confirmUI}
-        {btnBack("accion")}
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {(f.origenes || []).filter(o => o.silo).map((o, i) => {
-            const env = parseFloat(o.litros) || 0;
-            const us = parseFloat(luArr[i]?.litros);
-            const sob = isNaN(us) ? 0 : Math.max(0, env - us);
-            return (
-              <div key={i} style={{ ...card, padding: 12 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: C.sub, marginBottom: 8 }}>{o.silo}</div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                  <div>
-                    <div style={{ fontSize: 10, color: C.sub, marginBottom: 2 }}>Enviado</div>
-                    <div style={{ fontFamily: FONT_MONO, fontWeight: 700, fontSize: 18, color: C.text }}>
-                      {env.toLocaleString("es-AR")} L
-                    </div>
-                  </div>
-                  <F label="Litros usados">
-                    <Inp type="number" value={luArr[i]?.litros ?? ""} onChange={v => setLitrosUsados(i, v)} />
-                  </F>
-                </div>
-                {sob > 0 && (
-                  <div style={{ marginTop: 6, fontSize: 12, color: C.accent }}>
-                    Sobrante: <strong style={{ fontFamily: FONT_MONO }}>{sob.toLocaleString("es-AR")} L</strong>
-                  </div>
-                )}
+        {btnBack(finalizarBack)}
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+
+          <div style={{ ...card, padding: 10 }}>
+            <div style={{ fontSize: 10, color: C.sub, fontWeight: 700, marginBottom: 6, letterSpacing: 0.5 }}>ENVIADO A PRODUCCIÓN</div>
+            {origenesWithIdx.map(o => (
+              <div key={o._idx} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}>
+                <span style={{ fontSize: 13 }}>{o.silo}</span>
+                <span style={{ fontFamily: FONT_MONO, fontWeight: 700, color: C.accent }}>{parseFloat(o.litros).toLocaleString("es-AR")} L</span>
               </div>
-            );
-          })}
+            ))}
+            <div style={{ borderTop: `1px solid ${C.border}44`, marginTop: 6, paddingTop: 6, textAlign: "right", fontSize: 12, color: C.sub }}>
+              Total: <span style={{ fontFamily: FONT_MONO, fontWeight: 700, fontSize: 15, color: C.text }}>{totalEnviado.toLocaleString("es-AR")} L</span>
+            </div>
+          </div>
 
           <F label="Cajas producidas">
-            <Inp type="number" value={f.cajas} onChange={v => setF(p => ({ ...p, cajas: v }))} placeholder="0" />
+            <Inp type="number" value={f.cajas}
+              onChange={v => setF(p => ({ ...p, cajas: v, destinoSobrante: null, siloSobrante: null }))}
+              placeholder="0" />
           </F>
 
-          {cajasN > 0 && rend !== null && (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-              {[
-                ["Vol. envasado", `${volEnv.toFixed(0)} L`],
-                ["Rendimiento", `${rend.toFixed(1)}%`],
-              ].map(([lbl, val]) => (
-                <div key={lbl} style={{ ...card, padding: 10, textAlign: "center" }}>
-                  <div style={{ fontSize: 10, color: C.sub }}>{lbl}</div>
-                  <div style={{ fontFamily: FONT_MONO, fontWeight: 700, fontSize: 16, color: C.text }}>{val}</div>
+          {cajasN > 0 && (
+            <div style={{ ...card, padding: 12, borderColor: C.success + "44" }}>
+              <div style={{ fontSize: 10, color: C.sub, fontWeight: 700, marginBottom: 10, letterSpacing: 0.5 }}>CALCULADO AUTOMÁTICAMENTE</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+                {[
+                  ["Litros envasados", `${Math.round(litrosEfectivos).toLocaleString("es-AR")} L`, C.text],
+                  ["Rendimiento", rendCalc !== null ? `${rendCalc.toFixed(1)}%` : "—", rendCalc !== null && rendCalc >= 95 ? C.success : C.accent],
+                  sobranteCalc > 0
+                    ? ["Sobrante", `${Math.round(sobranteCalc).toLocaleString("es-AR")} L`, C.accent]
+                    : ["Sobrante", "Sin sobrante", C.success],
+                ].map(([lbl, val, col]) => (
+                  <div key={lbl} style={{ textAlign: "center", padding: 8, background: C.surface, borderRadius: 8 }}>
+                    <div style={{ fontFamily: FONT_MONO, fontWeight: 700, fontSize: 15, color: col }}>{val}</div>
+                    <div style={{ fontSize: 10, color: C.sub, marginTop: 2 }}>{lbl}</div>
+                  </div>
+                ))}
+              </div>
+              {overshoot && (
+                <div style={{ marginTop: 8, fontSize: 11, color: C.danger }}>
+                  Las cajas superan los litros enviados. Se usarán {Math.round(totalEnviado).toLocaleString("es-AR")} L como base.
                 </div>
-              ))}
+              )}
             </div>
           )}
 
-          {sobrante > 0 && (
-            <div style={{ ...card, padding: 12, borderColor: C.accent + "55" }}>
-              <div style={{ fontWeight: 700, fontSize: 13, color: C.accent, marginBottom: 10 }}>
-                Sobrante: {Math.round(sobrante).toLocaleString("es-AR")} L — ¿Qué hacer?
+          {sobranteCalc > 0 && (
+            <div style={{ ...card, padding: 12 }}>
+              <div style={{ fontWeight: 700, fontSize: 15, color: C.text, marginBottom: 14 }}>
+                Sobraron {Math.round(sobranteCalc).toLocaleString("es-AR")} L — ¿qué hacemos?
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 8 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
                 {[
-                  ["origen",    "Volver al origen"],
-                  ["otro_silo", "Enviar a otro silo"],
+                  ["origen",    "Volver al silo"],
+                  ["otro_silo", "Otro silo"],
                   ["merma",     "Merma"],
-                  ["proceso",   "En proceso"],
+                  ["reservado", "Mantener reservado"],
                 ].map(([val, lbl]) => (
                   <button key={val} type="button"
-                    onClick={() => setF(p => ({ ...p, destinoSobrante: val }))}
+                    onClick={() => setF(p => ({ ...p, destinoSobrante: val, siloSobrante: val !== "otro_silo" ? null : p.siloSobrante }))}
                     style={{
-                      padding: "10px 6px", borderRadius: 8, fontSize: 12, fontWeight: 600,
-                      border: `1.5px solid ${f.destinoSobrante === val ? C.accent : C.border}`,
+                      padding: "14px 8px", borderRadius: 10, fontSize: 13, fontWeight: 700,
+                      border: `2px solid ${f.destinoSobrante === val ? C.accent : C.border}`,
                       background: f.destinoSobrante === val ? C.accent + "22" : C.surface,
                       color: f.destinoSobrante === val ? C.accent : C.sub,
                       cursor: "pointer",
@@ -2405,12 +2401,17 @@ const ProduccionForm = ({ initial, onSave, onClose, onDelete, date, perfil, isEd
                     options={SILOS_TODOS} placeholder="Seleccionar silo..." />
                 </F>
               )}
+              {f.destinoSobrante === "reservado" && (
+                <div style={{ marginTop: 8, fontSize: 11, color: C.sub, padding: "6px 10px", background: C.surface, borderRadius: 8 }}>
+                  Los {Math.round(sobranteCalc).toLocaleString("es-AR")} L seguirán reservados y podrán finalizarse más adelante.
+                </div>
+              )}
             </div>
           )}
 
-          <button type="button" onClick={doFinalize} disabled={saving}
-            style={{ ...btnPrimary, fontSize: 16, fontWeight: 800, padding: "16px", letterSpacing: 0.5, opacity: saving ? 0.7 : 1 }}>
-            {saving ? "Guardando..." : "CONFIRMAR FINALIZACION"}
+          <button type="button" onClick={doFinalizeAuto} disabled={saving || !(cajasN > 0)}
+            style={{ ...btnPrimary, fontSize: 16, fontWeight: 800, padding: "16px", letterSpacing: 0.5, opacity: (saving || !(cajasN > 0)) ? 0.45 : 1 }}>
+            {saving ? "Guardando..." : "CONFIRMAR FINALIZACIÓN"}
           </button>
         </div>
       </Modal>
@@ -2422,7 +2423,8 @@ const ProduccionForm = ({ initial, onSave, onClose, onDelete, date, perfil, isEd
     const estadoColor2 = { finalizado: C.success, cancelado: C.danger };
     const cajasN = parseFloat(f.cajas) || 0;
     const volEnv = prodInfo && cajasN > 0 ? cajasN * prodInfo.up * prodInfo.vol : 0;
-    const totalUsado = (f.litrosUsados || []).reduce((s, o) => s + (parseFloat(o.litros) || 0), 0);
+    const litrosUsadosTotal = (f.litrosUsados || []).reduce((s, o) => s + (parseFloat(o.litros) || 0), 0);
+    const totalUsado = litrosUsadosTotal > 0 ? litrosUsadosTotal : totalEnviado - (f.sobranteL || 0);
     const rend = totalUsado > 0 && volEnv > 0 ? (volEnv / totalUsado * 100) : null;
 
     return (
@@ -2442,15 +2444,16 @@ const ProduccionForm = ({ initial, onSave, onClose, onDelete, date, perfil, isEd
         <div style={{ ...card, padding: 10, marginBottom: 12 }}>
           <div style={{ fontSize: 10, color: C.sub, fontWeight: 700, marginBottom: 6, letterSpacing: 0.5 }}>ORIGEN</div>
           {(f.origenes || []).filter(o => o.silo).map((o, i) => {
+            const env = parseFloat(o.litros) || 0;
             const us = parseFloat((f.litrosUsados || [])[i]?.litros);
             return (
               <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0", borderBottom: `1px solid ${C.border}22` }}>
                 <span style={{ fontSize: 14, fontWeight: 600 }}>{o.silo}</span>
                 <div style={{ textAlign: "right" }}>
                   <div style={{ fontFamily: FONT_MONO, fontSize: 12, color: C.sub }}>
-                    {(parseFloat(o.litros) || 0).toLocaleString("es-AR")} L env.
+                    {env.toLocaleString("es-AR")} L env.
                   </div>
-                  {!isNaN(us) && (
+                  {!isNaN(us) && us !== env && (
                     <div style={{ fontFamily: FONT_MONO, fontSize: 12, color: C.text, fontWeight: 700 }}>
                       {us.toLocaleString("es-AR")} L usado
                     </div>
@@ -2465,7 +2468,7 @@ const ProduccionForm = ({ initial, onSave, onClose, onDelete, date, perfil, isEd
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 12 }}>
             {[
               ["Cajas", cajasN.toLocaleString("es-AR")],
-              ["Vol. env.", volEnv > 0 ? `${volEnv.toFixed(0)} L` : "—"],
+              ["Vol. env.", volEnv > 0 ? `${Math.round(volEnv)} L` : "—"],
               ["Rend.", rend !== null ? `${rend.toFixed(1)}%` : "—"],
             ].map(([lbl, val]) => (
               <div key={lbl} style={{ ...card, padding: 10, textAlign: "center" }}>
@@ -2479,19 +2482,13 @@ const ProduccionForm = ({ initial, onSave, onClose, onDelete, date, perfil, isEd
         {f.sobranteL > 0 && (
           <div style={{ fontSize: 12, color: C.accent, marginBottom: 12, padding: "6px 10px", background: C.surface, borderRadius: 8 }}>
             Sobrante: {Math.round(f.sobranteL).toLocaleString("es-AR")} L →{" "}
-            {{ origen: "volvió al silo", otro_silo: `silo ${f.siloSobrante}`, merma: "merma", proceso: "en proceso" }[f.destinoSobrante] || f.destinoSobrante}
+            {{ origen: "volvió al silo", otro_silo: `silo ${f.siloSobrante}`, merma: "merma", reservado: "mantener reservado", proceso: "en proceso" }[f.destinoSobrante] || f.destinoSobrante}
           </div>
         )}
 
         {perfil === "jefe" && f.estado !== "cancelado" && (
           <button type="button"
-            onClick={() => {
-              setF(p => ({
-                ...p,
-                litrosUsados: p.litrosUsados || (p.origenes || []).map(o => ({ silo: o.silo, litros: o.litros })),
-              }));
-              setView("finalizar");
-            }}
+            onClick={() => { setFinalizarBack("resumen"); setView("finalizar"); }}
             style={{ ...btnSecondary, fontSize: 13, padding: "10px", width: "100%", marginBottom: 8 }}>
             Editar finalización (Jefe)
           </button>
@@ -2593,7 +2590,7 @@ const SecProduccion = ({ date, syncKey = 0, dayClosed = false, perfil = null }) 
     setModal(null);
   };
 
-  const estadoColor = { envasando: C.accent, finalizado: C.success, cancelado: C.danger };
+  const estadoColor = { enviado: C.sub, envasando: C.accent, finalizado: C.success, cancelado: C.danger };
 
   if (loading) return <div style={{ padding: 40, textAlign: "center", color: C.sub }}>Cargando...</div>;
 
@@ -2616,7 +2613,10 @@ const SecProduccion = ({ date, syncKey = 0, dayClosed = false, perfil = null }) 
           const totalL = (item.origenes || []).reduce((s, o) => s + (parseFloat(o.litros) || 0), 0);
           const cajas = parseFloat(item.cajas) || 0;
           const volEnv = prodInfo && cajas > 0 ? cajas * prodInfo.up * prodInfo.vol : null;
-          const rend = (volEnv && totalL > 0) ? (volEnv / totalL * 100).toFixed(1) : null;
+          const litrosUsadosTotal = item.estado === "finalizado" && item.litrosUsados?.length > 0
+            ? item.litrosUsados.reduce((s, o) => s + (parseFloat(o.litros) || 0), 0) : null;
+          const rendDenom = litrosUsadosTotal ?? totalL;
+          const rend = (volEnv && rendDenom > 0) ? (volEnv / rendDenom * 100).toFixed(1) : null;
           return (
             <div key={item.id} onClick={() => !dayClosed && setModal(item)}
               style={{ ...card, borderColor: estadoColor[item.estado] + "55", marginBottom: 10, cursor: dayClosed ? "default" : "pointer" }}>
@@ -5043,8 +5043,12 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
             {/* Producción del día */}
             {(d.produccion || []).length > 0 && (() => {
               const activos = (d.produccion || []).filter(p => p.estado !== "cancelado");
-              const consumido = activos.reduce((s, p) =>
-                s + (p.origenes || []).reduce((ss, o) => ss + (parseFloat(o.litros) || 0), 0), 0);
+              const consumido = activos.reduce((s, p) => {
+                if (p.estado === "finalizado" && p.litrosUsados?.length > 0) {
+                  return s + p.litrosUsados.reduce((ss, o) => ss + (parseFloat(o.litros) || 0), 0);
+                }
+                return s + (p.origenes || []).reduce((ss, o) => ss + (parseFloat(o.litros) || 0), 0);
+              }, 0);
               const envasado = activos.reduce((s, p) => {
                 const info = PRODS_PRODUCCION_LIST.find(x => x.nombre === p.producto);
                 const caj = parseFloat(p.cajas) || 0;
