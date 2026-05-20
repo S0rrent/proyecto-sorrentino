@@ -2180,6 +2180,10 @@ const ProduccionForm = ({ initial, onSave, onClose, onDelete, date, perfil, isEd
 
   // ── VIEW: origenes ────────────────────────────────────────────
   if (view === "origenes") {
+    const cajasN = parseFloat(f.cajas) || 0;
+    const litrosNecesarios = prodInfo && cajasN > 0 ? cajasN * prodInfo.up * prodInfo.vol : 0;
+    const faltan = litrosNecesarios > 0 ? Math.max(0, litrosNecesarios - totalEnviado) : 0;
+    const litrosSuficientes = litrosNecesarios > 0 && totalEnviado >= litrosNecesarios;
     const canSubmit = origenesWithIdx.length > 0 && f.lote?.trim();
     return (
       <Modal title={f.producto || "Nuevo lote"} onClose={onClose}>
@@ -2191,6 +2195,42 @@ const ProduccionForm = ({ initial, onSave, onClose, onDelete, date, perfil, isEd
           <F label="Número de lote">
             <Inp value={f.lote} onChange={v => setF(p => ({ ...p, lote: v }))} placeholder="Ej: L-001" />
           </F>
+
+          <F label="Cajas a producir">
+            <Inp type="number" value={f.cajas}
+              onChange={v => setF(p => ({ ...p, cajas: v }))} placeholder="0" />
+          </F>
+
+          {litrosNecesarios > 0 && (
+            <div style={{
+              ...card, padding: 10,
+              borderColor: litrosSuficientes ? C.success + "55" : faltan > 0 ? C.accent + "55" : C.border,
+              background: litrosSuficientes ? C.success + "0a" : faltan > 0 ? C.accent + "08" : undefined,
+            }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 6 }}>
+                <div>
+                  <div style={{ fontSize: 10, color: C.sub, marginBottom: 2 }}>Necesitás</div>
+                  <div style={{ fontFamily: FONT_MONO, fontWeight: 800, fontSize: 16, color: C.text }}>
+                    {Math.round(litrosNecesarios).toLocaleString("es-AR")} L
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 10, color: C.sub, marginBottom: 2 }}>Reservado</div>
+                  <div style={{ fontFamily: FONT_MONO, fontWeight: 800, fontSize: 16, color: litrosSuficientes ? C.success : C.accent }}>
+                    {Math.round(totalEnviado).toLocaleString("es-AR")} L
+                  </div>
+                </div>
+              </div>
+              {litrosSuficientes
+                ? <div style={{ fontSize: 12, color: C.success, fontWeight: 700 }}>✓ Litros suficientes</div>
+                : faltan > 0
+                  ? <div style={{ fontSize: 12, color: C.accent, fontWeight: 700 }}>
+                      ⚠ Faltan {Math.round(faltan).toLocaleString("es-AR")} L — agregá otro silo ↓
+                    </div>
+                  : null
+              }
+            </div>
+          )}
 
           {origenesWithIdx.length > 0 && (
             <div style={{ ...card, padding: 10 }}>
@@ -2678,6 +2718,7 @@ const SecStock = ({ date, syncKey = 0, perfil = null }) => {
   const [autoLitros, setAutoLitros] = useState({});
   const [autoReservados, setAutoReservados] = useState({});
   const [silosVaciados, setSilosVaciados] = useState([]);
+  const [envasarModal, setEnvasarModal] = useState(null);
 
   useEffect(() => {
     Promise.all([
@@ -2751,6 +2792,20 @@ const SecStock = ({ date, syncKey = 0, perfil = null }) => {
     const prev = data;
     const u = { ...data, [t]: { ...(data[t] || {}), resp: v } };
     setData(u); if (await save(date, "stock", u) === false) setData(prev);
+  };
+
+  const onEnvasarSave = async (item, oldItem) => {
+    const prev = await load(date, "produccion", []);
+    const exists = prev.some(x => x.id === item.id);
+    const updated = exists ? prev.map(x => x.id === item.id ? item : x) : [...prev, item];
+    await save(date, "produccion", updated);
+    _autoLitrosCache.delete(date);
+    await logAudit(date, exists ? "actualizar_produccion" : "nueva_produccion", "produccion",
+      `${item.producto} — Lote ${item.lote || "—"} — ${item.estado} (Stock)`, perfil || "");
+    const { totals, reservados } = await calcAutoLitros(date);
+    setAutoLitros(totals);
+    setAutoReservados(reservados || {});
+    setEnvasarModal(null);
   };
 
   if (loading) return <div style={{ padding: 40, textAlign: "center", color: C.sub }}>Cargando...</div>;
@@ -2903,11 +2958,29 @@ const SecStock = ({ date, syncKey = 0, perfil = null }) => {
                       value={sd.gC || ""} onChange={e => updateSilo(turno, silo, "gC", e.target.value)} step="0.1" />
                   </F>
                 </div>
+
+                {disponibleL > 0 && (perfil === "supervisor" || perfil === "jefe") && (
+                  <button type="button"
+                    onClick={() => setEnvasarModal(emptyLote({ silo, litros: String(Math.round(disponibleL)) }))}
+                    style={{ ...btnPrimary, marginTop: 10, width: "100%", fontSize: 14, fontWeight: 800, padding: "11px", letterSpacing: "0.04em" }}>
+                    ENVASAR
+                  </button>
+                )}
               </div>
             );
           })}
         </Fragment>
       ))}
+
+      {envasarModal && (
+        <ProduccionForm
+          initial={envasarModal}
+          onSave={onEnvasarSave}
+          onClose={() => setEnvasarModal(null)}
+          date={date}
+          perfil={perfil}
+        />
+      )}
     </div>
   );
 };
@@ -3577,12 +3650,12 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
             {isEmpty ? "Sin contenido" : prod || "Sin producto"}
           </span>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            {!isEmpty && (perfil === "supervisor" || perfil === "jefe") && (
-              <button type="button" onClick={() => setModalProd({ silo, litros })} style={{
-                fontSize: 10, padding: "3px 8px", borderRadius: 6, fontWeight: 700,
-                background: C.accent + "22", color: C.accent,
-                border: `1px solid ${C.accent}55`, cursor: "pointer",
-              }}>+ Prod.</button>
+            {disponible > 0 && (perfil === "supervisor" || perfil === "jefe") && (
+              <button type="button" onClick={() => setModalProd({ silo, litros: disponible })} style={{
+                fontSize: 11, padding: "4px 12px", borderRadius: 7, fontWeight: 800,
+                background: C.accent, color: C.bg,
+                border: "none", cursor: "pointer", letterSpacing: "0.04em",
+              }}>ENVASAR</button>
             )}
             <span style={{ fontSize: 11, color: C.muted, fontFamily: FONT_MONO }}>
               {pct.toFixed(1)}% <span style={{ color: C.border }}>·</span> {(cap / 1000).toFixed(0)}k cap.
@@ -5142,13 +5215,16 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
       {modalProd && (
         <ProduccionForm
           initial={emptyLote({ silo: modalProd.silo, litros: String(Math.round(modalProd.litros)) })}
-          onSave={async item => {
+          onSave={async (item, oldItem) => {
             const prev = await load(date, "produccion", []);
-            await save(date, "produccion", [...prev, item]);
+            const exists = prev.some(x => x.id === item.id);
+            const updated = exists ? prev.map(x => x.id === item.id ? item : x) : [...prev, item];
+            await save(date, "produccion", updated);
             _autoLitrosCache.delete(date);
-            calcAutoLitros(date).then(r => setD(prev => ({ ...prev, autoLitros: r.totals })));
-            await logAudit(date, "nueva_produccion", "produccion",
-              `${item.producto} — Lote ${item.lote || "—"} desde SiloBar`, perfil || "");
+            const r = await calcAutoLitros(date);
+            setD(p => ({ ...p, autoLitros: r.totals, autoReservados: r.reservados || {} }));
+            await logAudit(date, exists ? "actualizar_produccion" : "nueva_produccion", "produccion",
+              `${item.producto} — Lote ${item.lote || "—"} — ${item.estado} (SiloBar)`, perfil || "");
             setModalProd(null);
           }}
           onClose={() => setModalProd(null)}
