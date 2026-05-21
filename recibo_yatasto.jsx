@@ -245,6 +245,15 @@ async function save(date, sec, data) {
     if (ts) _loadedAt.set(key, ts);
     else _loadedAt.delete(key);
   } catch (e) { console.error(e); }
+  // Edición retroactiva: cualquier guardado en una fecha anterior a ayer
+  // invalida el saldo encadenado y dispara una reconstrucción debounceada.
+  const today = getToday();
+  const yesterday = getPreviousDate(today);
+  if (date < yesterday) {
+    // Invalidar inmediatamente todas las fechas posteriores (no esperar al rebuild)
+    invalidateAutoLitrosFrom(date);
+    scheduleRebuildSaldoChain(date, `edit-retro:${sec}`);
+  }
   return true;
 }
 
@@ -469,6 +478,16 @@ async function generateBackup() {
 const _autoLitrosCache = new Map(); // key: date → { result, ts }
 const _AUTO_LITROS_TTL = 15000;     // 15 s — suficiente para una navegación completa
 
+// Invalida todas las entradas de cache con fecha >= fromDate (inclusivo).
+// Necesario cuando una edición retroactiva afecta cálculos de días posteriores.
+function invalidateAutoLitrosFrom(fromDate) {
+  let count = 0;
+  for (const key of _autoLitrosCache.keys()) {
+    if (key >= fromDate) { _autoLitrosCache.delete(key); count++; }
+  }
+  return count;
+}
+
 // calcAutoLitros puede llamarse en dos modos:
 // - modo normal (sin args extra): lee el saldo desde DB
 // - modo cadena (con _baseTotals y _baseProductos): usa la base provista, no va a DB para el saldo
@@ -615,19 +634,215 @@ async function calcAutoLitros(date, _baseTotals, _baseProductos) {
 // buildChainedSaldo: dada una base (saldo de fecha X), recorre cada día hasta targetDate
 // calculando las operaciones de cada jornada sobre el resultado del día anterior.
 // Corrige el problema de gaps multi-día en el carry-over.
+// Retorna { totals, productosBase, truncated, daysProcessed, lastDate }.
+const _CHAIN_MAX_DAYS = 365;
 async function buildChainedSaldo(baseSaldo, targetDate) {
   let totals = { ...baseSaldo.data };
   let productosBase = { ...(baseSaldo.productos || {}) };
   let d = addDay(baseSaldo.fromDate);
   let iters = 0;
-  while (d <= targetDate && iters < 180) {
+  let lastDate = baseSaldo.fromDate;
+  while (d <= targetDate && iters < _CHAIN_MAX_DAYS) {
     const r = await calcAutoLitros(d, totals, productosBase);
     totals = r.totals;
     productosBase = r.productosBase;
+    lastDate = d;
     d = addDay(d);
     iters++;
   }
-  return { totals, productosBase };
+  const truncated = iters >= _CHAIN_MAX_DAYS && d <= targetDate;
+  if (truncated) {
+    console.warn(`[buildChainedSaldo] cadena truncada: ${iters} iteraciones, último día procesado ${lastDate}, falta llegar a ${targetDate}`);
+  }
+  return { totals, productosBase, truncated, daysProcessed: iters, lastDate };
+}
+
+// ─── REBUILD SALDO CHAIN ─────────────────────────────────────
+// Helper centralizado para reconstruir el saldo encadenado (SALDO_KEY) tras una
+// edición retroactiva. Lee SALDO_BASE_KEY (ancla manual) y encadena hasta ayer.
+// Idempotente — se puede ejecutar múltiples veces sin efectos colaterales.
+// Invalida _autoLitrosCache desde fromDate en adelante.
+async function rebuildSaldoChain(fromDate, reason = "manual") {
+  const today = getToday();
+  const yesterday = getPreviousDate(today);
+  if (fromDate > yesterday) {
+    return { rebuilt: false, reason: "fromDate posterior a ayer" };
+  }
+  const base = await loadBaseSaldo();
+  if (!base || !base.fromDate) {
+    console.warn(`[rebuildSaldoChain] sin SALDO_BASE_KEY — no se puede reconstruir desde ${fromDate} (${reason})`);
+    invalidateAutoLitrosFrom(fromDate);
+    return { rebuilt: false, reason: "sin SALDO_BASE_KEY" };
+  }
+  // El base debe ser anterior a fromDate; si es posterior, no podemos reconstruir desde antes
+  if (base.fromDate >= fromDate) {
+    console.warn(`[rebuildSaldoChain] base (${base.fromDate}) >= fromDate (${fromDate}) — no se puede reconstruir desde antes del ancla`);
+    invalidateAutoLitrosFrom(fromDate);
+    return { rebuilt: false, reason: "ancla posterior a fromDate" };
+  }
+  // Invalidar cache para que el chain re-lea datos frescos de los días afectados
+  invalidateAutoLitrosFrom(addDay(base.fromDate));
+  console.log(`[rebuildSaldoChain] motivo="${reason}" base=${base.fromDate} → hasta=${yesterday}`);
+  const result = await buildChainedSaldo(base, yesterday);
+  if (result.truncated) {
+    console.warn(`[rebuildSaldoChain] cadena TRUNCADA en ${result.lastDate}, falta hasta ${yesterday} (${result.daysProcessed} días procesados)`);
+  }
+  await saveSaldo(result.totals, yesterday, result.productosBase);
+  // Cache de hoy debe regenerarse en próxima lectura
+  invalidateAutoLitrosFrom(today);
+  return { rebuilt: true, truncated: result.truncated, base: base.fromDate, lastDate: result.lastDate, daysProcessed: result.daysProcessed };
+}
+
+// Coalesce de rebuilds: si llegan varios en rato corto, ejecutamos uno solo
+// con la fecha más antigua. Throttle de 2s.
+let _rebuildPendingFrom = null;
+let _rebuildTimer = null;
+let _rebuildLog = [];
+function scheduleRebuildSaldoChain(fromDate, reason) {
+  if (_rebuildPendingFrom === null || fromDate < _rebuildPendingFrom) {
+    _rebuildPendingFrom = fromDate;
+  }
+  if (_rebuildTimer) clearTimeout(_rebuildTimer);
+  _rebuildTimer = setTimeout(async () => {
+    const fd = _rebuildPendingFrom;
+    _rebuildPendingFrom = null;
+    _rebuildTimer = null;
+    try {
+      const r = await rebuildSaldoChain(fd, reason || "edición retroactiva");
+      _rebuildLog.unshift({ ts: new Date().toISOString(), from: fd, reason, ...r });
+      _rebuildLog = _rebuildLog.slice(0, 20); // últimos 20
+    } catch (e) {
+      console.error("[scheduleRebuildSaldoChain] error:", e);
+      _rebuildLog.unshift({ ts: new Date().toISOString(), from: fd, reason, error: String(e) });
+    }
+  }, 2000);
+}
+
+// Expone el log de rebuilds para el panel técnico.
+function getRebuildLog() { return [..._rebuildLog]; }
+
+// ─── DETECTOR DE INCONSISTENCIAS ─────────────────────────────
+// Corre validaciones sobre los datos de una fecha y retorna issues estructuradas.
+// Cada issue: { severity: "error"|"warning", category, message, ref? }
+async function runConsistencyChecks(date) {
+  const issues = [];
+  const [{ totals, reservados }, produccion, movData] = await Promise.all([
+    calcAutoLitros(date),
+    load(date, "produccion", []),
+    load(date, "movimientos", { movs: [], ctrls: [] }),
+  ]);
+
+  // 1. Stock negativo (sin Math.max — vemos el valor real)
+  Object.entries(totals).forEach(([silo, L]) => {
+    if (L < -0.5) {
+      issues.push({
+        severity: "error", category: "stock",
+        message: `Silo ${silo}: stock ${Math.round(L).toLocaleString("es-AR")} L (negativo). Posible doble descuento o saldo inicial mal cargado.`,
+        ref: silo,
+      });
+    }
+  });
+
+  // 2. Reservados > total disponible
+  Object.entries(reservados || {}).forEach(([silo, r]) => {
+    const t = totals[silo] || 0;
+    if (r > t + 0.5) {
+      issues.push({
+        severity: "error", category: "stock",
+        message: `Silo ${silo}: reservados ${Math.round(r).toLocaleString("es-AR")} L excede total ${Math.round(t).toLocaleString("es-AR")} L. Hay un lote envasando con litros que ya no están en el silo.`,
+        ref: silo,
+      });
+    }
+  });
+
+  // 3. Lotes con anomalías
+  const lotePorId = new Map();
+  produccion.forEach(p => {
+    lotePorId.set(p.id, p);
+    if (p.estado === "cancelado") return;
+
+    // litros usados > enviados
+    if (p.estado === "finalizado" && Array.isArray(p.litrosUsados) && Array.isArray(p.origenes)) {
+      p.origenes.forEach((o, i) => {
+        const env = parseFloat(o.litros) || 0;
+        const us = parseFloat(p.litrosUsados[i]?.litros) || 0;
+        if (us > env + 0.5) {
+          issues.push({
+            severity: "error", category: "produccion",
+            message: `Lote ${p.lote || p.id.slice(0,6)}: usados (${us} L) > enviados (${env} L) en silo ${o.silo}.`,
+            ref: p.id,
+          });
+        }
+      });
+    }
+
+    // finalizado sin litrosUsados
+    if (p.estado === "finalizado" && (!Array.isArray(p.litrosUsados) || p.litrosUsados.length === 0)) {
+      issues.push({
+        severity: "warning", category: "produccion",
+        message: `Lote ${p.lote || p.id.slice(0,6)}: finalizado pero sin litros usados. calcAutoLitros caerá al fallback de orígenes.`,
+        ref: p.id,
+      });
+    }
+
+    // envasando sin orígenes
+    if (isLoteActivo(p.estado) && (!Array.isArray(p.origenes) || p.origenes.length === 0)) {
+      issues.push({
+        severity: "warning", category: "produccion",
+        message: `Lote ${p.lote || p.id.slice(0,6)}: envasando sin silos origen.`,
+        ref: p.id,
+      });
+    }
+
+    // Rendimiento > 100% (cajas × volumen > litros usados)
+    if (p.estado === "finalizado") {
+      const info = PRODS_PRODUCCION_LIST.find(x => x.nombre === p.producto);
+      const caj = parseFloat(p.cajas) || 0;
+      const volEnv = info && caj > 0 ? caj * info.up * info.vol : 0;
+      const totalUsado = (p.litrosUsados || []).reduce((s, u) => s + (parseFloat(u.litros) || 0), 0);
+      if (volEnv > 0 && totalUsado > 0 && (volEnv / totalUsado) > 1.05) {
+        issues.push({
+          severity: "warning", category: "produccion",
+          message: `Lote ${p.lote || p.id.slice(0,6)}: rendimiento ${((volEnv/totalUsado)*100).toFixed(1)}% (envasado ${volEnv.toFixed(1)} L > usados ${totalUsado.toFixed(1)} L).`,
+          ref: p.id,
+        });
+      }
+    }
+  });
+
+  // 4. Movimientos automáticos huérfanos / duplicados
+  const movsAuto = (movData.movs || []).filter(m => m.loteId);
+  const porLote = new Map();
+  movsAuto.forEach(m => {
+    if (!porLote.has(m.loteId)) porLote.set(m.loteId, []);
+    porLote.get(m.loteId).push(m);
+  });
+  porLote.forEach((movs, loteId) => {
+    if (!lotePorId.has(loteId)) {
+      issues.push({
+        severity: "error", category: "movimientos",
+        message: `Movimiento automático huérfano: vincula al lote ${loteId.slice(0,6)} que ya no existe (${movs.length} mov${movs.length>1?"s":""}).`,
+        ref: loteId,
+      });
+    } else if (movs.length > 1) {
+      issues.push({
+        severity: "error", category: "movimientos",
+        message: `Lote ${lotePorId.get(loteId).lote || loteId.slice(0,6)}: tiene ${movs.length} movimientos automáticos (esperaba 1).`,
+        ref: loteId,
+      });
+    }
+  });
+
+  // 5. Saldo chain truncado (últimos rebuilds)
+  const lastTrunc = _rebuildLog.find(r => r.truncated);
+  if (lastTrunc) {
+    issues.push({
+      severity: "warning", category: "chain",
+      message: `Último rebuild truncado: procesados ${lastTrunc.daysProcessed} días desde ${lastTrunc.base}, último día ${lastTrunc.lastDate}. Posible saldo base muy antiguo.`,
+    });
+  }
+
+  return issues;
 }
 
 // ─── SVG SILO VISUAL ─────────────────────────────────────────
@@ -822,6 +1037,28 @@ const FAB = ({ onClick }) => (
 );
 const Modal = ({ title, onClose, children, zIndex = 100 }) => {
   const isDesktop = typeof window !== "undefined" && window.innerWidth >= 1024;
+  // Body scroll lock — evita que el contenido detrás scrollee mientras hay un modal abierto.
+  // Restaura el overflow original al desmontar (soporta modales anidados via contador en dataset).
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const body = document.body;
+    const count = parseInt(body.dataset.yatModalCount || "0", 10);
+    if (count === 0) {
+      body.dataset.yatModalPrevOverflow = body.style.overflow || "";
+      body.style.overflow = "hidden";
+    }
+    body.dataset.yatModalCount = String(count + 1);
+    return () => {
+      const c = parseInt(body.dataset.yatModalCount || "1", 10);
+      if (c <= 1) {
+        body.style.overflow = body.dataset.yatModalPrevOverflow || "";
+        delete body.dataset.yatModalPrevOverflow;
+        delete body.dataset.yatModalCount;
+      } else {
+        body.dataset.yatModalCount = String(c - 1);
+      }
+    };
+  }, []);
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)", zIndex, display: "flex", alignItems: isDesktop ? "center" : "flex-end", justifyContent: "center" }}>
       <div style={{
@@ -836,7 +1073,7 @@ const Modal = ({ title, onClose, children, zIndex = 100 }) => {
       }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
           <span style={{ fontWeight: 700, fontSize: 18, color: C.text }}>{title}</span>
-          <button type="button" onClick={onClose} aria-label="Cerrar" style={{ background: C.card, border: "none", color: C.sub, borderRadius: 8, width: 36, height: 36, cursor: "pointer", fontSize: 20 }}>×</button>
+          <button type="button" onClick={onClose} aria-label="Cerrar" style={{ background: C.card, border: "none", color: C.sub, borderRadius: 8, width: 44, height: 44, cursor: "pointer", fontSize: 22, lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>
         </div>
         {children}
         <div style={{ height: 20 }} />
@@ -1491,7 +1728,7 @@ const CIPRow = ({ nombre, tipo, data, onChange }) => {
   );
 };
 
-const SecCIP = ({ date, syncKey = 0 }) => {
+const SecCIP = ({ date, syncKey = 0, readOnly = false }) => {
   const [data, setData] = useState({});
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("silos");
@@ -1505,14 +1742,17 @@ const SecCIP = ({ date, syncKey = 0 }) => {
   }, [date, syncKey]);
 
   const updateSilo = async (s, v) => {
+    if (readOnly) return;
     const prev = data; const u = { ...data, silos: { ...(data.silos || {}), [s]: v } };
     setData(u); if (await save(date, "cip", u) === false) setData(prev);
   };
   const updateCamion = async (c, v) => {
+    if (readOnly) return;
     const prev = data; const u = { ...data, camiones: { ...(data.camiones || {}), [c]: v } };
     setData(u); if (await save(date, "cip", u) === false) setData(prev);
   };
   const setFiltro = async (k, v) => {
+    if (readOnly) return;
     const prev = data; const u = { ...data, [k]: v };
     setData(u); if (await save(date, "cip", u) === false) setData(prev);
   };
@@ -2167,6 +2407,22 @@ const ProduccionForm = ({ initial, onSave, onClose, onDelete, date, perfil, isEd
   // Re-guardar un lote ya finalizado (editar datos del cierre)
   const doGuardarFinalizado = doConfirmarFinalizacion;
 
+  // Libera el sobrante reservado de un lote ya finalizado: cambia destinoSobrante
+  // a "origen" para que los litros vuelvan al silo (dejan de estar en reservados).
+  // Sólo aplica a lotes finalizados con destinoSobrante === "reservado".
+  const liberarReservado = async () => {
+    if (!isLoteFinalizado(f.estado) || f.destinoSobrante !== "reservado") return;
+    if (!(await askConfirm({
+      title: "Liberar sobrante",
+      message: `¿Liberar ${Math.round(f.sobranteL || 0).toLocaleString("es-AR")} L de sobrante reservado? Los litros vuelven al silo de origen y dejan de estar reservados.`,
+      confirmLabel: "Liberar",
+    }))) return;
+    setSaving(true);
+    try {
+      onSave({ ...f, destinoSobrante: "origen", siloSobrante: null }, initial);
+    } finally { setSaving(false); }
+  };
+
   const requestDelete = async () => {
     if (!onDelete) return;
     const confirmed = await askConfirm({
@@ -2464,6 +2720,15 @@ const ProduccionForm = ({ initial, onSave, onClose, onDelete, date, perfil, isEd
                   Sobrante registrado: {Math.round(f.sobranteL).toLocaleString("es-AR")} L → {sobranteLabelMap[f.destinoSobrante] || f.destinoSobrante || "—"}
                 </div>
               )}
+
+              {/* Liberar sobrante reservado: el único modo de soltar litros que
+                  quedaron en "reservados" sin tener que borrar el lote entero. */}
+              {yaFinalizado && f.destinoSobrante === "reservado" && f.sobranteL > 0 && (
+                <button type="button" onClick={liberarReservado} disabled={saving}
+                  style={{ ...btnSecondary, fontSize: 13, padding: "12px", fontWeight: 700, color: C.accent, borderColor: C.accent + "55", opacity: saving ? 0.5 : 1 }}>
+                  Liberar {Math.round(f.sobranteL).toLocaleString("es-AR")} L del sobrante reservado
+                </button>
+              )}
             </>
           )}
 
@@ -2548,13 +2813,72 @@ const SecProduccion = ({ date, syncKey = 0, dayClosed = false, perfil = null }) 
   const [confirmUI, askConfirm] = useConfirm();
 
   useEffect(() => {
-    load(date, "produccion", []).then(d => { setList(d); setLoading(false); });
+    load(date, "produccion", []).then(d => {
+      // R3: normalización defensiva al cargar. Lotes legacy "enviado" → "envasando".
+      // Lotes activos sin campo litrosUsados explícito → setear null para evitar
+      // caer en el branch legacy de calcAutoLitros que descuenta directo.
+      const norm = (d || []).map(p => {
+        const next = { ...p };
+        if (next.estado === "enviado") next.estado = "envasando";
+        if (next.estado === "envasando" && !("litrosUsados" in next)) {
+          next.litrosUsados = null;
+        }
+        return next;
+      });
+      setList(norm);
+      setLoading(false);
+    });
   }, [date, syncKey]);
 
   const persist = async updated => {
     const ok = await save(date, "produccion", updated);
     if (ok !== false) setList(updated);
     return ok;
+  };
+
+  // Helper: regenera el auto-movimiento de sobrante para un lote finalizado.
+  // - Elimina TODOS los movimientos previos asociados al lote (identificados por
+  //   loteId; compat con lotes viejos: matchea por motivo si no hay loteId).
+  // - Si el lote tiene destinoSobrante="otro_silo" y sobrante>0, crea uno nuevo.
+  // Esto evita movimientos huérfanos cuando se re-edita un lote ya finalizado.
+  const syncAutoMovSobrante = async (item, oldItem) => {
+    const movData = await load(date, "movimientos", { movs: [], ctrls: [] });
+    const movs = movData.movs || [];
+    // Filtrar movimientos viejos asociados a este lote
+    const kept = movs.filter(m => {
+      if (m.loteId === item.id) return false; // marcado canónicamente
+      // Compat legacy: matchear por motivo que contiene el número de lote
+      if (!m.loteId && m.motivo && oldItem?.lote &&
+          m.motivo.includes(`Sobrante lote ${oldItem.lote}`) &&
+          m.motivo.includes("(automático)")) return false;
+      return true;
+    });
+    const removed = movs.length - kept.length;
+    let added = 0;
+    let nextMovs = kept;
+    if (item.destinoSobrante === "otro_silo" && item.siloSobrante && item.sobranteL > 0) {
+      const desde = (item.origenes || [])[0]?.silo || "Producción";
+      const autoMov = {
+        id: crypto.randomUUID(),
+        loteId: item.id, // vínculo canónico para regeneraciones futuras
+        hora: getNow(),
+        desde,
+        hasta: item.siloSobrante,
+        litros: String(Math.round(item.sobranteL)),
+        motivo: `Sobrante lote ${item.lote || item.producto || "?"} (automático)`,
+        resp: perfil || "",
+      };
+      nextMovs = [...kept, autoMov];
+      added = 1;
+    }
+    if (removed > 0 || added > 0) {
+      await save(date, "movimientos", { ...movData, movs: nextMovs });
+      _autoLitrosCache.delete(date);
+      const accion = added > 0 ? (removed > 0 ? "regenerado" : "creado") : "eliminado";
+      await logAudit(date, "mov_sobrante_produccion", "movimiento",
+        `Mov sobrante ${accion} (lote ${item.lote || item.producto || "?"}): -${removed} +${added}`,
+        perfil || "");
+    }
   };
 
   const onSave = async (item, oldItem) => {
@@ -2566,29 +2890,20 @@ const SecProduccion = ({ date, syncKey = 0, dayClosed = false, perfil = null }) 
     if (ok !== false) {
       _autoLitrosCache.delete(date);
 
-      // Auto-movimiento si el sobrante va a otro silo (sólo al primer finalizado)
-      if (
-        item.estado === "finalizado" &&
-        item.destinoSobrante === "otro_silo" &&
-        item.siloSobrante &&
-        item.sobranteL > 0 &&
-        oldItem?.estado !== "finalizado"
-      ) {
-        const desde = (item.origenes || [])[0]?.silo || "Producción";
-        const movData = await load(date, "movimientos", { movs: [], ctrls: [] });
-        const autoMov = {
-          id: crypto.randomUUID(),
-          hora: getNow(),
-          desde,
-          hasta: item.siloSobrante,
-          litros: String(Math.round(item.sobranteL)),
-          motivo: `Sobrante lote ${item.lote || item.producto || "?"} (automático)`,
-          resp: perfil || "",
-        };
-        await save(date, "movimientos", { ...movData, movs: [...(movData.movs || []), autoMov] });
-        _autoLitrosCache.delete(date);
-        await logAudit(date, "mov_sobrante_produccion", "movimiento",
-          `Sobrante ${item.sobranteL} L de ${desde} → ${item.siloSobrante} (lote ${item.lote || "?"})`, perfil || "");
+      // Sincronizar auto-movimiento de sobrante:
+      // - Si el lote pasa a finalizado o se re-edita siendo finalizado, regenerar.
+      // - Si el lote sale de "otro_silo" o cambia de silo, eliminar el anterior.
+      const fueFinal = oldItem?.estado === "finalizado";
+      const esFinal = item.estado === "finalizado";
+      const cambioRelevante = !fueFinal && esFinal ||
+        (esFinal && (
+          oldItem?.destinoSobrante !== item.destinoSobrante ||
+          oldItem?.siloSobrante !== item.siloSobrante ||
+          oldItem?.sobranteL !== item.sobranteL ||
+          (oldItem?.origenes?.[0]?.silo) !== (item.origenes?.[0]?.silo)
+        ));
+      if (cambioRelevante || (fueFinal && !esFinal)) {
+        await syncAutoMovSobrante(esFinal ? item : { ...item, destinoSobrante: null }, oldItem);
       }
 
       let resumen = `${item.producto} — Lote ${item.lote || "—"} — ${item.estado}`;
@@ -2611,17 +2926,34 @@ const SecProduccion = ({ date, syncKey = 0, dayClosed = false, perfil = null }) 
   };
 
   const onDelete = async item => {
+    // VALIDACIÓN INTERNA: el botón se renderiza solo con perfil supervisor/jefe,
+    // pero el handler también valida por seguridad (evita escalación via devtools).
+    if (perfil !== "supervisor" && perfil !== "jefe") {
+      console.warn("[onDelete produccion] perfil sin permiso:", perfil);
+      return;
+    }
+    const esFinal = isLoteFinalizado(item.estado);
     const confirmed = await askConfirm({
-      title: "Eliminar lote",
-      message: `¿Eliminar lote ${item.lote || item.producto || "?"}?`,
+      title: esFinal ? "Eliminar lote FINALIZADO" : "Eliminar lote",
+      message: esFinal
+        ? `¿Eliminar lote ${item.lote || item.producto || "?"}? Estaba finalizado: al borrarlo se RESTITUYEN los litros usados al silo de origen. Esto es irreversible.`
+        : `¿Eliminar lote ${item.lote || item.producto || "?"}? Esto libera los litros reservados.`,
       danger: true,
       confirmLabel: "Eliminar",
     });
     if (!confirmed) return;
     await persist(list.filter(x => x.id !== item.id));
     _autoLitrosCache.delete(date);
-    await logAudit(date, "eliminar_produccion", "produccion",
-      `${item.producto} — Lote ${item.lote || "—"}`, perfil || "");
+    // Eliminar movimientos automáticos huérfanos asociados al lote (si existían)
+    if (esFinal) {
+      await syncAutoMovSobrante({ ...item, destinoSobrante: null, sobranteL: 0 }, item);
+    }
+    // Auditoría diferenciada por estado del lote eliminado
+    await logAudit(date,
+      esFinal ? "eliminar_produccion_finalizada" : "eliminar_produccion",
+      "produccion",
+      `${item.producto} — Lote ${item.lote || "—"} — estado ${item.estado || "envasando"}`,
+      perfil || "");
     setModal(null);
   };
 
@@ -3581,6 +3913,45 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
   const [loadingWeek, setLoadingWeek] = useState(false);
   const [tamboSel, setTamboSel] = useState(null);
   const [modalProd, setModalProd] = useState(null); // { silo, litros } | null
+
+  // ── Panel técnico (jefe only) ──────────────────────────────────
+  const [techChecks, setTechChecks] = useState(null);
+  const [techLoading, setTechLoading] = useState(false);
+  const [techRebuilding, setTechRebuilding] = useState(false);
+  const [techQueueLen, setTechQueueLen] = useState(0);
+  const [techQueueRetrying, setTechQueueRetrying] = useState(false);
+  const [techRebuildLog, setTechRebuildLog] = useState([]);
+  const [techCacheSize, setTechCacheSize] = useState(0);
+
+  useEffect(() => {
+    if (tab !== "tecnico" || perfil !== "jefe") return;
+    return onWriteQueueChange((len, retrying) => {
+      setTechQueueLen(len);
+      setTechQueueRetrying(retrying);
+    });
+  }, [tab, perfil]);
+
+  useEffect(() => {
+    if (tab !== "tecnico" || perfil !== "jefe") return;
+    let cancelled = false;
+    setTechLoading(true);
+    setTechCacheSize(_autoLitrosCache.size);
+    setTechRebuildLog(getRebuildLog());
+    runConsistencyChecks(date).then(checks => {
+      if (!cancelled) { setTechChecks(checks); setTechLoading(false); }
+    });
+    return () => { cancelled = true; };
+  }, [tab, date, syncKey, perfil]);
+
+  const runTechRecalculate = async () => {
+    setTechRebuilding(true);
+    await rebuildSaldoChain(date, "panel_tecnico");
+    setTechRebuildLog(getRebuildLog());
+    setTechCacheSize(_autoLitrosCache.size);
+    const checks = await runConsistencyChecks(date);
+    setTechChecks(checks);
+    setTechRebuilding(false);
+  };
 
   useEffect(() => {
     setExportFrom(date);
@@ -5134,7 +5505,10 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
           ["tambos",   IcoLeche,     "Tambos"],
           ["historial",TabHistorial, "Historial"],
           ["exportar", TabExportar,  "Exportar"],
-          ...(perfil === "jefe" ? [["auditoria", AlertaOk, "Auditoría"]] : []),
+          ...(perfil === "jefe" ? [
+            ["auditoria", AlertaOk,  "Auditoría"],
+            ["tecnico",   IcoMant,   "Técnico"],
+          ] : []),
         ].map(([t, TabIcon, lbl]) => {
           const active = tab === t;
           return (
@@ -5626,6 +6000,162 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
           })}
         </div>
       )}
+
+      {/* ── TÉCNICO ── */}
+      {tab === "tecnico" && perfil === "jefe" && (() => {
+        const errors   = (techChecks || []).filter(c => c.severity === "error");
+        const warnings = (techChecks || []).filter(c => c.severity === "warning");
+        const allOk    = techChecks !== null && techChecks.length === 0;
+        const lastReb  = techRebuildLog[0] || null;
+
+        return (
+          <div>
+            {/* ── Estado del sistema ── */}
+            <div style={{ ...secTitle, marginBottom: 10 }}>Estado del sistema</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
+              <div style={{ ...card, padding: 12 }}>
+                <div style={{ fontSize: 9, color: C.sub, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 4 }}>Cache autoLitros</div>
+                <div style={{ fontSize: 20, fontWeight: 800, fontFamily: FONT_MONO, color: C.text }}>{techCacheSize}</div>
+                <div style={{ fontSize: 10, color: C.muted }}>entradas activas</div>
+              </div>
+              <div style={{ ...card, padding: 12 }}>
+                <div style={{ fontSize: 9, color: C.sub, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 4 }}>Queue offline</div>
+                <div style={{ fontSize: 20, fontWeight: 800, fontFamily: FONT_MONO, color: techQueueLen > 0 ? C.accent : C.success }}>
+                  {techQueueLen}
+                </div>
+                <div style={{ fontSize: 10, color: C.muted }}>
+                  {techQueueLen === 0 ? "sincronizado" : techQueueRetrying ? "sincronizando…" : "pendientes"}
+                </div>
+              </div>
+            </div>
+
+            {/* ── Último rebuild ── */}
+            <div style={{ ...secTitle, marginBottom: 8 }}>Último rebuild de saldo</div>
+            {lastReb ? (
+              <div style={{ ...card, padding: 12, marginBottom: 12 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+                  <div style={{ fontSize: 11, color: C.sub, fontFamily: FONT_MONO }}>
+                    {new Date(lastReb.ts).toLocaleString("es-AR", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" })}
+                  </div>
+                  <span style={{
+                    fontSize: 10, fontWeight: 700, borderRadius: 4, padding: "2px 7px",
+                    background: lastReb.error ? C.danger + "22" : lastReb.truncated ? C.accent + "22" : C.success + "22",
+                    color:      lastReb.error ? C.danger : lastReb.truncated ? C.accent : C.success,
+                  }}>
+                    {lastReb.error ? "ERROR" : lastReb.truncated ? "TRUNCADO" : "OK"}
+                  </span>
+                </div>
+                <div style={{ fontSize: 11, color: C.text }}>desde {lastReb.from} · {lastReb.daysProcessed ?? "?"} días · razón: <em>{lastReb.reason}</em></div>
+                {lastReb.error && <div style={{ fontSize: 10, color: C.danger, marginTop: 4 }}>{lastReb.error}</div>}
+              </div>
+            ) : (
+              <div style={{ ...card, padding: 12, marginBottom: 12, color: C.muted, fontSize: 12 }}>Sin rebuilds en esta sesión.</div>
+            )}
+
+            {/* ── Inconsistencias ── */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+              <div style={secTitle}>Inconsistencias · {fmtDate(date)}</div>
+              {techChecks !== null && (
+                <div style={{ fontSize: 10, color: C.muted }}>
+                  {errors.length > 0 && <span style={{ color: C.danger, fontWeight: 700 }}>{errors.length} error{errors.length > 1 ? "es" : ""} </span>}
+                  {warnings.length > 0 && <span style={{ color: C.accent, fontWeight: 700 }}>{warnings.length} aviso{warnings.length > 1 ? "s" : ""}</span>}
+                  {allOk && <span style={{ color: C.success, fontWeight: 700 }}>Todo OK</span>}
+                </div>
+              )}
+            </div>
+
+            {techLoading ? (
+              <div style={{ padding: "24px 0", textAlign: "center", color: C.sub, fontSize: 12 }}>
+                <IcoSyncing size={20} strokeWidth={SW} style={{ marginBottom: 6 }} />
+                <div>Analizando…</div>
+              </div>
+            ) : allOk ? (
+              <div style={{ ...card, padding: 16, marginBottom: 12, textAlign: "center" }}>
+                <div style={{ display: "flex", justifyContent: "center", marginBottom: 8 }}><AlertaOk size={28} strokeWidth={1.25} color={C.success} /></div>
+                <div style={{ fontSize: 13, color: C.success, fontWeight: 700 }}>Sin inconsistencias detectadas</div>
+              </div>
+            ) : (techChecks || []).length > 0 ? (
+              <div style={{ marginBottom: 12 }}>
+                {(techChecks || []).map((issue, i) => {
+                  const isErr = issue.severity === "error";
+                  const col   = isErr ? C.danger : C.accent;
+                  const Ico   = isErr ? AlertaError : AlertaWarn;
+                  return (
+                    <div key={i} style={{ ...card, padding: "10px 12px", marginBottom: 6, display: "flex", gap: 10, alignItems: "flex-start" }}>
+                      <div style={{ flexShrink: 0, marginTop: 1 }}><Ico size={15} strokeWidth={SW} color={col} /></div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: col, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 2 }}>
+                          {issue.category}
+                        </div>
+                        <div style={{ fontSize: 12, color: C.text, lineHeight: 1.4 }}>{issue.message}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div style={{ ...card, padding: 12, marginBottom: 12, color: C.muted, fontSize: 12 }}>Ejecutá Recalcular para ver el estado.</div>
+            )}
+
+            {/* ── Acciones ── */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 4 }}>
+              <button type="button"
+                onClick={() => { if (!techRebuilding) runTechRecalculate(); }}
+                disabled={techRebuilding}
+                style={{ ...btnPrimary, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, opacity: techRebuilding ? 0.6 : 1 }}>
+                <IcoSyncing size={14} strokeWidth={SW} style={techRebuilding ? { animation: "spin 1s linear infinite" } : {}} />
+                {techRebuilding ? "Recalculando…" : "Recalcular"}
+              </button>
+              <button type="button"
+                onClick={() => {
+                  if (!techRebuilding) {
+                    scheduleRebuildSaldoChain(
+                      new Date(date).toISOString().slice(0, 10),
+                      "forzar_rebuild_completo"
+                    );
+                    setTimeout(() => { setTechRebuildLog(getRebuildLog()); }, 2500);
+                  }
+                }}
+                disabled={techRebuilding}
+                style={{ ...btnSecondary, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, opacity: techRebuilding ? 0.6 : 1 }}>
+                <IcoSyncing size={14} strokeWidth={SW} />
+                Rebuild completo
+              </button>
+            </div>
+            <div style={{ fontSize: 10, color: C.muted, textAlign: "center", marginTop: 6 }}>
+              "Recalcular" reconstruye el saldo desde {date} · "Rebuild completo" programa rebuild desde el saldo base
+            </div>
+
+            {/* ── Log de rebuilds ── */}
+            {techRebuildLog.length > 1 && (
+              <div style={{ marginTop: 14 }}>
+                <div style={{ ...secTitle, marginBottom: 8 }}>Historial de rebuilds (sesión)</div>
+                <div style={{ ...card, padding: 0, overflow: "hidden" }}>
+                  {techRebuildLog.slice(0, 5).map((r, i) => (
+                    <div key={i} style={{
+                      display: "grid", gridTemplateColumns: "80px 1fr auto",
+                      padding: "8px 12px", gap: 8, alignItems: "center",
+                      borderBottom: i < Math.min(techRebuildLog.length - 1, 4) ? `1px solid ${C.border}` : "none",
+                    }}>
+                      <div style={{ fontSize: 10, color: C.muted, fontFamily: FONT_MONO }}>
+                        {new Date(r.ts).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}
+                      </div>
+                      <div style={{ fontSize: 11, color: C.sub }}>desde {r.from} · {r.daysProcessed ?? "?"} días</div>
+                      <span style={{
+                        fontSize: 9, fontWeight: 700, borderRadius: 4, padding: "1px 6px",
+                        background: r.error ? C.danger + "22" : r.truncated ? C.accent + "22" : C.success + "22",
+                        color:      r.error ? C.danger : r.truncated ? C.accent : C.success,
+                      }}>
+                        {r.error ? "ERR" : r.truncated ? "TRUNC" : "OK"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* ── SEMANA ── */}
       {tab === "semana" && (() => {
@@ -6772,6 +7302,11 @@ const SaldoInicialPanel = ({ perfil }) => {
   }, []);
 
   const handleSave = async () => {
+    // VALIDACIÓN INTERNA: sólo supervisor/jefe pueden modificar saldo base
+    if (perfil !== "supervisor" && perfil !== "jefe") {
+      console.warn("[SaldoInicialPanel.handleSave] perfil sin permiso:", perfil);
+      return;
+    }
     const baseDate = baseSaldo?.fromDate || getPreviousDate(getToday());
     const baseDateLabel = new Date(baseDate + "T00:00:00").toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" });
     const ok = await askConfirm({
@@ -7071,7 +7606,10 @@ export default function App() {
   const [informe, setInforme] = useState(false);
   const [initModal, setInitModal] = useState(false);
   const [initNombre, setInitNombre] = useState(_restoredSession?.nombre || "");
-  const [perfil, setPerfil] = useState(_restoredSession?.perfil || null); // null | "supervisor" | "jefe"
+  // Perfil NO se inicializa desde localStorage por seguridad — sólo desde Supabase session.
+  // Hasta que la sesión resuelva (perfilLoading=true), la UI muestra acciones bloqueadas.
+  const [perfil, setPerfil] = useState(null);
+  const [perfilLoading, setPerfilLoading] = useState(true);
   const [perfilModal, setPerfilModal] = useState(false);
   const [loginUser, setLoginUser] = useState("");
   const [loginPass, setLoginPass] = useState("");
@@ -7146,21 +7684,38 @@ export default function App() {
     return () => { _onSaveConflict = null; };
   }, []);
 
-  // Sincronizar perfil con sesión de Supabase Auth
+  // Sincronizar perfil con sesión de Supabase Auth.
+  // El perfil "verdadero" se deriva exclusivamente de la sesión Supabase (email del usuario
+  // autenticado, no de localStorage). Esto evita escalación de privilegios por modificación
+  // de session-restore en devtools.
   useEffect(() => {
     let active = true;
+    const resolvePerfilFromSession = (session) => {
+      if (!session?.user) return null;
+      // Primero intentar user_metadata.rol (forma canónica)
+      const metaRol = session.user.user_metadata?.rol;
+      if (metaRol && PERFILES[metaRol]) return metaRol;
+      // Fallback: derivar del email autenticado en Supabase
+      const email = session.user.email;
+      if (!email) return null;
+      return Object.keys(PERFILES).find(k => PERFILES[k].email === email) || null;
+    };
+
     db.auth.getSession().then(session => {
       if (!active) return;
-      const rol = session?.user?.user_metadata?.rol;
-      if (rol && PERFILES[rol]) setPerfil(rol);
-    }).catch(() => {});
+      const rol = resolvePerfilFromSession(session);
+      setPerfil(rol);
+      setPerfilLoading(false);
+    }).catch(() => {
+      if (!active) return;
+      setPerfilLoading(false);
+    });
 
     const unsubscribe = db.auth.onAuthStateChange((_event, session) => {
-      const rol = session?.user?.user_metadata?.rol;
-      if (rol && PERFILES[rol]) {
-        setPerfil(rol);
-      } else {
-        setPerfil(null);
+      const rol = resolvePerfilFromSession(session);
+      setPerfil(rol);
+      setPerfilLoading(false);
+      if (!rol) {
         setSection(s => s === "supervisor" ? "ingresos" : s);
       }
     });
@@ -7253,17 +7808,37 @@ export default function App() {
       confirmLabel: "Cerrar día",
     });
     if (!ok) return;
+    // VALIDACIÓN INTERNA DE PERFIL — no confiar en que el botón esté oculto
+    if (perfil !== "supervisor" && perfil !== "jefe") {
+      console.warn("[handleCerrarDia] perfil sin permiso:", perfil);
+      return;
+    }
     const est = { closed: true, closedAt: new Date().toISOString(), closedBy: PERFILES[perfil]?.label || "Supervisor" };
     await saveEstado(date, est);
-    await logAudit(date, "close_day", "dia", `Día ${date} cerrado`, est.closedBy);
-    // Guardar saldo final (litros + productos) para que mañana arranque con el estado correcto
+    // Snapshot del saldo en el resumen de auditoría
     const { totals: finalTotals, productosBase: finalProductos } = await calcAutoLitros(date);
-    await saveSaldo(finalTotals, date, finalProductos);
+    const totalLitros = Object.values(finalTotals).reduce((s, v) => s + (v > 0 ? v : 0), 0);
+    await logAudit(date, "close_day", "dia", `Día ${date} cerrado · saldo total ${Math.round(totalLitros).toLocaleString("es-AR")} L`, est.closedBy);
+    const today = getToday();
+    if (date >= getPreviousDate(today)) {
+      // Cerrando hoy o ayer — saldo del día cerrado se vuelve la base para mañana
+      await saveSaldo(finalTotals, date, finalProductos);
+    } else {
+      // Cierre retroactivo — no pisar SALDO_KEY con la fecha antigua porque
+      // rompería el saldo encadenado de hoy. Disparar reconstrucción completa.
+      console.log(`[handleCerrarDia] cierre retroactivo de ${date} → encolando rebuildSaldoChain`);
+      scheduleRebuildSaldoChain(date, `close_day_retro:${date}`);
+    }
     setDayClosed(true);
     setDayClosedBy(est.closedBy);
     setBackupSuggestion(true);
   };
   const handleReabrirDia = async () => {
+    // VALIDACIÓN INTERNA: sólo jefe puede reabrir
+    if (perfil !== "jefe") {
+      console.warn("[handleReabrirDia] perfil sin permiso:", perfil);
+      return;
+    }
     const ok = await askConfirm({
       title: "Reabrir día",
       message: `¿Reabrir el día ${fmtDate(date)}?\n\nLos operarios podrán volver a editar registros.`,
@@ -7271,9 +7846,14 @@ export default function App() {
     });
     if (!ok) return;
     await saveEstado(date, { closed: false });
-    await logAudit(date, "reopen_day", "dia", `Día ${date} reabierto`, PERFILES[perfil]?.label || "Jefe");
+    await logAudit(date, "reopen_day", "dia", `Día ${date} reabierto por ${PERFILES[perfil]?.label || "Jefe"}`, PERFILES[perfil]?.label || "Jefe");
     setDayClosed(false);
     setDayClosedBy(null);
+    // Reabrir un día puede llevar a edits retroactivos — pre-invalidar la cadena
+    const today = getToday();
+    if (date < getPreviousDate(today)) {
+      scheduleRebuildSaldoChain(date, `reopen_day:${date}`);
+    }
   };
 
   const handleLogin = async () => {
@@ -7321,8 +7901,12 @@ export default function App() {
           0%, 100% { box-shadow: 0 0 0 0 ${C.accent}00; }
           50%      { box-shadow: 0 0 14px 2px ${C.accent}55; }
         }
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to   { transform: rotate(360deg); }
+        }
         @media (prefers-reduced-motion: reduce) {
-          [style*="yatPulse"], [style*="yatReservaGlow"] { animation: none !important; }
+          [style*="yatPulse"], [style*="yatReservaGlow"], [style*="spin"] { animation: none !important; }
         }
       `}</style>
 
