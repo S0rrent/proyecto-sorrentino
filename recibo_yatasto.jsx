@@ -245,11 +245,12 @@ async function save(date, sec, data) {
     if (ts) _loadedAt.set(key, ts);
     else _loadedAt.delete(key);
   } catch (e) { console.error(e); }
-  // Edición retroactiva: cualquier guardado en una fecha anterior a ayer
+  // Edición retroactiva: cualquier guardado en una fecha anterior o igual a ayer
   // invalida el saldo encadenado y dispara una reconstrucción debounceada.
+  // (<=yesterday porque editar ayer también deja SALDO_KEY stale si ya se cerró.)
   const today = getToday();
   const yesterday = getPreviousDate(today);
-  if (date < yesterday) {
+  if (date <= yesterday) {
     // Invalidar inmediatamente todas las fechas posteriores (no esperar al rebuild)
     invalidateAutoLitrosFrom(date);
     scheduleRebuildSaldoChain(date, `edit-retro:${sec}`);
