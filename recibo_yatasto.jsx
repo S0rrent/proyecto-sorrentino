@@ -913,6 +913,28 @@ const FAB = ({ onClick }) => (
 );
 const Modal = ({ title, onClose, children, zIndex = 100 }) => {
   const isDesktop = typeof window !== "undefined" && window.innerWidth >= 1024;
+  // Body scroll lock — evita que el contenido detrás scrollee mientras hay un modal abierto.
+  // Restaura el overflow original al desmontar (soporta modales anidados via contador en dataset).
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const body = document.body;
+    const count = parseInt(body.dataset.yatModalCount || "0", 10);
+    if (count === 0) {
+      body.dataset.yatModalPrevOverflow = body.style.overflow || "";
+      body.style.overflow = "hidden";
+    }
+    body.dataset.yatModalCount = String(count + 1);
+    return () => {
+      const c = parseInt(body.dataset.yatModalCount || "1", 10);
+      if (c <= 1) {
+        body.style.overflow = body.dataset.yatModalPrevOverflow || "";
+        delete body.dataset.yatModalPrevOverflow;
+        delete body.dataset.yatModalCount;
+      } else {
+        body.dataset.yatModalCount = String(c - 1);
+      }
+    };
+  }, []);
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)", zIndex, display: "flex", alignItems: isDesktop ? "center" : "flex-end", justifyContent: "center" }}>
       <div style={{
@@ -927,7 +949,7 @@ const Modal = ({ title, onClose, children, zIndex = 100 }) => {
       }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
           <span style={{ fontWeight: 700, fontSize: 18, color: C.text }}>{title}</span>
-          <button type="button" onClick={onClose} aria-label="Cerrar" style={{ background: C.card, border: "none", color: C.sub, borderRadius: 8, width: 36, height: 36, cursor: "pointer", fontSize: 20 }}>×</button>
+          <button type="button" onClick={onClose} aria-label="Cerrar" style={{ background: C.card, border: "none", color: C.sub, borderRadius: 8, width: 44, height: 44, cursor: "pointer", fontSize: 22, lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>
         </div>
         {children}
         <div style={{ height: 20 }} />
@@ -1582,7 +1604,7 @@ const CIPRow = ({ nombre, tipo, data, onChange }) => {
   );
 };
 
-const SecCIP = ({ date, syncKey = 0 }) => {
+const SecCIP = ({ date, syncKey = 0, readOnly = false }) => {
   const [data, setData] = useState({});
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("silos");
@@ -1596,14 +1618,17 @@ const SecCIP = ({ date, syncKey = 0 }) => {
   }, [date, syncKey]);
 
   const updateSilo = async (s, v) => {
+    if (readOnly) return;
     const prev = data; const u = { ...data, silos: { ...(data.silos || {}), [s]: v } };
     setData(u); if (await save(date, "cip", u) === false) setData(prev);
   };
   const updateCamion = async (c, v) => {
+    if (readOnly) return;
     const prev = data; const u = { ...data, camiones: { ...(data.camiones || {}), [c]: v } };
     setData(u); if (await save(date, "cip", u) === false) setData(prev);
   };
   const setFiltro = async (k, v) => {
+    if (readOnly) return;
     const prev = data; const u = { ...data, [k]: v };
     setData(u); if (await save(date, "cip", u) === false) setData(prev);
   };
@@ -2702,17 +2727,30 @@ const SecProduccion = ({ date, syncKey = 0, dayClosed = false, perfil = null }) 
   };
 
   const onDelete = async item => {
+    // VALIDACIÓN INTERNA: el botón se renderiza solo con perfil supervisor/jefe,
+    // pero el handler también valida por seguridad (evita escalación via devtools).
+    if (perfil !== "supervisor" && perfil !== "jefe") {
+      console.warn("[onDelete produccion] perfil sin permiso:", perfil);
+      return;
+    }
+    const esFinal = isLoteFinalizado(item.estado);
     const confirmed = await askConfirm({
-      title: "Eliminar lote",
-      message: `¿Eliminar lote ${item.lote || item.producto || "?"}?`,
+      title: esFinal ? "Eliminar lote FINALIZADO" : "Eliminar lote",
+      message: esFinal
+        ? `¿Eliminar lote ${item.lote || item.producto || "?"}? Estaba finalizado: al borrarlo se RESTITUYEN los litros usados al silo de origen. Esto es irreversible.`
+        : `¿Eliminar lote ${item.lote || item.producto || "?"}? Esto libera los litros reservados.`,
       danger: true,
       confirmLabel: "Eliminar",
     });
     if (!confirmed) return;
     await persist(list.filter(x => x.id !== item.id));
     _autoLitrosCache.delete(date);
-    await logAudit(date, "eliminar_produccion", "produccion",
-      `${item.producto} — Lote ${item.lote || "—"}`, perfil || "");
+    // Auditoría diferenciada por estado del lote eliminado
+    await logAudit(date,
+      esFinal ? "eliminar_produccion_finalizada" : "eliminar_produccion",
+      "produccion",
+      `${item.producto} — Lote ${item.lote || "—"} — estado ${item.estado || "envasando"}`,
+      perfil || "");
     setModal(null);
   };
 
@@ -6863,6 +6901,11 @@ const SaldoInicialPanel = ({ perfil }) => {
   }, []);
 
   const handleSave = async () => {
+    // VALIDACIÓN INTERNA: sólo supervisor/jefe pueden modificar saldo base
+    if (perfil !== "supervisor" && perfil !== "jefe") {
+      console.warn("[SaldoInicialPanel.handleSave] perfil sin permiso:", perfil);
+      return;
+    }
     const baseDate = baseSaldo?.fromDate || getPreviousDate(getToday());
     const baseDateLabel = new Date(baseDate + "T00:00:00").toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" });
     const ok = await askConfirm({
@@ -7162,7 +7205,10 @@ export default function App() {
   const [informe, setInforme] = useState(false);
   const [initModal, setInitModal] = useState(false);
   const [initNombre, setInitNombre] = useState(_restoredSession?.nombre || "");
-  const [perfil, setPerfil] = useState(_restoredSession?.perfil || null); // null | "supervisor" | "jefe"
+  // Perfil NO se inicializa desde localStorage por seguridad — sólo desde Supabase session.
+  // Hasta que la sesión resuelva (perfilLoading=true), la UI muestra acciones bloqueadas.
+  const [perfil, setPerfil] = useState(null);
+  const [perfilLoading, setPerfilLoading] = useState(true);
   const [perfilModal, setPerfilModal] = useState(false);
   const [loginUser, setLoginUser] = useState("");
   const [loginPass, setLoginPass] = useState("");
@@ -7237,21 +7283,38 @@ export default function App() {
     return () => { _onSaveConflict = null; };
   }, []);
 
-  // Sincronizar perfil con sesión de Supabase Auth
+  // Sincronizar perfil con sesión de Supabase Auth.
+  // El perfil "verdadero" se deriva exclusivamente de la sesión Supabase (email del usuario
+  // autenticado, no de localStorage). Esto evita escalación de privilegios por modificación
+  // de session-restore en devtools.
   useEffect(() => {
     let active = true;
+    const resolvePerfilFromSession = (session) => {
+      if (!session?.user) return null;
+      // Primero intentar user_metadata.rol (forma canónica)
+      const metaRol = session.user.user_metadata?.rol;
+      if (metaRol && PERFILES[metaRol]) return metaRol;
+      // Fallback: derivar del email autenticado en Supabase
+      const email = session.user.email;
+      if (!email) return null;
+      return Object.keys(PERFILES).find(k => PERFILES[k].email === email) || null;
+    };
+
     db.auth.getSession().then(session => {
       if (!active) return;
-      const rol = session?.user?.user_metadata?.rol;
-      if (rol && PERFILES[rol]) setPerfil(rol);
-    }).catch(() => {});
+      const rol = resolvePerfilFromSession(session);
+      setPerfil(rol);
+      setPerfilLoading(false);
+    }).catch(() => {
+      if (!active) return;
+      setPerfilLoading(false);
+    });
 
     const unsubscribe = db.auth.onAuthStateChange((_event, session) => {
-      const rol = session?.user?.user_metadata?.rol;
-      if (rol && PERFILES[rol]) {
-        setPerfil(rol);
-      } else {
-        setPerfil(null);
+      const rol = resolvePerfilFromSession(session);
+      setPerfil(rol);
+      setPerfilLoading(false);
+      if (!rol) {
         setSection(s => s === "supervisor" ? "ingresos" : s);
       }
     });
