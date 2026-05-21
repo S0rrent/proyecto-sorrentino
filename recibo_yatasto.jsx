@@ -721,6 +721,130 @@ function scheduleRebuildSaldoChain(fromDate, reason) {
 // Expone el log de rebuilds para el panel técnico.
 function getRebuildLog() { return [..._rebuildLog]; }
 
+// ─── DETECTOR DE INCONSISTENCIAS ─────────────────────────────
+// Corre validaciones sobre los datos de una fecha y retorna issues estructuradas.
+// Cada issue: { severity: "error"|"warning", category, message, ref? }
+async function runConsistencyChecks(date) {
+  const issues = [];
+  const [{ totals, reservados }, produccion, movData] = await Promise.all([
+    calcAutoLitros(date),
+    load(date, "produccion", []),
+    load(date, "movimientos", { movs: [], ctrls: [] }),
+  ]);
+
+  // 1. Stock negativo (sin Math.max — vemos el valor real)
+  Object.entries(totals).forEach(([silo, L]) => {
+    if (L < -0.5) {
+      issues.push({
+        severity: "error", category: "stock",
+        message: `Silo ${silo}: stock ${Math.round(L).toLocaleString("es-AR")} L (negativo). Posible doble descuento o saldo inicial mal cargado.`,
+        ref: silo,
+      });
+    }
+  });
+
+  // 2. Reservados > total disponible
+  Object.entries(reservados || {}).forEach(([silo, r]) => {
+    const t = totals[silo] || 0;
+    if (r > t + 0.5) {
+      issues.push({
+        severity: "error", category: "stock",
+        message: `Silo ${silo}: reservados ${Math.round(r).toLocaleString("es-AR")} L excede total ${Math.round(t).toLocaleString("es-AR")} L. Hay un lote envasando con litros que ya no están en el silo.`,
+        ref: silo,
+      });
+    }
+  });
+
+  // 3. Lotes con anomalías
+  const lotePorId = new Map();
+  produccion.forEach(p => {
+    lotePorId.set(p.id, p);
+    if (p.estado === "cancelado") return;
+
+    // litros usados > enviados
+    if (p.estado === "finalizado" && Array.isArray(p.litrosUsados) && Array.isArray(p.origenes)) {
+      p.origenes.forEach((o, i) => {
+        const env = parseFloat(o.litros) || 0;
+        const us = parseFloat(p.litrosUsados[i]?.litros) || 0;
+        if (us > env + 0.5) {
+          issues.push({
+            severity: "error", category: "produccion",
+            message: `Lote ${p.lote || p.id.slice(0,6)}: usados (${us} L) > enviados (${env} L) en silo ${o.silo}.`,
+            ref: p.id,
+          });
+        }
+      });
+    }
+
+    // finalizado sin litrosUsados
+    if (p.estado === "finalizado" && (!Array.isArray(p.litrosUsados) || p.litrosUsados.length === 0)) {
+      issues.push({
+        severity: "warning", category: "produccion",
+        message: `Lote ${p.lote || p.id.slice(0,6)}: finalizado pero sin litros usados. calcAutoLitros caerá al fallback de orígenes.`,
+        ref: p.id,
+      });
+    }
+
+    // envasando sin orígenes
+    if (isLoteActivo(p.estado) && (!Array.isArray(p.origenes) || p.origenes.length === 0)) {
+      issues.push({
+        severity: "warning", category: "produccion",
+        message: `Lote ${p.lote || p.id.slice(0,6)}: envasando sin silos origen.`,
+        ref: p.id,
+      });
+    }
+
+    // Rendimiento > 100% (cajas × volumen > litros usados)
+    if (p.estado === "finalizado") {
+      const info = PRODS_PRODUCCION_LIST.find(x => x.nombre === p.producto);
+      const caj = parseFloat(p.cajas) || 0;
+      const volEnv = info && caj > 0 ? caj * info.up * info.vol : 0;
+      const totalUsado = (p.litrosUsados || []).reduce((s, u) => s + (parseFloat(u.litros) || 0), 0);
+      if (volEnv > 0 && totalUsado > 0 && (volEnv / totalUsado) > 1.05) {
+        issues.push({
+          severity: "warning", category: "produccion",
+          message: `Lote ${p.lote || p.id.slice(0,6)}: rendimiento ${((volEnv/totalUsado)*100).toFixed(1)}% (envasado ${volEnv.toFixed(1)} L > usados ${totalUsado.toFixed(1)} L).`,
+          ref: p.id,
+        });
+      }
+    }
+  });
+
+  // 4. Movimientos automáticos huérfanos / duplicados
+  const movsAuto = (movData.movs || []).filter(m => m.loteId);
+  const porLote = new Map();
+  movsAuto.forEach(m => {
+    if (!porLote.has(m.loteId)) porLote.set(m.loteId, []);
+    porLote.get(m.loteId).push(m);
+  });
+  porLote.forEach((movs, loteId) => {
+    if (!lotePorId.has(loteId)) {
+      issues.push({
+        severity: "error", category: "movimientos",
+        message: `Movimiento automático huérfano: vincula al lote ${loteId.slice(0,6)} que ya no existe (${movs.length} mov${movs.length>1?"s":""}).`,
+        ref: loteId,
+      });
+    } else if (movs.length > 1) {
+      issues.push({
+        severity: "error", category: "movimientos",
+        message: `Lote ${lotePorId.get(loteId).lote || loteId.slice(0,6)}: tiene ${movs.length} movimientos automáticos (esperaba 1).`,
+        ref: loteId,
+      });
+    }
+  });
+
+  // 5. Saldo chain truncado (últimos rebuilds)
+  const lastTrunc = _rebuildLog.find(r => r.truncated);
+  if (lastTrunc) {
+    issues.push({
+      severity: "warning", category: "chain",
+      message: `Último rebuild truncado: procesados ${lastTrunc.daysProcessed} días desde ${lastTrunc.base}, último día ${lastTrunc.lastDate}. Posible saldo base muy antiguo.`,
+    });
+  }
+
+  return issues;
+}
+
 // ─── SVG SILO VISUAL ─────────────────────────────────────────
 // Silo path en viewBox "0 0 100 220":
 // cuerpo: tapa (y≈2), cono top → cilindro (y=52-148) → hopper (y=148-170) → salida
@@ -3790,6 +3914,45 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
   const [tamboSel, setTamboSel] = useState(null);
   const [modalProd, setModalProd] = useState(null); // { silo, litros } | null
 
+  // ── Panel técnico (jefe only) ──────────────────────────────────
+  const [techChecks, setTechChecks] = useState(null);
+  const [techLoading, setTechLoading] = useState(false);
+  const [techRebuilding, setTechRebuilding] = useState(false);
+  const [techQueueLen, setTechQueueLen] = useState(0);
+  const [techQueueRetrying, setTechQueueRetrying] = useState(false);
+  const [techRebuildLog, setTechRebuildLog] = useState([]);
+  const [techCacheSize, setTechCacheSize] = useState(0);
+
+  useEffect(() => {
+    if (tab !== "tecnico" || perfil !== "jefe") return;
+    return onWriteQueueChange((len, retrying) => {
+      setTechQueueLen(len);
+      setTechQueueRetrying(retrying);
+    });
+  }, [tab, perfil]);
+
+  useEffect(() => {
+    if (tab !== "tecnico" || perfil !== "jefe") return;
+    let cancelled = false;
+    setTechLoading(true);
+    setTechCacheSize(_autoLitrosCache.size);
+    setTechRebuildLog(getRebuildLog());
+    runConsistencyChecks(date).then(checks => {
+      if (!cancelled) { setTechChecks(checks); setTechLoading(false); }
+    });
+    return () => { cancelled = true; };
+  }, [tab, date, syncKey, perfil]);
+
+  const runTechRecalculate = async () => {
+    setTechRebuilding(true);
+    await rebuildSaldoChain(date, "panel_tecnico");
+    setTechRebuildLog(getRebuildLog());
+    setTechCacheSize(_autoLitrosCache.size);
+    const checks = await runConsistencyChecks(date);
+    setTechChecks(checks);
+    setTechRebuilding(false);
+  };
+
   useEffect(() => {
     setExportFrom(date);
     setExportTo(date);
@@ -5342,7 +5505,10 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
           ["tambos",   IcoLeche,     "Tambos"],
           ["historial",TabHistorial, "Historial"],
           ["exportar", TabExportar,  "Exportar"],
-          ...(perfil === "jefe" ? [["auditoria", AlertaOk, "Auditoría"]] : []),
+          ...(perfil === "jefe" ? [
+            ["auditoria", AlertaOk,  "Auditoría"],
+            ["tecnico",   IcoMant,   "Técnico"],
+          ] : []),
         ].map(([t, TabIcon, lbl]) => {
           const active = tab === t;
           return (
@@ -5834,6 +6000,162 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
           })}
         </div>
       )}
+
+      {/* ── TÉCNICO ── */}
+      {tab === "tecnico" && perfil === "jefe" && (() => {
+        const errors   = (techChecks || []).filter(c => c.severity === "error");
+        const warnings = (techChecks || []).filter(c => c.severity === "warning");
+        const allOk    = techChecks !== null && techChecks.length === 0;
+        const lastReb  = techRebuildLog[0] || null;
+
+        return (
+          <div>
+            {/* ── Estado del sistema ── */}
+            <div style={{ ...secTitle, marginBottom: 10 }}>Estado del sistema</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
+              <div style={{ ...card, padding: 12 }}>
+                <div style={{ fontSize: 9, color: C.sub, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 4 }}>Cache autoLitros</div>
+                <div style={{ fontSize: 20, fontWeight: 800, fontFamily: FONT_MONO, color: C.text }}>{techCacheSize}</div>
+                <div style={{ fontSize: 10, color: C.muted }}>entradas activas</div>
+              </div>
+              <div style={{ ...card, padding: 12 }}>
+                <div style={{ fontSize: 9, color: C.sub, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 4 }}>Queue offline</div>
+                <div style={{ fontSize: 20, fontWeight: 800, fontFamily: FONT_MONO, color: techQueueLen > 0 ? C.accent : C.success }}>
+                  {techQueueLen}
+                </div>
+                <div style={{ fontSize: 10, color: C.muted }}>
+                  {techQueueLen === 0 ? "sincronizado" : techQueueRetrying ? "sincronizando…" : "pendientes"}
+                </div>
+              </div>
+            </div>
+
+            {/* ── Último rebuild ── */}
+            <div style={{ ...secTitle, marginBottom: 8 }}>Último rebuild de saldo</div>
+            {lastReb ? (
+              <div style={{ ...card, padding: 12, marginBottom: 12 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+                  <div style={{ fontSize: 11, color: C.sub, fontFamily: FONT_MONO }}>
+                    {new Date(lastReb.ts).toLocaleString("es-AR", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" })}
+                  </div>
+                  <span style={{
+                    fontSize: 10, fontWeight: 700, borderRadius: 4, padding: "2px 7px",
+                    background: lastReb.error ? C.danger + "22" : lastReb.truncated ? C.accent + "22" : C.success + "22",
+                    color:      lastReb.error ? C.danger : lastReb.truncated ? C.accent : C.success,
+                  }}>
+                    {lastReb.error ? "ERROR" : lastReb.truncated ? "TRUNCADO" : "OK"}
+                  </span>
+                </div>
+                <div style={{ fontSize: 11, color: C.text }}>desde {lastReb.from} · {lastReb.daysProcessed ?? "?"} días · razón: <em>{lastReb.reason}</em></div>
+                {lastReb.error && <div style={{ fontSize: 10, color: C.danger, marginTop: 4 }}>{lastReb.error}</div>}
+              </div>
+            ) : (
+              <div style={{ ...card, padding: 12, marginBottom: 12, color: C.muted, fontSize: 12 }}>Sin rebuilds en esta sesión.</div>
+            )}
+
+            {/* ── Inconsistencias ── */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+              <div style={secTitle}>Inconsistencias · {fmtDate(date)}</div>
+              {techChecks !== null && (
+                <div style={{ fontSize: 10, color: C.muted }}>
+                  {errors.length > 0 && <span style={{ color: C.danger, fontWeight: 700 }}>{errors.length} error{errors.length > 1 ? "es" : ""} </span>}
+                  {warnings.length > 0 && <span style={{ color: C.accent, fontWeight: 700 }}>{warnings.length} aviso{warnings.length > 1 ? "s" : ""}</span>}
+                  {allOk && <span style={{ color: C.success, fontWeight: 700 }}>Todo OK</span>}
+                </div>
+              )}
+            </div>
+
+            {techLoading ? (
+              <div style={{ padding: "24px 0", textAlign: "center", color: C.sub, fontSize: 12 }}>
+                <IcoSyncing size={20} strokeWidth={SW} style={{ marginBottom: 6 }} />
+                <div>Analizando…</div>
+              </div>
+            ) : allOk ? (
+              <div style={{ ...card, padding: 16, marginBottom: 12, textAlign: "center" }}>
+                <div style={{ display: "flex", justifyContent: "center", marginBottom: 8 }}><AlertaOk size={28} strokeWidth={1.25} color={C.success} /></div>
+                <div style={{ fontSize: 13, color: C.success, fontWeight: 700 }}>Sin inconsistencias detectadas</div>
+              </div>
+            ) : (techChecks || []).length > 0 ? (
+              <div style={{ marginBottom: 12 }}>
+                {(techChecks || []).map((issue, i) => {
+                  const isErr = issue.severity === "error";
+                  const col   = isErr ? C.danger : C.accent;
+                  const Ico   = isErr ? AlertaError : AlertaWarn;
+                  return (
+                    <div key={i} style={{ ...card, padding: "10px 12px", marginBottom: 6, display: "flex", gap: 10, alignItems: "flex-start" }}>
+                      <div style={{ flexShrink: 0, marginTop: 1 }}><Ico size={15} strokeWidth={SW} color={col} /></div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: col, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 2 }}>
+                          {issue.category}
+                        </div>
+                        <div style={{ fontSize: 12, color: C.text, lineHeight: 1.4 }}>{issue.message}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div style={{ ...card, padding: 12, marginBottom: 12, color: C.muted, fontSize: 12 }}>Ejecutá Recalcular para ver el estado.</div>
+            )}
+
+            {/* ── Acciones ── */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 4 }}>
+              <button type="button"
+                onClick={() => { if (!techRebuilding) runTechRecalculate(); }}
+                disabled={techRebuilding}
+                style={{ ...btnPrimary, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, opacity: techRebuilding ? 0.6 : 1 }}>
+                <IcoSyncing size={14} strokeWidth={SW} style={techRebuilding ? { animation: "spin 1s linear infinite" } : {}} />
+                {techRebuilding ? "Recalculando…" : "Recalcular"}
+              </button>
+              <button type="button"
+                onClick={() => {
+                  if (!techRebuilding) {
+                    scheduleRebuildSaldoChain(
+                      new Date(date).toISOString().slice(0, 10),
+                      "forzar_rebuild_completo"
+                    );
+                    setTimeout(() => { setTechRebuildLog(getRebuildLog()); }, 2500);
+                  }
+                }}
+                disabled={techRebuilding}
+                style={{ ...btnSecondary, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, opacity: techRebuilding ? 0.6 : 1 }}>
+                <IcoSyncing size={14} strokeWidth={SW} />
+                Rebuild completo
+              </button>
+            </div>
+            <div style={{ fontSize: 10, color: C.muted, textAlign: "center", marginTop: 6 }}>
+              "Recalcular" reconstruye el saldo desde {date} · "Rebuild completo" programa rebuild desde el saldo base
+            </div>
+
+            {/* ── Log de rebuilds ── */}
+            {techRebuildLog.length > 1 && (
+              <div style={{ marginTop: 14 }}>
+                <div style={{ ...secTitle, marginBottom: 8 }}>Historial de rebuilds (sesión)</div>
+                <div style={{ ...card, padding: 0, overflow: "hidden" }}>
+                  {techRebuildLog.slice(0, 5).map((r, i) => (
+                    <div key={i} style={{
+                      display: "grid", gridTemplateColumns: "80px 1fr auto",
+                      padding: "8px 12px", gap: 8, alignItems: "center",
+                      borderBottom: i < Math.min(techRebuildLog.length - 1, 4) ? `1px solid ${C.border}` : "none",
+                    }}>
+                      <div style={{ fontSize: 10, color: C.muted, fontFamily: FONT_MONO }}>
+                        {new Date(r.ts).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}
+                      </div>
+                      <div style={{ fontSize: 11, color: C.sub }}>desde {r.from} · {r.daysProcessed ?? "?"} días</div>
+                      <span style={{
+                        fontSize: 9, fontWeight: 700, borderRadius: 4, padding: "1px 6px",
+                        background: r.error ? C.danger + "22" : r.truncated ? C.accent + "22" : C.success + "22",
+                        color:      r.error ? C.danger : r.truncated ? C.accent : C.success,
+                      }}>
+                        {r.error ? "ERR" : r.truncated ? "TRUNC" : "OK"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* ── SEMANA ── */}
       {tab === "semana" && (() => {
@@ -7579,8 +7901,12 @@ export default function App() {
           0%, 100% { box-shadow: 0 0 0 0 ${C.accent}00; }
           50%      { box-shadow: 0 0 14px 2px ${C.accent}55; }
         }
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to   { transform: rotate(360deg); }
+        }
         @media (prefers-reduced-motion: reduce) {
-          [style*="yatPulse"], [style*="yatReservaGlow"] { animation: none !important; }
+          [style*="yatPulse"], [style*="yatReservaGlow"], [style*="spin"] { animation: none !important; }
         }
       `}</style>
 
