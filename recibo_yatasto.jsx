@@ -2283,6 +2283,22 @@ const ProduccionForm = ({ initial, onSave, onClose, onDelete, date, perfil, isEd
   // Re-guardar un lote ya finalizado (editar datos del cierre)
   const doGuardarFinalizado = doConfirmarFinalizacion;
 
+  // Libera el sobrante reservado de un lote ya finalizado: cambia destinoSobrante
+  // a "origen" para que los litros vuelvan al silo (dejan de estar en reservados).
+  // Sólo aplica a lotes finalizados con destinoSobrante === "reservado".
+  const liberarReservado = async () => {
+    if (!isLoteFinalizado(f.estado) || f.destinoSobrante !== "reservado") return;
+    if (!(await askConfirm({
+      title: "Liberar sobrante",
+      message: `¿Liberar ${Math.round(f.sobranteL || 0).toLocaleString("es-AR")} L de sobrante reservado? Los litros vuelven al silo de origen y dejan de estar reservados.`,
+      confirmLabel: "Liberar",
+    }))) return;
+    setSaving(true);
+    try {
+      onSave({ ...f, destinoSobrante: "origen", siloSobrante: null }, initial);
+    } finally { setSaving(false); }
+  };
+
   const requestDelete = async () => {
     if (!onDelete) return;
     const confirmed = await askConfirm({
@@ -2580,6 +2596,15 @@ const ProduccionForm = ({ initial, onSave, onClose, onDelete, date, perfil, isEd
                   Sobrante registrado: {Math.round(f.sobranteL).toLocaleString("es-AR")} L → {sobranteLabelMap[f.destinoSobrante] || f.destinoSobrante || "—"}
                 </div>
               )}
+
+              {/* Liberar sobrante reservado: el único modo de soltar litros que
+                  quedaron en "reservados" sin tener que borrar el lote entero. */}
+              {yaFinalizado && f.destinoSobrante === "reservado" && f.sobranteL > 0 && (
+                <button type="button" onClick={liberarReservado} disabled={saving}
+                  style={{ ...btnSecondary, fontSize: 13, padding: "12px", fontWeight: 700, color: C.accent, borderColor: C.accent + "55", opacity: saving ? 0.5 : 1 }}>
+                  Liberar {Math.round(f.sobranteL).toLocaleString("es-AR")} L del sobrante reservado
+                </button>
+              )}
             </>
           )}
 
@@ -2664,13 +2689,72 @@ const SecProduccion = ({ date, syncKey = 0, dayClosed = false, perfil = null }) 
   const [confirmUI, askConfirm] = useConfirm();
 
   useEffect(() => {
-    load(date, "produccion", []).then(d => { setList(d); setLoading(false); });
+    load(date, "produccion", []).then(d => {
+      // R3: normalización defensiva al cargar. Lotes legacy "enviado" → "envasando".
+      // Lotes activos sin campo litrosUsados explícito → setear null para evitar
+      // caer en el branch legacy de calcAutoLitros que descuenta directo.
+      const norm = (d || []).map(p => {
+        const next = { ...p };
+        if (next.estado === "enviado") next.estado = "envasando";
+        if (next.estado === "envasando" && !("litrosUsados" in next)) {
+          next.litrosUsados = null;
+        }
+        return next;
+      });
+      setList(norm);
+      setLoading(false);
+    });
   }, [date, syncKey]);
 
   const persist = async updated => {
     const ok = await save(date, "produccion", updated);
     if (ok !== false) setList(updated);
     return ok;
+  };
+
+  // Helper: regenera el auto-movimiento de sobrante para un lote finalizado.
+  // - Elimina TODOS los movimientos previos asociados al lote (identificados por
+  //   loteId; compat con lotes viejos: matchea por motivo si no hay loteId).
+  // - Si el lote tiene destinoSobrante="otro_silo" y sobrante>0, crea uno nuevo.
+  // Esto evita movimientos huérfanos cuando se re-edita un lote ya finalizado.
+  const syncAutoMovSobrante = async (item, oldItem) => {
+    const movData = await load(date, "movimientos", { movs: [], ctrls: [] });
+    const movs = movData.movs || [];
+    // Filtrar movimientos viejos asociados a este lote
+    const kept = movs.filter(m => {
+      if (m.loteId === item.id) return false; // marcado canónicamente
+      // Compat legacy: matchear por motivo que contiene el número de lote
+      if (!m.loteId && m.motivo && oldItem?.lote &&
+          m.motivo.includes(`Sobrante lote ${oldItem.lote}`) &&
+          m.motivo.includes("(automático)")) return false;
+      return true;
+    });
+    const removed = movs.length - kept.length;
+    let added = 0;
+    let nextMovs = kept;
+    if (item.destinoSobrante === "otro_silo" && item.siloSobrante && item.sobranteL > 0) {
+      const desde = (item.origenes || [])[0]?.silo || "Producción";
+      const autoMov = {
+        id: crypto.randomUUID(),
+        loteId: item.id, // vínculo canónico para regeneraciones futuras
+        hora: getNow(),
+        desde,
+        hasta: item.siloSobrante,
+        litros: String(Math.round(item.sobranteL)),
+        motivo: `Sobrante lote ${item.lote || item.producto || "?"} (automático)`,
+        resp: perfil || "",
+      };
+      nextMovs = [...kept, autoMov];
+      added = 1;
+    }
+    if (removed > 0 || added > 0) {
+      await save(date, "movimientos", { ...movData, movs: nextMovs });
+      _autoLitrosCache.delete(date);
+      const accion = added > 0 ? (removed > 0 ? "regenerado" : "creado") : "eliminado";
+      await logAudit(date, "mov_sobrante_produccion", "movimiento",
+        `Mov sobrante ${accion} (lote ${item.lote || item.producto || "?"}): -${removed} +${added}`,
+        perfil || "");
+    }
   };
 
   const onSave = async (item, oldItem) => {
@@ -2682,29 +2766,20 @@ const SecProduccion = ({ date, syncKey = 0, dayClosed = false, perfil = null }) 
     if (ok !== false) {
       _autoLitrosCache.delete(date);
 
-      // Auto-movimiento si el sobrante va a otro silo (sólo al primer finalizado)
-      if (
-        item.estado === "finalizado" &&
-        item.destinoSobrante === "otro_silo" &&
-        item.siloSobrante &&
-        item.sobranteL > 0 &&
-        oldItem?.estado !== "finalizado"
-      ) {
-        const desde = (item.origenes || [])[0]?.silo || "Producción";
-        const movData = await load(date, "movimientos", { movs: [], ctrls: [] });
-        const autoMov = {
-          id: crypto.randomUUID(),
-          hora: getNow(),
-          desde,
-          hasta: item.siloSobrante,
-          litros: String(Math.round(item.sobranteL)),
-          motivo: `Sobrante lote ${item.lote || item.producto || "?"} (automático)`,
-          resp: perfil || "",
-        };
-        await save(date, "movimientos", { ...movData, movs: [...(movData.movs || []), autoMov] });
-        _autoLitrosCache.delete(date);
-        await logAudit(date, "mov_sobrante_produccion", "movimiento",
-          `Sobrante ${item.sobranteL} L de ${desde} → ${item.siloSobrante} (lote ${item.lote || "?"})`, perfil || "");
+      // Sincronizar auto-movimiento de sobrante:
+      // - Si el lote pasa a finalizado o se re-edita siendo finalizado, regenerar.
+      // - Si el lote sale de "otro_silo" o cambia de silo, eliminar el anterior.
+      const fueFinal = oldItem?.estado === "finalizado";
+      const esFinal = item.estado === "finalizado";
+      const cambioRelevante = !fueFinal && esFinal ||
+        (esFinal && (
+          oldItem?.destinoSobrante !== item.destinoSobrante ||
+          oldItem?.siloSobrante !== item.siloSobrante ||
+          oldItem?.sobranteL !== item.sobranteL ||
+          (oldItem?.origenes?.[0]?.silo) !== (item.origenes?.[0]?.silo)
+        ));
+      if (cambioRelevante || (fueFinal && !esFinal)) {
+        await syncAutoMovSobrante(esFinal ? item : { ...item, destinoSobrante: null }, oldItem);
       }
 
       let resumen = `${item.producto} — Lote ${item.lote || "—"} — ${item.estado}`;
@@ -2745,6 +2820,10 @@ const SecProduccion = ({ date, syncKey = 0, dayClosed = false, perfil = null }) 
     if (!confirmed) return;
     await persist(list.filter(x => x.id !== item.id));
     _autoLitrosCache.delete(date);
+    // Eliminar movimientos automáticos huérfanos asociados al lote (si existían)
+    if (esFinal) {
+      await syncAutoMovSobrante({ ...item, destinoSobrante: null, sobranteL: 0 }, item);
+    }
     // Auditoría diferenciada por estado del lote eliminado
     await logAudit(date,
       esFinal ? "eliminar_produccion_finalizada" : "eliminar_produccion",
