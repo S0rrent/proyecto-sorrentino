@@ -245,6 +245,15 @@ async function save(date, sec, data) {
     if (ts) _loadedAt.set(key, ts);
     else _loadedAt.delete(key);
   } catch (e) { console.error(e); }
+  // Edición retroactiva: cualquier guardado en una fecha anterior a ayer
+  // invalida el saldo encadenado y dispara una reconstrucción debounceada.
+  const today = getToday();
+  const yesterday = getPreviousDate(today);
+  if (date < yesterday) {
+    // Invalidar inmediatamente todas las fechas posteriores (no esperar al rebuild)
+    invalidateAutoLitrosFrom(date);
+    scheduleRebuildSaldoChain(date, `edit-retro:${sec}`);
+  }
   return true;
 }
 
@@ -469,6 +478,16 @@ async function generateBackup() {
 const _autoLitrosCache = new Map(); // key: date → { result, ts }
 const _AUTO_LITROS_TTL = 15000;     // 15 s — suficiente para una navegación completa
 
+// Invalida todas las entradas de cache con fecha >= fromDate (inclusivo).
+// Necesario cuando una edición retroactiva afecta cálculos de días posteriores.
+function invalidateAutoLitrosFrom(fromDate) {
+  let count = 0;
+  for (const key of _autoLitrosCache.keys()) {
+    if (key >= fromDate) { _autoLitrosCache.delete(key); count++; }
+  }
+  return count;
+}
+
 // calcAutoLitros puede llamarse en dos modos:
 // - modo normal (sin args extra): lee el saldo desde DB
 // - modo cadena (con _baseTotals y _baseProductos): usa la base provista, no va a DB para el saldo
@@ -615,20 +634,92 @@ async function calcAutoLitros(date, _baseTotals, _baseProductos) {
 // buildChainedSaldo: dada una base (saldo de fecha X), recorre cada día hasta targetDate
 // calculando las operaciones de cada jornada sobre el resultado del día anterior.
 // Corrige el problema de gaps multi-día en el carry-over.
+// Retorna { totals, productosBase, truncated, daysProcessed, lastDate }.
+const _CHAIN_MAX_DAYS = 365;
 async function buildChainedSaldo(baseSaldo, targetDate) {
   let totals = { ...baseSaldo.data };
   let productosBase = { ...(baseSaldo.productos || {}) };
   let d = addDay(baseSaldo.fromDate);
   let iters = 0;
-  while (d <= targetDate && iters < 180) {
+  let lastDate = baseSaldo.fromDate;
+  while (d <= targetDate && iters < _CHAIN_MAX_DAYS) {
     const r = await calcAutoLitros(d, totals, productosBase);
     totals = r.totals;
     productosBase = r.productosBase;
+    lastDate = d;
     d = addDay(d);
     iters++;
   }
-  return { totals, productosBase };
+  const truncated = iters >= _CHAIN_MAX_DAYS && d <= targetDate;
+  if (truncated) {
+    console.warn(`[buildChainedSaldo] cadena truncada: ${iters} iteraciones, último día procesado ${lastDate}, falta llegar a ${targetDate}`);
+  }
+  return { totals, productosBase, truncated, daysProcessed: iters, lastDate };
 }
+
+// ─── REBUILD SALDO CHAIN ─────────────────────────────────────
+// Helper centralizado para reconstruir el saldo encadenado (SALDO_KEY) tras una
+// edición retroactiva. Lee SALDO_BASE_KEY (ancla manual) y encadena hasta ayer.
+// Idempotente — se puede ejecutar múltiples veces sin efectos colaterales.
+// Invalida _autoLitrosCache desde fromDate en adelante.
+async function rebuildSaldoChain(fromDate, reason = "manual") {
+  const today = getToday();
+  const yesterday = getPreviousDate(today);
+  if (fromDate > yesterday) {
+    return { rebuilt: false, reason: "fromDate posterior a ayer" };
+  }
+  const base = await loadBaseSaldo();
+  if (!base || !base.fromDate) {
+    console.warn(`[rebuildSaldoChain] sin SALDO_BASE_KEY — no se puede reconstruir desde ${fromDate} (${reason})`);
+    invalidateAutoLitrosFrom(fromDate);
+    return { rebuilt: false, reason: "sin SALDO_BASE_KEY" };
+  }
+  // El base debe ser anterior a fromDate; si es posterior, no podemos reconstruir desde antes
+  if (base.fromDate >= fromDate) {
+    console.warn(`[rebuildSaldoChain] base (${base.fromDate}) >= fromDate (${fromDate}) — no se puede reconstruir desde antes del ancla`);
+    invalidateAutoLitrosFrom(fromDate);
+    return { rebuilt: false, reason: "ancla posterior a fromDate" };
+  }
+  // Invalidar cache para que el chain re-lea datos frescos de los días afectados
+  invalidateAutoLitrosFrom(addDay(base.fromDate));
+  console.log(`[rebuildSaldoChain] motivo="${reason}" base=${base.fromDate} → hasta=${yesterday}`);
+  const result = await buildChainedSaldo(base, yesterday);
+  if (result.truncated) {
+    console.warn(`[rebuildSaldoChain] cadena TRUNCADA en ${result.lastDate}, falta hasta ${yesterday} (${result.daysProcessed} días procesados)`);
+  }
+  await saveSaldo(result.totals, yesterday, result.productosBase);
+  // Cache de hoy debe regenerarse en próxima lectura
+  invalidateAutoLitrosFrom(today);
+  return { rebuilt: true, truncated: result.truncated, base: base.fromDate, lastDate: result.lastDate, daysProcessed: result.daysProcessed };
+}
+
+// Coalesce de rebuilds: si llegan varios en rato corto, ejecutamos uno solo
+// con la fecha más antigua. Throttle de 2s.
+let _rebuildPendingFrom = null;
+let _rebuildTimer = null;
+let _rebuildLog = [];
+function scheduleRebuildSaldoChain(fromDate, reason) {
+  if (_rebuildPendingFrom === null || fromDate < _rebuildPendingFrom) {
+    _rebuildPendingFrom = fromDate;
+  }
+  if (_rebuildTimer) clearTimeout(_rebuildTimer);
+  _rebuildTimer = setTimeout(async () => {
+    const fd = _rebuildPendingFrom;
+    _rebuildPendingFrom = null;
+    _rebuildTimer = null;
+    try {
+      const r = await rebuildSaldoChain(fd, reason || "edición retroactiva");
+      _rebuildLog.unshift({ ts: new Date().toISOString(), from: fd, reason, ...r });
+      _rebuildLog = _rebuildLog.slice(0, 20); // últimos 20
+    } catch (e) {
+      console.error("[scheduleRebuildSaldoChain] error:", e);
+      _rebuildLog.unshift({ ts: new Date().toISOString(), from: fd, reason, error: String(e) });
+    }
+  }, 2000);
+}
+
+// Expone el log de rebuilds para el panel técnico.
+function getRebuildLog() { return [..._rebuildLog]; }
 
 // ─── SVG SILO VISUAL ─────────────────────────────────────────
 // Silo path en viewBox "0 0 100 220":
@@ -7253,17 +7344,37 @@ export default function App() {
       confirmLabel: "Cerrar día",
     });
     if (!ok) return;
+    // VALIDACIÓN INTERNA DE PERFIL — no confiar en que el botón esté oculto
+    if (perfil !== "supervisor" && perfil !== "jefe") {
+      console.warn("[handleCerrarDia] perfil sin permiso:", perfil);
+      return;
+    }
     const est = { closed: true, closedAt: new Date().toISOString(), closedBy: PERFILES[perfil]?.label || "Supervisor" };
     await saveEstado(date, est);
-    await logAudit(date, "close_day", "dia", `Día ${date} cerrado`, est.closedBy);
-    // Guardar saldo final (litros + productos) para que mañana arranque con el estado correcto
+    // Snapshot del saldo en el resumen de auditoría
     const { totals: finalTotals, productosBase: finalProductos } = await calcAutoLitros(date);
-    await saveSaldo(finalTotals, date, finalProductos);
+    const totalLitros = Object.values(finalTotals).reduce((s, v) => s + (v > 0 ? v : 0), 0);
+    await logAudit(date, "close_day", "dia", `Día ${date} cerrado · saldo total ${Math.round(totalLitros).toLocaleString("es-AR")} L`, est.closedBy);
+    const today = getToday();
+    if (date >= getPreviousDate(today)) {
+      // Cerrando hoy o ayer — saldo del día cerrado se vuelve la base para mañana
+      await saveSaldo(finalTotals, date, finalProductos);
+    } else {
+      // Cierre retroactivo — no pisar SALDO_KEY con la fecha antigua porque
+      // rompería el saldo encadenado de hoy. Disparar reconstrucción completa.
+      console.log(`[handleCerrarDia] cierre retroactivo de ${date} → encolando rebuildSaldoChain`);
+      scheduleRebuildSaldoChain(date, `close_day_retro:${date}`);
+    }
     setDayClosed(true);
     setDayClosedBy(est.closedBy);
     setBackupSuggestion(true);
   };
   const handleReabrirDia = async () => {
+    // VALIDACIÓN INTERNA: sólo jefe puede reabrir
+    if (perfil !== "jefe") {
+      console.warn("[handleReabrirDia] perfil sin permiso:", perfil);
+      return;
+    }
     const ok = await askConfirm({
       title: "Reabrir día",
       message: `¿Reabrir el día ${fmtDate(date)}?\n\nLos operarios podrán volver a editar registros.`,
@@ -7271,9 +7382,14 @@ export default function App() {
     });
     if (!ok) return;
     await saveEstado(date, { closed: false });
-    await logAudit(date, "reopen_day", "dia", `Día ${date} reabierto`, PERFILES[perfil]?.label || "Jefe");
+    await logAudit(date, "reopen_day", "dia", `Día ${date} reabierto por ${PERFILES[perfil]?.label || "Jefe"}`, PERFILES[perfil]?.label || "Jefe");
     setDayClosed(false);
     setDayClosedBy(null);
+    // Reabrir un día puede llevar a edits retroactivos — pre-invalidar la cadena
+    const today = getToday();
+    if (date < getPreviousDate(today)) {
+      scheduleRebuildSaldoChain(date, `reopen_day:${date}`);
+    }
   };
 
   const handleLogin = async () => {
