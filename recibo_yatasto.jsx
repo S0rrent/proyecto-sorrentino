@@ -203,16 +203,36 @@ const C_DARK  = DARK;
 const C_LIGHT = LIGHT;
 const C = _THEME === "light" ? C_LIGHT : C_DARK;
 
+// Feature flag UX-V2 — Fase 1 (touch hardening). Toggle vía:
+//   localStorage.setItem("yatasto:uxV2","true"); location.reload();
+// Mismo patrón sync que _THEME. Reload requerido porque los estilos se computan al cargar el módulo.
+const UX_V2 = (() => { try { return localStorage.getItem("yatasto:uxV2") === "true"; } catch { return false; } })();
+
 // ─── SHARED STYLES ───────────────────────────────────────────
 const inp = {
   background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8,
-  color: C.text, padding: "11px 12px", fontSize: 16, width: "100%",
+  color: C.text,
+  padding: UX_V2 ? "14px 14px" : "11px 12px",
+  minHeight: UX_V2 ? 48 : undefined,
+  fontSize: 16, width: "100%",
   outline: "none", fontFamily: FONT_MONO, boxSizing: "border-box",
 };
 const lbl = { fontSize: 12, color: C.sub, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4, display: "block", fontWeight: 600 };
 const secTitle = { fontSize: 12, fontWeight: 700, color: C.accent, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 };
-const btnPrimary = { background: C.accent, color: "#000", border: "none", borderRadius: 10, padding: "13px 20px", fontSize: 15, fontWeight: 700, cursor: "pointer", width: "100%" };
-const btnSecondary = { background: C.card, color: C.text, border: `1px solid ${C.border}`, borderRadius: 10, padding: "13px 20px", fontSize: 15, fontWeight: 600, cursor: "pointer", width: "100%" };
+const btnPrimary = {
+  background: C.accent, color: "#000", border: "none", borderRadius: 10,
+  padding: UX_V2 ? "15px 22px" : "13px 20px",
+  minHeight: UX_V2 ? 48 : undefined,
+  fontSize: 15, fontWeight: 700, cursor: "pointer", width: "100%",
+  touchAction: "manipulation", WebkitTapHighlightColor: "transparent",
+};
+const btnSecondary = {
+  background: C.card, color: C.text, border: `1px solid ${C.border}`, borderRadius: 10,
+  padding: UX_V2 ? "15px 22px" : "13px 20px",
+  minHeight: UX_V2 ? 48 : undefined,
+  fontSize: 15, fontWeight: 600, cursor: "pointer", width: "100%",
+  touchAction: "manipulation", WebkitTapHighlightColor: "transparent",
+};
 const card = { background: C.card, borderRadius: 12, padding: 14, marginBottom: 8, border: `1px solid ${C.border}` };
 const panel = { background: C.surface, borderRadius: 10, padding: 12, marginBottom: 12 };
 
@@ -1029,11 +1049,14 @@ const Pair = ({ label, v1, v2, on1, on2, decimalAfter = 1 }) => (
   </div>
 );
 const FAB = ({ onClick }) => (
-  <button type="button" onClick={onClick} style={{
-    position: "fixed", right: 20, bottom: 82, width: 56, height: 56, borderRadius: 28,
+  <button type="button" onClick={onClick} aria-label="Nuevo" style={{
+    position: "fixed", right: 20,
+    bottom: UX_V2 ? "calc(env(safe-area-inset-bottom, 0px) + 88px)" : 82,
+    width: 56, height: 56, borderRadius: 28,
     background: C.accent, border: "none", color: "#000", fontSize: 28, fontWeight: 700,
     cursor: "pointer", boxShadow: `0 4px 24px ${C.accent}55`,
     display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50,
+    touchAction: "manipulation", WebkitTapHighlightColor: "transparent",
   }}>+</button>
 );
 const Modal = ({ title, onClose, children, zIndex = 100 }) => {
@@ -7891,7 +7914,11 @@ export default function App() {
   };
 
   return (
-    <div style={{ background: C.bg, minHeight: "100vh", color: C.text, fontFamily: FONT_SANS, paddingBottom: isDesktop ? 0 : 72, overflowX: "clip" }}>
+    <div style={{
+      background: C.bg, minHeight: "100vh", color: C.text, fontFamily: FONT_SANS,
+      paddingBottom: isDesktop ? 0 : (UX_V2 ? "calc(env(safe-area-inset-bottom, 0px) + 76px)" : 72),
+      overflowX: "clip",
+    }}>
 
       <style>{`
         @keyframes yatPulse {
@@ -8414,24 +8441,32 @@ export default function App() {
         display: "grid", gridTemplateColumns: `repeat(${navItems.length},1fr)`,
         zIndex: 40,
         boxShadow: _THEME === "light" ? "0 -2px 12px rgba(0,0,0,0.08)" : "0 -2px 12px rgba(0,0,0,0.4)",
+        ...(UX_V2 ? { paddingBottom: "env(safe-area-inset-bottom, 0px)" } : {}),
       }}>
         {navItems.map(n => {
           const active = section === n.id;
           return (
-            <button type="button" key={n.id} onClick={() => setSection(n.id)} style={{
-              background: "none", border: "none", cursor: "pointer", padding: "10px 0 13px",
-              display: "flex", flexDirection: "column", alignItems: "center", gap: 2,
-              borderTop: active ? `2.5px solid ${C.accent}` : "2.5px solid transparent",
-              transition: "border-color 0.18s",
+            <button type="button" key={n.id} onClick={() => setSection(n.id)}
+              aria-current={active ? "page" : undefined}
+              style={{
+                background: active && UX_V2 ? `${C.accent}1a` : "none",
+                border: "none", cursor: "pointer",
+                padding: UX_V2 ? "10px 0 12px" : "10px 0 13px",
+                minHeight: UX_V2 ? 64 : undefined,
+                display: "flex", flexDirection: "column", alignItems: "center",
+                gap: UX_V2 ? 4 : 2,
+                borderTop: active ? `2.5px solid ${C.accent}` : "2.5px solid transparent",
+                transition: "border-color 0.18s, background-color 0.18s",
+                touchAction: "manipulation", WebkitTapHighlightColor: "transparent",
             }}>
               <span style={{
                 display: "flex",
                 color: active ? C.accent : C.sub,
                 filter: active ? `drop-shadow(0 0 6px ${C.accent}88)` : "none",
                 transition: "filter 0.18s, color 0.18s",
-              }}><n.Icon size={20} strokeWidth={SW} /></span>
+              }}><n.Icon size={UX_V2 ? 28 : 20} strokeWidth={SW} /></span>
               <span style={{
-                fontSize: 9, fontWeight: 700,
+                fontSize: UX_V2 ? 11 : 9, fontWeight: 700,
                 color: active ? C.accent : C.sub,
                 letterSpacing: "0.05em", textTransform: "uppercase",
                 transition: "color 0.18s",
