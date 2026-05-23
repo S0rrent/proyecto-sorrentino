@@ -1059,6 +1059,43 @@ const FAB = ({ onClick }) => (
     touchAction: "manipulation", WebkitTapHighlightColor: "transparent",
   }}>+</button>
 );
+// Banner inline — reemplazo de window.alert() para validaciones de formulario.
+// Sticky=true lo mantiene visible al hacer scroll dentro de un Modal largo.
+// Uso: const [banner, setBanner] = useState(null);
+//      setBanner({ kind: "error", message: "..." }); para mostrar
+//      setBanner(null); para limpiar
+const Banner = ({ kind = "error", message, onClose, sticky = false }) => {
+  const palette = {
+    error:   { bg: C.danger,  fg: "#fff",  icon: "⚠" },
+    warning: { bg: C.accent,  fg: "#000",  icon: "!" },
+    info:    { bg: C.surface, fg: C.text,  icon: "i", border: C.border },
+  };
+  const c = palette[kind] || palette.error;
+  return (
+    <div role="alert" aria-live="polite" style={{
+      background: c.bg,
+      border: `1px solid ${c.border || c.bg}`,
+      color: c.fg,
+      padding: "12px 14px", borderRadius: 8, marginBottom: 14,
+      display: "flex", alignItems: "flex-start", gap: 10,
+      fontSize: 14, lineHeight: 1.45,
+      ...(sticky ? { position: "sticky", top: 0, zIndex: 10, boxShadow: "0 2px 8px rgba(0,0,0,0.25)" } : {}),
+    }}>
+      <span aria-hidden="true" style={{ fontSize: 18, fontWeight: 700, flexShrink: 0, marginTop: -1, lineHeight: 1 }}>{c.icon}</span>
+      <span style={{ flex: 1, whiteSpace: "pre-wrap", fontWeight: 500 }}>{message}</span>
+      {onClose && (
+        <button type="button" onClick={onClose} aria-label="Cerrar aviso" style={{
+          background: "rgba(255,255,255,0.18)", border: "none",
+          color: c.fg, cursor: "pointer", fontSize: 18, lineHeight: 1,
+          padding: 0, flexShrink: 0,
+          touchAction: "manipulation", WebkitTapHighlightColor: "transparent",
+          width: 32, height: 32, borderRadius: 6,
+          display: "flex", alignItems: "center", justifyContent: "center",
+        }}>×</button>
+      )}
+    </div>
+  );
+};
 const Modal = ({ title, onClose, children, zIndex = 100 }) => {
   const isDesktop = typeof window !== "undefined" && window.innerWidth >= 1024;
   // Body scroll lock — evita que el contenido detrás scrollee mientras hay un modal abierto.
@@ -2293,6 +2330,7 @@ const ProduccionForm = ({ initial, onSave, onClose, onDelete, date, perfil, isEd
   const [showAddOrigen, setShowAddOrigen] = useState(false);
   const [newOrigen, setNewOrigen] = useState({ silo: "", litros: "" });
   const [confirmUI, askConfirm] = useConfirm();
+  const [banner, setBanner] = useState(null);
 
   const prodInfo = PRODS_PRODUCCION_LIST.find(p => p.nombre === f.producto);
   const totalEnviado = (f.origenes || []).reduce((s, o) => s + (parseFloat(o.litros) || 0), 0);
@@ -2377,7 +2415,7 @@ const ProduccionForm = ({ initial, onSave, onClose, onDelete, date, perfil, isEd
         : null;
       const check = await checkSiloBalance(date, siloKey, totalL, excludeFn);
       if (!check.ok) {
-        alert(`Silo ${siloKey}: ${Math.round(check.current).toLocaleString("es-AR")} L disponibles, necesitás ${Math.round(totalL).toLocaleString("es-AR")} L.`);
+        setBanner({ kind: "error", message: `Silo ${siloKey}: ${Math.round(check.current).toLocaleString("es-AR")} L disponibles, necesitás ${Math.round(totalL).toLocaleString("es-AR")} L.` });
         return false;
       }
     }
@@ -2386,9 +2424,10 @@ const ProduccionForm = ({ initial, onSave, onClose, onDelete, date, perfil, isEd
 
   // Guardar lote activo (envasando) — datos básicos
   const doGuardarEnvasando = async () => {
+    setBanner(null);
     const filled = (f.origenes || []).filter(o => o.silo && parseFloat(o.litros) > 0);
-    if (!f.lote?.trim()) { alert("Ingresá el número de lote."); return; }
-    if (filled.length === 0) { alert("Agregá al menos un silo origen con litros."); return; }
+    if (!f.lote?.trim()) { setBanner({ kind: "error", message: "Ingresá el número de lote." }); return; }
+    if (filled.length === 0) { setBanner({ kind: "error", message: "Agregá al menos un silo origen con litros." }); return; }
     setSaving(true);
     try {
       if (!(await runBalance(filled))) return;
@@ -2399,24 +2438,25 @@ const ProduccionForm = ({ initial, onSave, onClose, onDelete, date, perfil, isEd
 
   // Confirmar finalización — pide litros reales, cajas y destino sobrante
   const doConfirmarFinalizacion = async () => {
+    setBanner(null);
     const filled = (f.origenes || []).filter(o => o.silo && parseFloat(o.litros) > 0);
-    if (!f.lote?.trim()) { alert("Ingresá el número de lote."); return; }
-    if (filled.length === 0) { alert("Agregá al menos un silo origen con litros."); return; }
+    if (!f.lote?.trim()) { setBanner({ kind: "error", message: "Ingresá el número de lote." }); return; }
+    if (filled.length === 0) { setBanner({ kind: "error", message: "Agregá al menos un silo origen con litros." }); return; }
 
     const lu = f.litrosUsados || [];
     for (let i = 0; i < filled.length; i++) {
       const env = parseFloat(filled[i].litros) || 0;
       const us = parseFloat(lu[i]?.litros);
-      if (isNaN(us)) { alert(`Ingresá los litros realmente usados del ${filled[i].silo}.`); return; }
-      if (us < 0) { alert(`Litros usados no puede ser negativo (${filled[i].silo}).`); return; }
-      if (us > env) { alert(`${filled[i].silo}: usados (${us.toLocaleString("es-AR")}) no puede superar enviados (${env.toLocaleString("es-AR")}).`); return; }
+      if (isNaN(us)) { setBanner({ kind: "error", message: `Ingresá los litros realmente usados del ${filled[i].silo}.` }); return; }
+      if (us < 0) { setBanner({ kind: "error", message: `Litros usados no puede ser negativo (${filled[i].silo}).` }); return; }
+      if (us > env) { setBanner({ kind: "error", message: `${filled[i].silo}: usados (${us.toLocaleString("es-AR")}) no puede superar enviados (${env.toLocaleString("es-AR")}).` }); return; }
     }
     const totalUsadoFinal = lu.reduce((s, u) => s + (parseFloat(u.litros) || 0), 0);
     const sobranteCalcFinal = Math.max(0, totalEnviado - totalUsadoFinal);
     if (sobranteCalcFinal > 0 && !f.destinoSobrante) {
-      alert(`Sobraron ${Math.round(sobranteCalcFinal).toLocaleString("es-AR")} L. Indicá qué hacer con ellos.`); return;
+      setBanner({ kind: "error", message: `Sobraron ${Math.round(sobranteCalcFinal).toLocaleString("es-AR")} L. Indicá qué hacer con ellos.` }); return;
     }
-    if (f.destinoSobrante === "otro_silo" && !f.siloSobrante) { alert("Seleccioná el silo destino del sobrante."); return; }
+    if (f.destinoSobrante === "otro_silo" && !f.siloSobrante) { setBanner({ kind: "error", message: "Seleccioná el silo destino del sobrante." }); return; }
     const usadosStr = `${Math.round(totalUsadoFinal).toLocaleString("es-AR")} L usados` + (sobranteCalcFinal > 0 ? ` · Sobrante: ${Math.round(sobranteCalcFinal).toLocaleString("es-AR")} L` : "");
     if (!(await askConfirm({ title: "Finalizar lote", message: usadosStr, confirmLabel: "Finalizar" }))) return;
     const litrosUsadosFinal = filled.map((o, i) => ({
@@ -2542,6 +2582,7 @@ const ProduccionForm = ({ initial, onSave, onClose, onDelete, date, perfil, isEd
     return (
       <Modal title={f.producto || "Nuevo lote"} onClose={onClose}>
         {confirmUI}
+        {banner && <Banner {...banner} onClose={() => setBanner(null)} sticky />}
         {!isEdit && (
           <button type="button" onClick={() => setView(selCat ? "variant" : "cat")}
             style={{ ...btnSecondary, fontSize: 12, marginBottom: 12, alignSelf: "flex-start", padding: "6px 12px" }}>← Volver</button>
