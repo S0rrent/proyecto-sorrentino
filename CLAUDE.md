@@ -8,6 +8,20 @@ Single-file React app (`recibo_yatasto.jsx`) for dairy operations at Lacteos Yat
 
 The app runs inside **Antigravity** (a VS Code-based IDE). Data persists to Supabase via `db-adapter.js`. `main.jsx` polyfills `window.storage` with `localStorage` for standalone preview only — the app itself always calls `db.*`.
 
+## Project docs
+
+Read these before working on the area they cover — don't re-derive context that already exists on disk:
+
+- `PRODUCT.md` — product scope, perfiles, operational priorities
+- `UX-V2.md` — current UX redesign plan (mobile-first, operario flows)
+- `UI-PLAN.md` — design system migration plan and anti-patterns
+- `supabase-schema.sql` — DB schema for `yatasto_storage` and related tables
+- `docs/council/` — saved decision transcripts (only the ones worth keeping)
+
+## Date convention
+
+Section storage keys are formatted `yatasto:YYYY-MM-DD:section` (ISO 8601, ASCII-sortable). All date-keyed reads/writes and cross-section helpers (e.g. `calcAutoLitros(date)`) expect this format. The UI displays dates in `es-AR` (`dd/mm/yyyy`) but **never** persists in that form — convert at the UI boundary.
+
 ## Commands
 
 ```bash
@@ -17,7 +31,9 @@ npm run build         # build to dist/
 npm run preview       # preview built dist/
 ```
 
-`index.html` loads `/main.jsx` directly. Vite bundles `main.jsx` → `recibo_yatasto.jsx`. Deployed to Netlify via `netlify.toml` (`npm run build`, publishes `dist/`).
+`index.html` loads `/main.jsx` directly. Vite bundles `main.jsx` → `recibo_yatasto.jsx`. Two deployment configs coexist: `netlify.toml` (Netlify) and `vercel.json` (Vercel) — both run `npm run build` and serve `dist/`. Keep them in sync when changing build settings.
+
+**PWA / service worker:** `vite-plugin-pwa` is wired in `vite.config.js` with `registerType: "autoUpdate"` + `skipWaiting`. Workbox precaches built assets and adds runtime caching for Google Fonts (CacheFirst, 1y) and Supabase (`*.supabase.co`, NetworkFirst with 10s timeout, 24h). Manifest is `standalone`, portrait, `es-AR`, theme `#f59e0b`. Service worker only registers on the built site — `npm run dev` does not run it.
 
 ## Architecture
 
