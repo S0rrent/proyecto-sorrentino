@@ -103,3 +103,115 @@ All styles are inline JS objects. No CSS files.
 ## Supabase backend
 
 `db-adapter.js` is the live backend. Table: `yatasto_storage (key TEXT PK, value TEXT, updated_at TIMESTAMPTZ)` — see `supabase-schema.sql`. Data migration from localStorage: `migrateToSupabase()` exported from `db-adapter.js` (run once from the browser console).
+
+## LLM Council Workflow
+
+This repo includes the `llm-council` skill at `.claude/skills/llm-council/`
+(adapted from Karpathy's LLM Council methodology). It spawns 5 advisor
+sub-agents (Contrarian, First Principles, Expansionist, Outsider, Executor)
+in parallel, runs anonymized peer review, and a chairman synthesizes a
+verdict. Output: HTML report + markdown transcript in the workspace.
+
+### Invocation
+
+Triggers (only run when intent is clearly a decision with tradeoffs):
+- Explicit: `council this`, `run the council`, `war room this`,
+  `pressure-test this`, `stress-test this`, `debate this`
+- Soft: `should I X or Y`, `which option`, `I'm torn between`, `validate
+  this`, `is this the right move`
+
+The skill will refuse to run on factual questions (`what's the capital
+of...`), pure creation tasks (`write me a tweet`), or decisions already
+made where the user is just seeking confirmation.
+
+### When to use council in Yatasto
+
+| Situation | Council? |
+|---|---|
+| UX architecture decisions (tabs, navigation, login flow) | YES |
+| Pre-mortem before touching `calcAutoLitros`, `buildChainedSaldo`, `syncAutoMovSobrante` | YES |
+| Migration strategy for historical data (batch vs stream, dates ranges) | YES |
+| New feature scope (cut features, defer, redesign) | YES |
+| Mobile vs desktop priority for any new section | YES |
+| Permissions matrix decisions (operario can/can't do X) | YES |
+| Pricing/scoping discussion with stakeholder | YES |
+| "Should I merge PR #N?" — review obvious, no | NO |
+| Bug with clear root cause and known fix | NO |
+| Refactor where structure is dictated by code shape | NO |
+| Naming/styling minutiae | NO |
+| Library choice with clear winner | NO |
+
+### Mandatory framing context for Yatasto council sessions
+
+When invoking the council, always include this context block in the question
+so advisors stay grounded in real plant operation:
+
+```
+Contexto operativo Yatasto:
+- App industrial de planta lechera (Argentina)
+- Mobile-first, operarios con manos grandes y guantes
+- Iluminación pobre, ruido, estrés operativo
+- Offline-first crítico (señal débil en planta)
+- Prevención de errores humanos = prioridad de seguridad
+- Datos productivos reales — corrupción de stock o saldo = costo alto
+- 3 perfiles base (supervisor/jefe/admin) + perfil operario en diseño
+```
+
+Without this framing, advisors give SaaS-generic advice that doesn't
+apply to plant operation.
+
+### Cost considerations
+
+- ~11 sub-agents per session (5 advisors + 5 reviewers + 1 chairman)
+- Wall-clock: 3-5 minutes
+- Token cost: estimated $0.30-0.80 USD per session on Opus
+- Only use when the decision cost (rollback, rework, downtime) clearly
+  exceeds the council cost
+
+### Council vs Agents vs both
+
+This repo uses 3 multi-agent patterns. Choose deliberately:
+
+| Pattern | Purpose | Tools | Cost |
+|---|---|---|---|
+| **Agent (Explore)** | Find/read code, search keywords | Read, Grep, Glob | low |
+| **Agent (Plan)** | Step-by-step implementation strategy | All read tools | low-med |
+| **Agent (general-purpose)** | Multi-step research or execution | all tools | med |
+| **Agent paralelos (multiple)** | Independent research in parallel (audits, scans) | all tools | med-high |
+| **Council** | Decisions with multiple valid options and high cost-of-being-wrong | Sub-agents internally | high |
+
+Use Agents (info-gathering) **before** Council (decision) when the council
+needs grounded facts. Example: Explore agent finds "current bottom bar has
+6 tabs at 51px width" → council uses that fact to decide 4 vs 5 tabs.
+
+Avoid running Council + parallel Agents in the same turn — they fight for
+context window and multiply cost without value.
+
+### Best practices for this project
+
+1. **Council before code, not after.** Once code is written, it's review
+   (use code-review agent), not decision.
+2. **One council per PR maximum.** If a PR has 3 sub-decisions, council the
+   architectural one, decide the rest with normal judgement.
+3. **Save important transcripts to `docs/council/`** with the convention in
+   that folder's README. Discard exploratory or trivial ones.
+4. **Reference council transcripts in PR descriptions** when the PR
+   implements a council decision (e.g. "Implementa la decisión del council
+   en `docs/council/2026-05-25--bottom-bar-4-vs-5-tabs.md`").
+5. **Stray `council-*.html` and `council-*.md` in the repo root are
+   gitignored** — they won't accidentally pollute commits.
+6. **Don't council production fires.** When something is broken in prod,
+   diagnose and fix; council comes later as a post-mortem.
+7. **Run-the-council artifacts contain advisor opinions, not facts.**
+   Treat as input, not as decision. The user (you) decides.
+
+### Anti-patterns to avoid
+
+- Counciling every decision (defeats the purpose, burns budget)
+- Counciling things with a clear right answer (advisors will manufacture
+  fake disagreement)
+- Skipping framing context (advisors give generic SaaS takes that don't
+  apply to plant operation)
+- Counciling a PR review (that's what `code-review` agent is for)
+- Using council to validate a decision you've already made (council might
+  catch flaws you'd rather not see — only use when genuinely open)

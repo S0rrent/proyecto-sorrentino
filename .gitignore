@@ -3,3 +3,7 @@ dist
 .env
 .env.local
 .env.*.local
+
+# LLM Council artifacts en raíz (decisiones importantes van a docs/council/)
+council-report-*.html
+council-transcript-*.md
