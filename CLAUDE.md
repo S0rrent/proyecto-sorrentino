@@ -215,3 +215,71 @@ context window and multiply cost without value.
 - Counciling a PR review (that's what `code-review` agent is for)
 - Using council to validate a decision you've already made (council might
   catch flaws you'd rather not see — only use when genuinely open)
+
+### Reglas operativas del proyecto Yatasto
+
+Reglas decididas para este proyecto (no son del skill upstream, son
+nuestras):
+
+**Autoridad de decisión**
+
+1. El council NO toma decisiones automáticamente.
+2. El council propone escenarios, riesgos y tradeoffs.
+3. La decisión final siempre la toma el usuario según contexto real de
+   planta.
+4. Priorizar siempre **operatividad y simplicidad** antes que sofisticación
+   técnica.
+5. Si una solución es más "elegante" pero aumenta riesgo operativo o
+   complejidad para operarios, se descarta.
+6. Contexto **industrial / mobile / offline-first** siempre tiene prioridad
+   sobre patrones SaaS tradicionales.
+
+**Cuándo NO usar council (resumen ejecutivo)**
+
+- Fixes obvios
+- Refactors mecánicos
+- Bugs ya diagnosticados con causa raíz clara
+- Cambios menores visuales (color, padding, label)
+- PR reviews (usar agent `code-review`)
+
+**Cuándo SÍ usar council**
+
+- Navegación principal de UX-V2
+- Login y permisos
+- Arquitectura offline / sync
+- Cambios en cálculos de stock / saldo
+- Decisiones difíciles con tradeoffs reales
+- Features que afecten operación de planta
+
+**Antes de cada council importante**
+
+- Leer `UX-V2.md`
+- Leer `PRODUCT.md`
+- Leer `CLAUDE.md` (este archivo)
+- Asumir siempre en el framing:
+  > "operarios con manos grandes, poca luz, estrés operativo, señal
+  > inestable y necesidad de minimizar errores humanos"
+
+**Después de cada council importante**
+
+- Resumir la decisión real tomada (no la opinión del chairman — la decisión
+  humana)
+- Guardar solo decisiones relevantes en `docs/council/` con el formato del
+  README de esa carpeta
+- Evitar acumular transcripts inútiles (descartar los exploratorios)
+
+**Workflow oficial**
+
+```
+council  →  diseño  →  PR chico  →  audit  →  merge
+```
+
+NO:
+
+```
+council eterno  →  sobreingeniería  →  features gigantes
+```
+
+Cada council debe terminar en una decisión accionable en ≤2 semanas. Si
+una decisión queda "para más adelante", se descarta el transcript — fue
+exploración, no decisión.
