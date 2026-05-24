@@ -1,4 +1,4 @@
-import { useState, useEffect, Fragment } from "react";
+import { useState, useEffect, useRef, Fragment } from "react";
 import { useRegisterSW } from "virtual:pwa-register/react";
 import { DARK, LIGHT, FONT_SANS, FONT_MONO, EASE_OUT, DUR } from "./tokens.js";
 import { useViewport } from "./hooks.js";
@@ -1246,12 +1246,81 @@ const QUALITY_WARN_MAP = [
   { key: "densFca",   label: "Densidad",    ref: QUALITY_REFS["Densidad"]    },
 ];
 
+// Section colapsable para formularios largos en mobile.
+// - legacy=true → render compat con el panel viejo (no colapsable, sin header tappable). flat=true en legacy renderiza children inline (sin wrapper).
+// - legacy=false → header tappable de 56px con título, contador filled/total y chevron. aria-expanded para accesibilidad.
+// - hasError=true → header con bg rojo suave y contador rojo, para guiar la recuperación de error al panel correcto.
+// Definido fuera de IngresoForm para no recrearse en cada render (eso rompería el focus de inputs).
+const Section = ({ id, title, open, onToggle, total, filled, headerRef, legacy = false, flat = false, hasError = false, children }) => {
+  if (legacy) {
+    return flat
+      ? <>{children}</>
+      : <div style={panel}><div style={secTitle}>{title}</div>{children}</div>;
+  }
+  const countColor = hasError ? C.danger : (total > 0 && filled === total ? C.accent : C.sub);
+  const headerBg   = hasError ? `${C.danger}15` : "transparent";
+  return (
+    <div style={{ ...panel, padding: 0, overflow: "hidden", marginBottom: 12 }}>
+      <button
+        type="button"
+        ref={headerRef}
+        onClick={onToggle}
+        aria-expanded={open}
+        aria-controls={`section-${id}-body`}
+        style={{
+          width: "100%", padding: "12px 14px", minHeight: 56,
+          background: headerBg, border: "none", cursor: "pointer",
+          display: "flex", alignItems: "center", gap: 12,
+          textAlign: "left", color: C.text,
+          touchAction: "manipulation", WebkitTapHighlightColor: "transparent",
+          transition: "background-color 0.18s",
+        }}
+      >
+        <span style={{ ...secTitle, marginBottom: 0, flex: 1 }}>{title}</span>
+        {total > 0 && (
+          <span aria-label={`${filled} de ${total} requeridos`} style={{
+            fontSize: 12, fontWeight: 700, fontVariantNumeric: "tabular-nums",
+            color: countColor, fontFamily: FONT_MONO,
+            padding: "2px 8px", borderRadius: 999,
+            background: hasError ? `${C.danger}22` : (filled === total ? `${C.accent}18` : `${C.sub}15`),
+          }}>{filled}/{total}</span>
+        )}
+        <span aria-hidden style={{
+          color: C.sub, fontSize: 14,
+          transform: open ? "rotate(180deg)" : "rotate(0deg)",
+          transition: "transform 0.18s", display: "inline-block",
+        }}>▾</span>
+      </button>
+      {open && (
+        <div id={`section-${id}-body`} style={{ padding: "0 14px 14px 14px" }}>
+          {children}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo, siloStates = { totals: {}, productosBase: {} }, perfil = null }) => {
   const [f, setF] = useState(initial || emptyIng());
   const [aguadoAlerta, setAguadoAlerta] = useState(false);
   const [cipForzado, setCipForzado] = useState(false);
   const [fieldError, setFieldError] = useState("");
-  const set = k => v => { setFieldError(""); setF(p => ({ ...p, [k]: v })); };
+  // PR3: estado y refs para form colapsable (sólo se usan cuando UX_V2 = true).
+  // En edit mode todos los paneles arrancan abiertos para revisión rápida.
+  const isEditMode = !!onDelete;
+  const [panelsOpen, setPanelsOpen] = useState({
+    identif: true,
+    destino: isEditMode,
+    calidad: isEditMode,
+  });
+  const [firstMissingPanel, setFirstMissingPanel] = useState(null);
+  const panelRefs = {
+    identif: useRef(null),
+    destino: useRef(null),
+    calidad: useRef(null),
+  };
+  const togglePanel = k => setPanelsOpen(p => ({ ...p, [k]: !p[k] }));
+  const set = k => v => { setFieldError(""); setFirstMissingPanel(null); setF(p => ({ ...p, [k]: v })); };
   const pickTambo = nombre => {
     const t = tambos.find(t => t.nombre === nombre);
     setF(p => ({ ...p, tambo: nombre, num: t ? String(t.num) : p.num }));
@@ -1288,8 +1357,35 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo,
     return !isNaN(v) && (v < ref.min || v > ref.max);
   }).map(({ label, ref, key }) => `${label}: ${f[key]}  (ref ${ref.min}–${ref.max})`);
 
-  return (
-    <div>
+  // PR3: grupos requeridos por panel. El orden de allRequired se preserva igual al req legacy
+  // para que el mensaje "Faltan: X, Y, Z" no cambie de orden vs la versión anterior.
+  // Validación, persistencia y onSave permanecen sin cambios.
+  const identifRequired = isConcentrado
+    ? [["tambo", "Tambo"]]
+    : [["tambo", "Tambo"], ["producto", "Producto"]];
+  const destinoRequired = isConcentrado
+    ? [["litrosFca", "Litros"], ["destino", "Destino"]]
+    : [["litrosFca", "Litros Fábrica"], ["destino", "Destino"]];
+  const calidadRequired = isConcentrado
+    ? [["acidezFca", "Acidez"], ["phFca", "pH"]]
+    : [["acidezFca", "Acidez Fca."], ["phFca", "pH Fca."],
+       ["gbFca", "GB Fca."], ["sngFca", "SNG Fca."], ["densFca", "Densidad Fca."],
+       ["protFca", "Proteína Fca."], ["atm", "ATB"]];
+  // Reconstruye req en el mismo orden que la versión legacy para que el mensaje "Faltan: ..." sea idéntico.
+  const allRequired = isConcentrado
+    ? [["tambo", "Tambo"], ["litrosFca", "Litros"], ["destino", "Destino"], ["acidezFca", "Acidez"], ["phFca", "pH"]]
+    : [["tambo", "Tambo"], ["litrosFca", "Litros Fábrica"], ["destino", "Destino"], ["producto", "Producto"],
+       ["acidezFca", "Acidez Fca."], ["phFca", "pH Fca."],
+       ["gbFca", "GB Fca."], ["sngFca", "SNG Fca."], ["densFca", "Densidad Fca."], ["protFca", "Proteína Fca."], ["atm", "ATB"]];
+  const countFilled = (fields) => fields.filter(([k]) => String(f[k] || "").trim()).length;
+  const panelOf = (key) => {
+    if (identifRequired.some(([k]) => k === key)) return "identif";
+    if (destinoRequired.some(([k]) => k === key)) return "destino";
+    return "calidad";
+  };
+
+  const identifContent = (
+    <>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
         <F label="Hora"><input style={inp} type="time" value={f.hora} onChange={e => set("hora")(e.target.value)} /></F>
         <F label="N° Tambo"><Inp value={f.num} onChange={set("num")} placeholder="Nº" /></F>
@@ -1331,6 +1427,130 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo,
       <F label="Producto">
         <Sel value={f.producto || ""} onChange={set("producto")} options={PRODUCTOS} placeholder="Seleccionar producto..." />
       </F>
+    </>
+  );
+
+  const destinoContent = isConcentrado ? (
+    <>
+      <F label="Destino — Silo"><Sel value={f.destino} onChange={set("destino")} options={SILOS} placeholder="Seleccionar silo..." /></F>
+      <F label="Litros"><Inp type="number" value={f.litrosFca} onChange={set("litrosFca")} placeholder="0" /></F>
+      <F label="Temperatura llegada (°C)">
+        <SmartDecInp value={f.tC} onChange={set("tC")} decimalAfter={1} placeholder="°C" />
+        <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>Ref: 3 – 8 °C</div>
+      </F>
+    </>
+  ) : (
+    <>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        <F label="Litros Fábrica"><Inp type="number" value={f.litrosFca} onChange={set("litrosFca")} placeholder="0" /></F>
+        <F label="Litros Tambo"><Inp type="number" value={f.litrosTbo} onChange={set("litrosTbo")} placeholder="0" /></F>
+      </div>
+      <F label="Destino — Silo"><Sel value={f.destino} onChange={set("destino")} options={SILOS} placeholder="Seleccionar silo..." /></F>
+      <F label="Temperatura llegada (°C)">
+        <SmartDecInp value={f.tC} onChange={set("tC")} decimalAfter={1} placeholder="°C" />
+        <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>Ref: 3 – 8 °C</div>
+      </F>
+    </>
+  );
+
+  const subTitleStyle = {
+    fontSize: 11, fontWeight: 700, color: C.sub, textTransform: "uppercase",
+    letterSpacing: "0.06em", marginTop: 4, marginBottom: 10,
+  };
+
+  const calidadContent = isConcentrado ? (
+    <>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        <F label="Acidez">
+          <SmartDecInp value={f.acidezFca} onChange={set("acidezFca")} decimalAfter={2} />
+          <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>Ref: 14 – 18 °D</div>
+        </F>
+        <F label="pH">
+          <SmartDecInp value={f.phFca} onChange={set("phFca")} decimalAfter={1} />
+          <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>Ref: 6.6 – 6.8</div>
+        </F>
+      </div>
+      <F label="°BRIX"><SmartDecInp value={f.brix || ""} onChange={set("brix")} decimalAfter={2} placeholder="°Brix" /></F>
+      <F label="Organoléptico">
+        <Sel value={f.organoleptico || ""} onChange={set("organoleptico")} options={["Sí", "No"]} placeholder="¿Conforme?" />
+      </F>
+    </>
+  ) : (
+    <>
+      {UX_V2 && <div style={subTitleStyle}>Parámetros básicos</div>}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        <F label="Acidez Fca.">
+          <SmartDecInp value={f.acidezFca} onChange={set("acidezFca")} decimalAfter={2} />
+          <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>Ref: 14 – 18 °D</div>
+        </F>
+        <F label="pH Fca.">
+          <SmartDecInp value={f.phFca} onChange={set("phFca")} decimalAfter={1} />
+          <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>Ref: 6.6 – 6.8</div>
+        </F>
+      </div>
+      <Pair label="Prueba Alcohol" v1={f.alcFca} v2={f.alcTbo} on1={set("alcFca")} on2={set("alcTbo")} />
+      <div style={{ ...subTitleStyle, marginTop: 14 }}>Composición</div>
+      <Pair label="Grasa Butirosa (GB)" v1={f.gbFca} v2={f.gbTbo} on1={set("gbFca")} on2={set("gbTbo")} />
+      <div style={{ fontSize: 11, color: C.sub, marginTop: -8, marginBottom: 12 }}>Ref: 3.0 – 4.0 %</div>
+      <Pair label="Sólidos No Grasos (SNG)" v1={f.sngFca} v2={f.sngTbo} on1={set("sngFca")} on2={set("sngTbo")} />
+      <div style={{ fontSize: 11, color: C.sub, marginTop: -8, marginBottom: 12 }}>Ref: 8.0 – 8.7 %</div>
+      <DensityPair v1={f.densFca} v2={f.densTbo} on1={set("densFca")} on2={set("densTbo")} />
+      <Pair label="Aguado" v1={f.aguadoFca} v2={f.aguadoTbo} on1={set("aguadoFca")} on2={set("aguadoTbo")} />
+      <div style={{ fontSize: 11, color: C.danger, marginTop: -8, marginBottom: 12 }}>Debe ser exactamente 0 — indica adulteración</div>
+      <Pair label="Descenso Crioscópico" v1={f.dcFca} v2={f.dcTbo} on1={set("dcFca")} on2={set("dcTbo")} />
+      <Pair label="Proteína" v1={f.protFca} v2={f.protTbo} on1={set("protFca")} on2={set("protTbo")} />
+      <div style={{ fontSize: 11, color: C.sub, marginTop: -8, marginBottom: 12 }}>Ref: 2.9 – 3.5 %</div>
+      <F label="ATB"><Sel value={f.atm || ""} onChange={set("atm")} options={["-", "+"]} placeholder="ATB..." /></F>
+    </>
+  );
+
+  const onClickGuardar = () => {
+    const miss = allRequired.filter(([k]) => !String(f[k] || "").trim());
+    if (miss.length) {
+      setFieldError("Faltan completar:\n• " + miss.map(([, v]) => v).join("\n• "));
+      const firstKey = miss[0][0];
+      const target = panelOf(firstKey);
+      setFirstMissingPanel(target);
+      if (UX_V2) {
+        setPanelsOpen(p => ({ ...p, [target]: true }));
+        setTimeout(() => {
+          panelRefs[target].current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }, 60);
+      }
+      return;
+    }
+    if (siloSucioLevel === "bloqueado") {
+      if (!canForce) { setFieldError("El silo " + f.destino + " está pendiente de CIP. Solo el supervisor puede autorizar este ingreso."); return; }
+      setCipForzado(true);
+      return;
+    }
+    const aguFca = parseFloat(f.aguadoFca);
+    const aguTbo = parseFloat(f.aguadoTbo);
+    if ((!isNaN(aguFca) && aguFca > 0) || (!isNaN(aguTbo) && aguTbo > 0)) {
+      setAguadoAlerta(true);
+      return;
+    }
+    setFieldError("");
+    setFirstMissingPanel(null);
+    onSave(f);
+  };
+
+  return (
+    <div>
+      <Section
+        id="identif"
+        title="1. Identificación"
+        legacy={!UX_V2}
+        flat
+        open={panelsOpen.identif}
+        onToggle={() => togglePanel("identif")}
+        total={identifRequired.length}
+        filled={countFilled(identifRequired)}
+        headerRef={panelRefs.identif}
+        hasError={firstMissingPanel === "identif"}
+      >
+        {identifContent}
+      </Section>
 
       {/* Badge que distingue el formulario */}
       {isConcentrado && (
@@ -1343,81 +1563,33 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo,
         </div>
       )}
 
-      {/* ── Formulario CONCENTRADOS (Lactosa / Suero / Concentrado) ── */}
-      {isConcentrado ? (
-        <>
-          <div style={panel}>
-            <div style={secTitle}>Destino & Litros</div>
-            <F label="Destino — Silo"><Sel value={f.destino} onChange={set("destino")} options={SILOS} placeholder="Seleccionar silo..." /></F>
-            <F label="Litros"><Inp type="number" value={f.litrosFca} onChange={set("litrosFca")} placeholder="0" /></F>
-            <F label="Temperatura llegada (°C)">
-              <SmartDecInp value={f.tC} onChange={set("tC")} decimalAfter={1} placeholder="°C" />
-              <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>Ref: 3 – 8 °C</div>
-            </F>
-          </div>
-          <div style={panel}>
-            <div style={secTitle}>Parámetros</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-              <F label="Acidez">
-                <SmartDecInp value={f.acidezFca} onChange={set("acidezFca")} decimalAfter={2} />
-                <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>Ref: 14 – 18 °D</div>
-              </F>
-              <F label="pH">
-                <SmartDecInp value={f.phFca} onChange={set("phFca")} decimalAfter={1} />
-                <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>Ref: 6.6 – 6.8</div>
-              </F>
-            </div>
-            <F label="°BRIX"><SmartDecInp value={f.brix || ""} onChange={set("brix")} decimalAfter={2} placeholder="°Brix" /></F>
-            <F label="Organoléptico">
-              <Sel value={f.organoleptico || ""} onChange={set("organoleptico")} options={["Sí", "No"]} placeholder="¿Conforme?" />
-            </F>
-          </div>
-        </>
-      ) : (
-        /* ── Formulario LECHE NORMAL ── */
-        <>
-          <div style={panel}>
-            <div style={secTitle}>Litros & Destino</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-              <F label="Litros Fábrica"><Inp type="number" value={f.litrosFca} onChange={set("litrosFca")} placeholder="0" /></F>
-              <F label="Litros Tambo"><Inp type="number" value={f.litrosTbo} onChange={set("litrosTbo")} placeholder="0" /></F>
-            </div>
-            <F label="Destino — Silo"><Sel value={f.destino} onChange={set("destino")} options={SILOS} placeholder="Seleccionar silo..." /></F>
-            <F label="Temperatura llegada (°C)">
-              <SmartDecInp value={f.tC} onChange={set("tC")} decimalAfter={1} placeholder="°C" />
-              <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>Ref: 3 – 8 °C</div>
-            </F>
-          </div>
-          <div style={panel}>
-            <div style={secTitle}>Parámetros básicos</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-              <F label="Acidez Fca.">
-                <SmartDecInp value={f.acidezFca} onChange={set("acidezFca")} decimalAfter={2} />
-                <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>Ref: 14 – 18 °D</div>
-              </F>
-              <F label="pH Fca.">
-                <SmartDecInp value={f.phFca} onChange={set("phFca")} decimalAfter={1} />
-                <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>Ref: 6.6 – 6.8</div>
-              </F>
-            </div>
-            <Pair label="Prueba Alcohol" v1={f.alcFca} v2={f.alcTbo} on1={set("alcFca")} on2={set("alcTbo")} />
-          </div>
-          <div style={panel}>
-            <div style={secTitle}>Composición</div>
-            <Pair label="Grasa Butirosa (GB)" v1={f.gbFca} v2={f.gbTbo} on1={set("gbFca")} on2={set("gbTbo")} />
-            <div style={{ fontSize: 11, color: C.sub, marginTop: -8, marginBottom: 12 }}>Ref: 3.0 – 4.0 %</div>
-            <Pair label="Sólidos No Grasos (SNG)" v1={f.sngFca} v2={f.sngTbo} on1={set("sngFca")} on2={set("sngTbo")} />
-            <div style={{ fontSize: 11, color: C.sub, marginTop: -8, marginBottom: 12 }}>Ref: 8.0 – 8.7 %</div>
-            <DensityPair v1={f.densFca} v2={f.densTbo} on1={set("densFca")} on2={set("densTbo")} />
-            <Pair label="Aguado" v1={f.aguadoFca} v2={f.aguadoTbo} on1={set("aguadoFca")} on2={set("aguadoTbo")} />
-            <div style={{ fontSize: 11, color: C.danger, marginTop: -8, marginBottom: 12 }}>Debe ser exactamente 0 — indica adulteración</div>
-            <Pair label="Descenso Crioscópico" v1={f.dcFca} v2={f.dcTbo} on1={set("dcFca")} on2={set("dcTbo")} />
-            <Pair label="Proteína" v1={f.protFca} v2={f.protTbo} on1={set("protFca")} on2={set("protTbo")} />
-            <div style={{ fontSize: 11, color: C.sub, marginTop: -8, marginBottom: 12 }}>Ref: 2.9 – 3.5 %</div>
-            <F label="ATB"><Sel value={f.atm || ""} onChange={set("atm")} options={["-", "+"]} placeholder="ATB..." /></F>
-          </div>
-        </>
-      )}
+      <Section
+        id="destino"
+        title={isConcentrado ? "2. Destino & Litros" : "2. Litros & Destino"}
+        legacy={!UX_V2}
+        open={panelsOpen.destino}
+        onToggle={() => togglePanel("destino")}
+        total={destinoRequired.length}
+        filled={countFilled(destinoRequired)}
+        headerRef={panelRefs.destino}
+        hasError={firstMissingPanel === "destino"}
+      >
+        {destinoContent}
+      </Section>
+
+      <Section
+        id="calidad"
+        title={isConcentrado ? "3. Parámetros" : "3. Calidad"}
+        legacy={!UX_V2}
+        open={panelsOpen.calidad}
+        onToggle={() => togglePanel("calidad")}
+        total={calidadRequired.length}
+        filled={countFilled(calidadRequired)}
+        headerRef={panelRefs.calidad}
+        hasError={firstMissingPanel === "calidad"}
+      >
+        {calidadContent}
+      </Section>
 
       <F label="Observaciones">
         <textarea style={{ ...inp, minHeight: 60, resize: "vertical" }} value={f.obs} onChange={e => set("obs")(e.target.value)} placeholder="Observaciones..." />
@@ -1458,36 +1630,17 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo,
           {fieldError}
         </div>
       )}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-        <button type="button" style={btnSecondary} onClick={onClose}>Cancelar</button>
-        <button type="button" style={btnPrimary} onClick={() => {
-          let req;
-          if (isConcentrado) {
-            req = [["tambo", "Tambo"], ["litrosFca", "Litros"], ["destino", "Destino"],
-                   ["acidezFca", "Acidez"], ["phFca", "pH"]];
-          } else {
-            req = [["tambo", "Tambo"], ["litrosFca", "Litros Fábrica"], ["destino", "Destino"], ["producto", "Producto"],
-                   ["acidezFca", "Acidez Fca."], ["phFca", "pH Fca."],
-                   ["gbFca", "GB Fca."], ["sngFca", "SNG Fca."], ["densFca", "Densidad Fca."], ["protFca", "Proteína Fca."], ["atm", "ATB"]];
-          }
-          const miss = req.filter(([k]) => !String(f[k] || "").trim()).map(([, v]) => v);
-          if (miss.length) { setFieldError("Faltan completar:\n• " + miss.join("\n• ")); return; }
-          // Silo sucio bloqueado
-          if (siloSucioLevel === "bloqueado") {
-            if (!canForce) { setFieldError("El silo " + f.destino + " está pendiente de CIP. Solo el supervisor puede autorizar este ingreso."); return; }
-            setCipForzado(true);
-            return;
-          }
-          // Aguado > 0 = adulteración — requiere confirmación explícita
-          const aguFca = parseFloat(f.aguadoFca);
-          const aguTbo = parseFloat(f.aguadoTbo);
-          if ((!isNaN(aguFca) && aguFca > 0) || (!isNaN(aguTbo) && aguTbo > 0)) {
-            setAguadoAlerta(true);
-            return;
-          }
-          setFieldError("");
-          onSave(f);
-        }}>Guardar</button>
+      {/* Row Cancelar/Guardar — sticky bottom en UX_V2 para resistir teclado Android virtual. */}
+      <div style={UX_V2 ? {
+        position: "sticky", bottom: 0, zIndex: 5,
+        background: C.bg, paddingTop: 12, paddingBottom: 4,
+        marginLeft: -20, marginRight: -20, paddingLeft: 20, paddingRight: 20,
+        marginTop: 4, borderTop: `1px solid ${C.border}`,
+      } : {}}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+          <button type="button" style={btnSecondary} onClick={onClose}>Cancelar</button>
+          <button type="button" style={btnPrimary} onClick={onClickGuardar}>Guardar</button>
+        </div>
       </div>
       {onDelete && <button type="button" style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar este ingreso</button>}
 
