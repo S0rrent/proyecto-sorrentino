@@ -1097,6 +1097,10 @@ const Banner = ({ kind = "error", message, onClose, sticky = false }) => {
     </div>
   );
 };
+// Tracks how many Modal instances are currently mounted — used by the back-button hook
+// below so only the outermost modal pushes a history entry. Nested modals skip pushState
+// to prevent a cascade where closing a phantom entry fires the parent modal's popstate handler.
+let _modalDepth = 0;
 const Modal = ({ title, onClose, children, zIndex = 100 }) => {
   const isDesktop = typeof window !== "undefined" && window.innerWidth >= 1024;
   // Body scroll lock — evita que el contenido detrás scrollee mientras hay un modal abierto.
@@ -1121,6 +1125,25 @@ const Modal = ({ title, onClose, children, zIndex = 100 }) => {
       }
     };
   }, []);
+  // Back button (Android / browser): only the outermost open Modal pushes a history entry.
+  // Pressing back closes that modal; pressing back again reaches the previous page / exits the app.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const isRoot = _modalDepth === 0;
+    _modalDepth++;
+    if (!isRoot) return () => { _modalDepth--; };
+    window.history.pushState({ yatasto: "modal" }, "");
+    let poppedByBack = false;
+    const handlePop = () => { poppedByBack = true; onClose(); };
+    window.addEventListener("popstate", handlePop);
+    return () => {
+      _modalDepth--;
+      window.removeEventListener("popstate", handlePop);
+      // Modal closed normally (not via back) — remove the phantom history entry.
+      // Listener is already detached, so the resulting popstate won't re-trigger onClose.
+      if (!poppedByBack) window.history.back();
+    };
+  }, []); // onClose is captured at mount; all callers in this app pass stable lambdas
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)", zIndex, display: "flex", alignItems: isDesktop ? "center" : "flex-end", justifyContent: "center" }}>
       <div style={{
@@ -1305,6 +1328,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo,
   const [f, setF] = useState(initial || emptyIng());
   const [aguadoAlerta, setAguadoAlerta] = useState(false);
   const [cipForzado, setCipForzado] = useState(false);
+  const overrideSavingRef = useRef(false); // double-tap guard for CIP/aguado override buttons
   const [fieldError, setFieldError] = useState("");
   // PR3: estado y refs para form colapsable (sólo se usan cuando UX_V2 = true).
   // En edit mode todos los paneles arrancan abiertos para revisión rápida.
@@ -1320,6 +1344,9 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo,
     destino: useRef(null),
     calidad: useRef(null),
   };
+  // Ensures inner modals (cipForzado, aguadoAlerta) are dismissed before the form closes,
+  // regardless of which path triggers the close (Cancelar button, back button, parent × button).
+  const handleClose = () => { setCipForzado(false); setAguadoAlerta(false); onClose(); };
   const togglePanel = k => setPanelsOpen(p => {
     const next = !p[k];
     track(next ? "panel_open" : "panel_close", k, "ingreso");
@@ -1651,7 +1678,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo,
         marginTop: 4, borderTop: `1px solid ${C.border}`,
       } : {}}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-          <button type="button" style={btnSecondary} onClick={() => { track("form_cancel", null, "ingreso"); onClose(); }}>Cancelar</button>
+          <button type="button" style={btnSecondary} onClick={() => { track("form_cancel", null, "ingreso"); handleClose(); }}>Cancelar</button>
           <button type="button" style={btnPrimary} onClick={onClickGuardar}>Guardar</button>
         </div>
       </div>
@@ -1675,7 +1702,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo,
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
             <button type="button" style={btnSecondary} onClick={() => setCipForzado(false)}>Cancelar</button>
             <button type="button" style={{ ...btnPrimary, background: C.danger, borderColor: C.danger }}
-              onClick={() => { setCipForzado(false); track("save_ok", "forzado_cip", "ingreso"); onSave({ ...f, _forzadoCIP: true }); }}>
+              onClick={() => { if (overrideSavingRef.current) return; overrideSavingRef.current = true; setCipForzado(false); track("save_ok", "forzado_cip", "ingreso"); onSave({ ...f, _forzadoCIP: true }); }}>
               Autorizar y forzar ingreso
             </button>
           </div>
@@ -1698,7 +1725,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo,
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
             <button type="button" style={btnSecondary} onClick={() => setAguadoAlerta(false)}>Corregir valores</button>
-            <button type="button" style={{ ...btnPrimary, background: C.danger, borderColor: C.danger }} onClick={() => { setAguadoAlerta(false); track("save_ok", "forzado_aguado", "ingreso"); onSave(f); }}>
+            <button type="button" style={{ ...btnPrimary, background: C.danger, borderColor: C.danger }} onClick={() => { if (overrideSavingRef.current) return; overrideSavingRef.current = true; setAguadoAlerta(false); track("save_ok", "forzado_aguado", "ingreso"); onSave(f); }}>
               Guardar de todas formas
             </button>
           </div>
