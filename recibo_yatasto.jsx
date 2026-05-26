@@ -7,7 +7,7 @@ import { track, initTelemetry } from "./telemetry.js";
 import {
   Ingresos as IcoIngresos, Movimientos as IcoMovimientos, Carga as IcoCarga,
   Fortificados as IcoFortificados, CIP as IcoCIP, Stock as IcoStock, Produccion as IcoProduccion,
-  Supervisor as IcoSupervisor, Jefe as IcoJefe, Admin as IcoAdmin,
+  Supervisor as IcoSupervisor, Jefe as IcoJefe, Operador as IcoOperador, Admin as IcoAdmin,
   ThemeLight, ThemeDark, DatePicker as IcoDate, Informe as IcoInforme, Offline as IcoOffline,
   Destino as IcoDestino, Concentrado as IcoConcentrado, Calidad as IcoCalidad,
   Temperatura as IcoTemp, Buscar as IcoBuscar, Instalacion as IcoInstalacion,
@@ -63,7 +63,7 @@ const FORT_DESTINOS = ["Tetra", "Ultra", "Yogur", "Postre", "Acción Correctiva"
 const PERFILES = {
   supervisor:   { usuario: "Supervisor",    email: "supervisor@yatasto.internal", label: "Supervisor",       Icon: IcoSupervisor },
   jefe:         { usuario: "Jefe",          email: "jefe@yatasto.internal",       label: "Jefe de Planta",   Icon: IcoJefe },
-  admin:        { usuario: "Administracion",email: "admin@yatasto.internal",      label: "Administración",   Icon: IcoAdmin },
+  operador:     { usuario: "Operador",      email: "operador@yatasto.app",        label: "Operador",         Icon: IcoOperador },
 };
 const SILOS = ["100 NUEVO", "100 VIEJO", "80", "60", "42", "40F", "20", "15"];
 const SILOS_TODOS = [...SILOS, "TQ1", "TQ2", "TQ3", "TQ5", "TQ6", "TQ7", "TQ8", "TQ9", "POSTRE", "TINA", "DULCE"];
@@ -1772,6 +1772,11 @@ const SecIngresos = ({ date, syncKey = 0, dayClosed = false, perfil = null }) =>
     if (ok !== false) setModal(null);
   };
   const onDelete = async id => {
+    // Guard de perfil — solo supervisor/jefe pueden eliminar ingresos
+    if (perfil !== "supervisor" && perfil !== "jefe") {
+      console.warn("[onDelete ingreso] perfil sin permiso:", perfil);
+      return;
+    }
     const item = list.find(i => i.id === id);
     const resumen = item ? buildResumen("ingreso", item) : "";
     if (await askConfirm({
@@ -2221,7 +2226,7 @@ const CargaForm = ({ initial, onSave, onClose, onDelete }) => {
     </div>
   );
 };
-const SecCarga = ({ date, syncKey = 0, dayClosed = false }) => {
+const SecCarga = ({ date, syncKey = 0, dayClosed = false, perfil = null }) => {
   const [list, setList] = useState([]);
   const [modal, setModal] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -2250,6 +2255,11 @@ const SecCarga = ({ date, syncKey = 0, dayClosed = false }) => {
     if (ok !== false) setModal(null);
   };
   const onDelete = async id => {
+    // Guard de perfil — solo supervisor/jefe pueden eliminar cargas
+    if (perfil !== "supervisor" && perfil !== "jefe") {
+      console.warn("[onDelete carga] perfil sin permiso:", perfil);
+      return;
+    }
     const item = list.find(i => i.id === id);
     const resumen = item ? buildResumen("carga", item) : "";
     if (await askConfirm({ title: "Eliminar carga", message: `¿Eliminar esta carga?${resumen ? "\n\n" + resumen : ""}`, danger: true, confirmLabel: "Eliminar" })) {
@@ -2376,7 +2386,7 @@ const CtrlForm = ({ initial, onSave, onClose, onDelete }) => {
   );
 };
 
-const SecMovimientos = ({ date, syncKey = 0, dayClosed = false }) => {
+const SecMovimientos = ({ date, syncKey = 0, dayClosed = false, perfil = null }) => {
   const [data, setData] = useState({ movs: [], ctrls: [] });
   const [modal, setModal] = useState(null);
   const [tab, setTab] = useState("movs");
@@ -2411,6 +2421,11 @@ const SecMovimientos = ({ date, syncKey = 0, dayClosed = false }) => {
     if (ok !== false) setModal(null);
   };
   const delMov = async id => {
+    // Guard de perfil — solo supervisor/jefe pueden eliminar movimientos
+    if (perfil !== "supervisor" && perfil !== "jefe") {
+      console.warn("[delMov] perfil sin permiso:", perfil);
+      return;
+    }
     const item = data.movs.find(i => i.id === id);
     const resumen = item ? buildResumen("movimiento", item) : "";
     if (await askConfirm({ title: "Eliminar movimiento", message: `¿Eliminar este movimiento?${resumen ? "\n\n" + resumen : ""}`, danger: true, confirmLabel: "Eliminar" })) {
@@ -2420,6 +2435,11 @@ const SecMovimientos = ({ date, syncKey = 0, dayClosed = false }) => {
     setModal(null);
   };
   const delCtrl = async id => {
+    // Guard de perfil — solo supervisor/jefe pueden eliminar controles de calidad
+    if (perfil !== "supervisor" && perfil !== "jefe") {
+      console.warn("[delCtrl] perfil sin permiso:", perfil);
+      return;
+    }
     const item = data.ctrls.find(i => i.id === id);
     const resumen = item ? buildResumen("control", item) : "";
     if (await askConfirm({ title: "Eliminar control", message: `¿Eliminar este control?${resumen ? "\n\n" + resumen : ""}`, danger: true, confirmLabel: "Eliminar" })) {
@@ -3817,7 +3837,7 @@ const FortForm = ({ initial, onSave, onClose, onDelete }) => {
   );
 };
 
-const SecFortificados = ({ date, syncKey = 0, dayClosed = false }) => {
+const SecFortificados = ({ date, syncKey = 0, dayClosed = false, perfil = null }) => {
   const [list, setList] = useState([]);
   const [modal, setModal] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -3851,6 +3871,11 @@ const SecFortificados = ({ date, syncKey = 0, dayClosed = false }) => {
     if (ok !== false) setModal(null);
   };
   const onDelete = async id => {
+    // Guard de perfil — solo supervisor/jefe pueden eliminar fortificados
+    if (perfil !== "supervisor" && perfil !== "jefe") {
+      console.warn("[onDelete fortificado] perfil sin permiso:", perfil);
+      return;
+    }
     const item = list.find(i => i.id === id);
     const resumen = item ? buildResumen("fortificado", item) : "";
     if (await askConfirm({ title: "Eliminar lote fortificado", message: `¿Eliminar este lote?${resumen ? "\n\n" + resumen : ""}`, danger: true, confirmLabel: "Eliminar" })) {
@@ -7130,7 +7155,7 @@ const SecAdmin = ({ date, syncKey, perfil }) => {
         borderBottom: `1px solid ${C.border}`, paddingBottom: 2, marginBottom: 18,
         scrollbarWidth: "none",
       }}>
-        {ADMIN_TABS.filter(([id]) => !(id === "saldo" && perfil === "admin")).map(([id, Icon, label]) => (
+        {ADMIN_TABS.map(([id, Icon, label]) => (
           <button key={id} type="button" onClick={() => setTab(id)} style={tabBtn(tab === id)}>
             <Icon size={13} strokeWidth={SW} />
             {label}
@@ -7542,7 +7567,7 @@ ${cargas.map(r=>`<tr><td>${r._date}</td><td>${r.hora||""}</td><td>${escapeHtml(r
       })()}
 
       {/* ── SALDO INICIAL ── (solo supervisor/jefe) */}
-      {tab === "saldo" && perfil !== "admin" && <SaldoInicialPanel perfil={perfil} />}
+      {tab === "saldo" && <SaldoInicialPanel perfil={perfil} />}
 
     </div>
   );
@@ -7915,9 +7940,11 @@ export default function App() {
     ? [
         ...NAV,
         ...((perfil === "supervisor" || perfil === "jefe")
-          ? [{ id: "produccion", label: "Prod.", Icon: IcoProduccion }]
+          ? [
+              { id: "produccion", label: "Prod.", Icon: IcoProduccion },
+              { id: "supervisor", label: "Superv.", Icon: PERFILES[perfil]?.Icon || IcoSupervisor },
+            ]
           : []),
-        { id: "supervisor", label: perfil === "admin" ? "Admin" : "Superv.", Icon: PERFILES[perfil]?.Icon || IcoSupervisor },
       ]
     : NAV;
 
@@ -8168,15 +8195,46 @@ export default function App() {
   };
 
   const handleLogout = async () => {
+    // Detectar escrituras pendientes en la cola offline (clave persistida por db-adapter)
+    let queueLen = 0;
+    try {
+      const raw = localStorage.getItem("__yatasto_wq__");
+      const q = raw ? JSON.parse(raw) : [];
+      queueLen = Array.isArray(q) ? q.length : 0;
+    } catch {}
+
+    if (queueLen > 0) {
+      const confirmed = await askConfirm({
+        title: "Cambios sin sincronizar",
+        message: `Hay ${queueLen} cambio${queueLen > 1 ? "s" : ""} pendiente${queueLen > 1 ? "s" : ""} de sincronizar con el servidor.\n\nSi cerrás sesión ahora, se descartarán y no llegarán a Supabase. Esperá a recuperar la conexión, o cerrá igual y los datos se pierden.`,
+        danger: true,
+        confirmLabel: "Cerrar sesión y descartar",
+      });
+      if (!confirmed) return;
+    }
+
     setPerfilModal(false);
     if (section === "supervisor") setSection("ingresos");
+    // Borrar cola persistida — evita que el próximo usuario en el mismo device
+    // herede escrituras del usuario que cierra sesión (auditoría cruzada).
+    try { localStorage.removeItem("__yatasto_wq__"); } catch {}
     try { await db.auth.signOut(); } catch {}
+    // Reload completo: la cola en memoria de db-adapter se vacía y todo state se reinicia.
+    // Sin esto, _flushQueue podría re-persistir los items en memoria al siguiente reintento.
+    window.location.reload();
   };
 
   const closePerfilModal = () => {
+    // Sin sesión activa el modal de login no se puede cerrar — la app exige autenticación.
+    if (!perfil) return;
     setPerfilModal(false);
     setLoginUser(""); setLoginPass(""); setLoginError("");
   };
+
+  // Auto-abrir login cuando no hay sesión y la resolución terminó.
+  useEffect(() => {
+    if (!perfilLoading && !perfil) setPerfilModal(true);
+  }, [perfilLoading, perfil]);
 
   return (
     <div style={{
@@ -8228,8 +8286,8 @@ export default function App() {
         </div>
       )}
 
-      {/* Sidebar — desktop only */}
-      {isDesktop && (
+      {/* Sidebar — desktop only, gated por sesión */}
+      {perfil && isDesktop && (
         <div style={{
           position: "fixed", top: 0, left: 0, bottom: 0, width: SIDEBAR_W,
           background: C.surface, borderRight: `1px solid ${C.border}`,
@@ -8588,8 +8646,8 @@ export default function App() {
             )}
           </button>
 
-          {/* Botón cerrar/reabrir día — solo supervisor y jefe, no admin */}
-          {perfil && perfil !== "admin" && (
+          {/* Botón cerrar/reabrir día — solo supervisor y jefe (operador no puede) */}
+          {(perfil === "supervisor" || perfil === "jefe") && (
             <button type="button"
               onClick={dayClosed ? (perfil === "jefe" ? handleReabrirDia : undefined) : handleCerrarDia}
               title={dayClosed ? (perfil === "jefe" ? "Reabrir día" : `Día cerrado por ${dayClosedBy}`) : "Cerrar día"}
@@ -8691,21 +8749,21 @@ export default function App() {
           </div>
         )}
         <div style={{ maxWidth: isDesktop ? 960 : "100%", margin: isDesktop ? "0 auto" : undefined }}>
-        {section === "ingresos" && <SecIngresos date={date} syncKey={syncKey} dayClosed={dayClosed || perfil === "admin"} perfil={perfil} />}
-        {section === "cip" && <SecCIP date={date} syncKey={syncKey} readOnly={perfil === "admin"} />}
-        {section === "carga" && <SecCarga date={date} syncKey={syncKey} dayClosed={dayClosed || perfil === "admin"} />}
-        {section === "movimientos" && <SecMovimientos date={date} syncKey={syncKey} dayClosed={dayClosed || perfil === "admin"} />}
-        {section === "stock" && <SecStock date={date} syncKey={syncKey} readOnly={perfil === "admin"} perfil={perfil} />}
-        {section === "fortificados" && <SecFortificados date={date} syncKey={syncKey} dayClosed={dayClosed || perfil === "admin"} />}
-        {section === "produccion" && (perfil === "supervisor" || perfil === "jefe") && <SecProduccion date={date} syncKey={syncKey} dayClosed={dayClosed} perfil={perfil} />}
-        {section === "supervisor" && perfil === "supervisor" && <SecDashboard date={date} perfil={perfil} perfilLabel={PERFILES[perfil]?.label || ""} syncKey={syncKey} />}
-        {section === "supervisor" && perfil === "jefe" && <SecJefeHub date={date} perfil={perfil} perfilLabel={PERFILES[perfil]?.label || ""} syncKey={syncKey} />}
-        {section === "supervisor" && perfil === "admin" && <SecAdmin date={date} syncKey={syncKey} perfil={perfil} />}
+        {/* Gate: ninguna sección renderiza sin sesión válida — el login modal queda forzado en primer plano */}
+        {perfil && section === "ingresos" && <SecIngresos date={date} syncKey={syncKey} dayClosed={dayClosed} perfil={perfil} />}
+        {perfil && section === "cip" && <SecCIP date={date} syncKey={syncKey} />}
+        {perfil && section === "carga" && <SecCarga date={date} syncKey={syncKey} dayClosed={dayClosed} perfil={perfil} />}
+        {perfil && section === "movimientos" && <SecMovimientos date={date} syncKey={syncKey} dayClosed={dayClosed} perfil={perfil} />}
+        {perfil && section === "stock" && <SecStock date={date} syncKey={syncKey} perfil={perfil} />}
+        {perfil && section === "fortificados" && <SecFortificados date={date} syncKey={syncKey} dayClosed={dayClosed} perfil={perfil} />}
+        {perfil && section === "produccion" && (perfil === "supervisor" || perfil === "jefe") && <SecProduccion date={date} syncKey={syncKey} dayClosed={dayClosed} perfil={perfil} />}
+        {perfil && section === "supervisor" && perfil === "supervisor" && <SecDashboard date={date} perfil={perfil} perfilLabel={PERFILES[perfil]?.label || ""} syncKey={syncKey} />}
+        {perfil && section === "supervisor" && perfil === "jefe" && <SecJefeHub date={date} perfil={perfil} perfilLabel={PERFILES[perfil]?.label || ""} syncKey={syncKey} />}
         </div>
       </div>
 
-      {/* Bottom nav — mobile only */}
-      {!isDesktop && <div style={{
+      {/* Bottom nav — mobile only, gated por sesión */}
+      {perfil && !isDesktop && <div style={{
         position: "fixed", bottom: 0, left: 0, right: 0,
         background: C.surface, borderTop: `1px solid ${C.border}`,
         display: "grid", gridTemplateColumns: `repeat(${navItems.length},1fr)`,
