@@ -1150,10 +1150,10 @@ const Modal = ({ title, onClose, children, zIndex = 100 }) => {
         background: C.bg, padding: 20, overflowY: "auto",
         border: `1px solid ${C.border}`,
         ...(isDesktop ? {
-          borderRadius: 16, width: "min(580px, 90vw)", maxHeight: "85vh",
+          borderRadius: 16, width: "min(580px, 90vw)", maxHeight: "85dvh",
           boxShadow: "0 24px 48px rgba(0,0,0,0.45)",
         } : {
-          borderRadius: "20px 20px 0 0", width: "100%", maxHeight: "93vh", borderBottom: "none",
+          borderRadius: "20px 20px 0 0", width: "100%", maxHeight: "93dvh", borderBottom: "none",
         }),
       }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
@@ -1329,6 +1329,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo,
   const [aguadoAlerta, setAguadoAlerta] = useState(false);
   const [cipForzado, setCipForzado] = useState(false);
   const overrideSavingRef = useRef(false); // double-tap guard for CIP/aguado override buttons
+  const savingRef = useRef(false); // double-tap guard for main Guardar button
   const [fieldError, setFieldError] = useState("");
   // PR3: estado y refs para form colapsable (sólo se usan cuando UX_V2 = true).
   // En edit mode todos los paneles arrancan abiertos para revisión rápida.
@@ -1679,7 +1680,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo,
       } : {}}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
           <button type="button" style={btnSecondary} onClick={() => { track("form_cancel", null, "ingreso"); handleClose(); }}>Cancelar</button>
-          <button type="button" style={btnPrimary} onClick={onClickGuardar}>Guardar</button>
+          <button type="button" style={btnPrimary} onClick={() => { if (savingRef.current) return; savingRef.current = true; setTimeout(() => { savingRef.current = false; }, 500); onClickGuardar(); }}>Guardar</button>
         </div>
       </div>
       {onDelete && <button type="button" style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar este ingreso</button>}
@@ -1747,10 +1748,11 @@ const SecIngresos = ({ date, syncKey = 0, dayClosed = false, perfil = null }) =>
   const [confirmUI, askConfirm] = useConfirm();
 
   useEffect(() => {
+    if (modal) return; // no recargar mientras hay un form abierto — evita pisar edición en curso
     load(date, "ingresos", []).then(d => { setList(d); setLoading(false); });
     loadCfg().then(cfg => setTambos([...TAMBOS_BASE, ...(cfg.tambosCustom || [])]));
     calcAutoLitros(date).then(r => setSiloStates(r)).catch(() => {});
-  }, [date, syncKey]);
+  }, [date, syncKey, modal]);
 
   const persist = async updated => {
     const ok = await save(date, "ingresos", updated);
@@ -2073,6 +2075,7 @@ const emptyCarga = () => ({ id: crypto.randomUUID(), label: "CARGA 1", destino: 
 const CargaForm = ({ initial, onSave, onClose, onDelete }) => {
   const [f, setF] = useState(initial || emptyCarga());
   const [fieldError, setFieldError] = useState("");
+  const savingRef = useRef(false);
   const set = k => v => { setFieldError(""); setF(p => ({ ...p, [k]: v })); };
   const [transportistas, setTransportistas] = useState([]);
   const [cargaProductos, setCargaProductos] = useState(CARGA_PRODUCTOS_BASE);
@@ -2174,6 +2177,7 @@ const CargaForm = ({ initial, onSave, onClose, onDelete }) => {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
         <button type="button" style={btnSecondary} onClick={() => { track("form_cancel", null, "carga"); onClose(); }}>Cancelar</button>
         <button type="button" style={btnPrimary} onClick={() => {
+          if (savingRef.current) return; savingRef.current = true; setTimeout(() => { savingRef.current = false; }, 500);
           const req = [["destino", "Destino"], ["siloProveniente", "Silo Proveniente"], ["limpCisterna", "Limpieza Cisterna"],
           ["litros", "Litros"], ["hora", "Hora"], ["responsable", "Responsable"],
           ["T", "T"], ["gC", "°C"], ["pH", "pH"], ["A", "A"], ["gD", "°D"]];
@@ -2222,7 +2226,7 @@ const SecCarga = ({ date, syncKey = 0, dayClosed = false }) => {
   const [modal, setModal] = useState(null);
   const [loading, setLoading] = useState(true);
   const [confirmUI, askConfirm] = useConfirm();
-  useEffect(() => { load(date, "carga", []).then(d => { setList(d); setLoading(false); }); }, [date, syncKey]);
+  useEffect(() => { if (modal) return; load(date, "carga", []).then(d => { setList(d); setLoading(false); }); }, [date, syncKey, modal]);
   const persist = async u => {
     const ok = await save(date, "carga", u);
     if (ok !== false) setList(u);
@@ -2296,6 +2300,7 @@ const emptyCtrl = () => ({ id: crypto.randomUUID(), hora: getNow(), silo: "", ph
 const MovForm = ({ initial, onSave, onClose, onDelete }) => {
   const [f, setF] = useState(initial || emptyMov());
   const [fieldError, setFieldError] = useState("");
+  const savingRef = useRef(false);
   const set = k => v => { setFieldError(""); setF(p => ({ ...p, [k]: v })); };
   return (
     <div>
@@ -2318,6 +2323,7 @@ const MovForm = ({ initial, onSave, onClose, onDelete }) => {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
         <button type="button" style={btnSecondary} onClick={() => { track("form_cancel", null, "movimientos"); onClose(); }}>Cancelar</button>
         <button type="button" style={btnPrimary} onClick={() => {
+          if (savingRef.current) return; savingRef.current = true; setTimeout(() => { savingRef.current = false; }, 500);
           const req = [["litros", "Litros"], ["desde", "Desde"], ["hasta", "Hasta"], ["motivo", "Motivo"], ["resp", "Responsable"]];
           const miss = req.filter(([k]) => !String(f[k] || "").trim()).map(([, v]) => v);
           if (miss.length) { setFieldError("Faltan completar:\n• " + miss.join("\n• ")); track("save_fail", miss[0], "movimientos"); return; }
@@ -2333,6 +2339,7 @@ const MovForm = ({ initial, onSave, onClose, onDelete }) => {
 const CtrlForm = ({ initial, onSave, onClose, onDelete }) => {
   const [f, setF] = useState(initial || emptyCtrl());
   const [fieldError, setFieldError] = useState("");
+  const savingRef = useRef(false);
   const set = k => v => { setFieldError(""); setF(p => ({ ...p, [k]: v })); };
   // "dens" se renderiza aparte con DensityInput; el resto se mapea con Inp genérico.
   const campos = [["pH", "ph"], ["°D", "gD"], ["°C", "gC"], ["Alc.", "alc"], ["MG", "mg"], ["SNG", "sng"], ["FP", "fp"], ["Prot.", "prot"]];
@@ -2355,6 +2362,7 @@ const CtrlForm = ({ initial, onSave, onClose, onDelete }) => {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
         <button type="button" style={btnSecondary} onClick={() => { track("form_cancel", null, "ctrl_calidad"); onClose(); }}>Cancelar</button>
         <button type="button" style={btnPrimary} onClick={() => {
+          if (savingRef.current) return; savingRef.current = true; setTimeout(() => { savingRef.current = false; }, 500);
           const req = [["silo", "Silo"], ["ph", "pH"], ["gD", "°D"], ["gC", "°C"], ["alc", "Alc."], ["mg", "MG"], ["sng", "SNG"], ["dens", "Densidad"], ["fp", "FP"], ["prot", "Proteína"], ["resp", "Responsable"]];
           const miss = req.filter(([k]) => !String(f[k] || "").trim()).map(([, v]) => v);
           if (miss.length) { setFieldError("Faltan completar:\n• " + miss.join("\n• ")); track("save_fail", miss[0], "ctrl_calidad"); return; }
@@ -2374,7 +2382,7 @@ const SecMovimientos = ({ date, syncKey = 0, dayClosed = false }) => {
   const [tab, setTab] = useState("movs");
   const [loading, setLoading] = useState(true);
   const [confirmUI, askConfirm] = useConfirm();
-  useEffect(() => { load(date, "movimientos", { movs: [], ctrls: [] }).then(d => { setData(d); setLoading(false); }); }, [date, syncKey]);
+  useEffect(() => { if (modal) return; load(date, "movimientos", { movs: [], ctrls: [] }).then(d => { setData(d); setLoading(false); }); }, [date, syncKey, modal]);
   const persist = async u => {
     const ok = await save(date, "movimientos", u);
     if (ok !== false) setData(u);
@@ -3079,6 +3087,7 @@ const SecProduccion = ({ date, syncKey = 0, dayClosed = false, perfil = null }) 
   const [confirmUI, askConfirm] = useConfirm();
 
   useEffect(() => {
+    if (modal) return; // no recargar mientras hay un form abierto
     load(date, "produccion", []).then(d => {
       // R3: normalización defensiva al cargar. Lotes legacy "enviado" → "envasando".
       // Lotes activos sin campo litrosUsados explícito → setear null para evitar
@@ -3094,7 +3103,7 @@ const SecProduccion = ({ date, syncKey = 0, dayClosed = false, perfil = null }) 
       setList(norm);
       setLoading(false);
     });
-  }, [date, syncKey]);
+  }, [date, syncKey, modal]);
 
   const persist = async updated => {
     const ok = await save(date, "produccion", updated);
@@ -3706,6 +3715,7 @@ const emptyFort = () => ({
 const FortForm = ({ initial, onSave, onClose, onDelete }) => {
   const [f, setF] = useState(() => initial ? { ...emptyFort(), ...initial } : emptyFort());
   const [fieldError, setFieldError] = useState("");
+  const savingRef = useRef(false);
   const set = k => v => { setFieldError(""); setF(p => ({ ...p, [k]: v })); };
 
   const updAdicion = (id, key, val) =>
@@ -3791,6 +3801,7 @@ const FortForm = ({ initial, onSave, onClose, onDelete }) => {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
         <button type="button" style={btnSecondary} onClick={() => { track("form_cancel", null, "fortificados"); onClose(); }}>Cancelar</button>
         <button type="button" style={btnPrimary} onClick={() => {
+          if (savingRef.current) return; savingRef.current = true; setTimeout(() => { savingRef.current = false; }, 500);
           const req = [["siloOrigen", "Silo Origen"], ["litrosBase", "Litros base"], ["siloDestino", "Silo Destino"], ["responsable", "Responsable"]];
           const miss = req.filter(([k]) => !String(f[k] || "").trim()).map(([, v]) => v);
           const sinCant = f.adiciones.filter(a => !String(a.cantidad || "").trim()).map(a => a.producto || "Adición");
@@ -3813,8 +3824,9 @@ const SecFortificados = ({ date, syncKey = 0, dayClosed = false }) => {
   const [confirmUI, askConfirm] = useConfirm();
 
   useEffect(() => {
+    if (modal) return; // no recargar mientras hay un form abierto
     load(date, "fortificados", []).then(d => { setList(d); setLoading(false); });
-  }, [date, syncKey]);
+  }, [date, syncKey, modal]);
 
   const persist = async u => {
     const ok = await save(date, "fortificados", u);
@@ -8197,7 +8209,7 @@ export default function App() {
           position: "fixed", top: 0, left: 0, right: 0, zIndex: 9999,
           background: C.accent, color: "#000",
           display: "flex", alignItems: "center", justifyContent: "space-between",
-          padding: "8px 16px", gap: 12,
+          paddingTop: "calc(env(safe-area-inset-top, 0px) + 8px)", paddingBottom: "8px", paddingLeft: "16px", paddingRight: "16px", gap: 12,
         }}>
           <span style={{ fontSize: 13, fontWeight: 600 }}>
             Nueva versión disponible
@@ -8277,7 +8289,8 @@ export default function App() {
       {dayClosedBlocked && (
         <div style={{
           background: `${C.danger}18`, borderBottom: `2px solid ${C.danger}`,
-          padding: "8px 16px", display: "flex", alignItems: "center", gap: 10,
+          paddingTop: "calc(env(safe-area-inset-top, 0px) + 8px)", paddingBottom: "8px", paddingLeft: "16px", paddingRight: "16px",
+          display: "flex", alignItems: "center", gap: 10,
           position: "sticky", top: 0, zIndex: 301,
           marginLeft: isDesktop ? SIDEBAR_W : 0,
         }}>
@@ -8296,7 +8309,8 @@ export default function App() {
         return (
           <div style={{
             background: "#7c1d1d20", borderBottom: "2px solid #ef4444",
-            padding: "10px 16px", display: "flex", alignItems: "center", gap: 10,
+            paddingTop: "calc(env(safe-area-inset-top, 0px) + 10px)", paddingBottom: "10px", paddingLeft: "16px", paddingRight: "16px",
+            display: "flex", alignItems: "center", gap: 10,
             position: "sticky", top: 0, zIndex: 302,
             marginLeft: isDesktop ? SIDEBAR_W : 0,
           }}>
@@ -8327,7 +8341,8 @@ export default function App() {
       {queueLen > 0 && (
         <div style={{
           background: `${C.accent}15`, borderBottom: `2px solid ${C.accent}88`,
-          padding: "8px 16px", display: "flex", alignItems: "center", gap: 10,
+          paddingTop: "calc(env(safe-area-inset-top, 0px) + 8px)", paddingBottom: "8px", paddingLeft: "16px", paddingRight: "16px",
+          display: "flex", alignItems: "center", gap: 10,
           position: "sticky", top: 0, zIndex: 299,
           marginLeft: isDesktop ? SIDEBAR_W : 0,
         }}>
@@ -8348,7 +8363,8 @@ export default function App() {
       {sessionExpired && (
         <div style={{
           background: "#7c2d1215", borderBottom: "2px solid #f97316",
-          padding: "10px 16px", display: "flex", alignItems: "center", gap: 10,
+          paddingTop: "calc(env(safe-area-inset-top, 0px) + 10px)", paddingBottom: "10px", paddingLeft: "16px", paddingRight: "16px",
+          display: "flex", alignItems: "center", gap: 10,
           position: "sticky", top: 0, zIndex: 301,
           marginLeft: isDesktop ? SIDEBAR_W : 0,
         }}>
@@ -8373,7 +8389,8 @@ export default function App() {
       {!storageOk && (
         <div style={{
           background: C.danger.replace(/\)$/, " / 0.12)"), borderBottom: `2px solid ${C.danger}`,
-          padding: "10px 16px", display: "flex", alignItems: "center", gap: 10,
+          paddingTop: "calc(env(safe-area-inset-top, 0px) + 10px)", paddingBottom: "10px", paddingLeft: "16px", paddingRight: "16px",
+          display: "flex", alignItems: "center", gap: 10,
           position: "sticky", top: 0, zIndex: 300,
           marginLeft: isDesktop ? SIDEBAR_W : 0,
         }}>
@@ -8641,7 +8658,7 @@ export default function App() {
       )}
 
       {/* Content */}
-      <div style={{ padding: isDesktop ? "16px 24px 24px" : "12px 12px 80px", marginLeft: isDesktop ? SIDEBAR_W : 0, position: "relative", overflowX: "hidden", minWidth: 0 }}>
+      <div style={{ padding: isDesktop ? "16px 24px 24px" : `12px 12px calc(env(safe-area-inset-bottom, 0px) + 120px)`, marginLeft: isDesktop ? SIDEBAR_W : 0, position: "relative", overflowX: "hidden", minWidth: 0 }}>
         {/* Overlay día cerrado — bloquea edición sin ocultar contenido */}
         {dayClosed && section !== "supervisor" && (
           <div style={{
