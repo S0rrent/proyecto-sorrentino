@@ -212,33 +212,57 @@ CREATE POLICY "solo_usuarios_auth" ON yatasto_storage
   USING (auth.uid() IS NOT NULL)
   WITH CHECK (auth.uid() IS NOT NULL);
 
--- Habilitar RLS en tablas relacionales
-ALTER TABLE ingresos     ENABLE ROW LEVEL SECURITY;
-ALTER TABLE cargas       ENABLE ROW LEVEL SECURITY;
-ALTER TABLE movimientos  ENABLE ROW LEVEL SECURITY;
-ALTER TABLE stock_turnos ENABLE ROW LEVEL SECURITY;
-ALTER TABLE cip_registros ENABLE ROW LEVEL SECURITY;
-ALTER TABLE fortificados ENABLE ROW LEVEL SECURITY;
+-- Habilitar RLS en tablas relacionales (TODAS, sin excepción)
+ALTER TABLE usuarios       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE tambos         ENABLE ROW LEVEL SECURITY;
+ALTER TABLE ingresos       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE cargas         ENABLE ROW LEVEL SECURITY;
+ALTER TABLE movimientos    ENABLE ROW LEVEL SECURITY;
+ALTER TABLE stock_turnos   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE cip_registros  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE fortificados   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE fort_adiciones ENABLE ROW LEVEL SECURITY;
+ALTER TABLE saldo_silos    ENABLE ROW LEVEL SECURITY;
+ALTER TABLE historial      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE config         ENABLE ROW LEVEL SECURITY;
 
 -- Políticas: solo usuarios autenticados
+DROP POLICY IF EXISTS "acceso_anon_usuarios"    ON usuarios;
+DROP POLICY IF EXISTS "acceso_anon_tambos"      ON tambos;
 DROP POLICY IF EXISTS "acceso_anon_ingresos"    ON ingresos;
 DROP POLICY IF EXISTS "acceso_anon_cargas"      ON cargas;
 DROP POLICY IF EXISTS "acceso_anon_movimientos" ON movimientos;
 DROP POLICY IF EXISTS "acceso_anon_stock"       ON stock_turnos;
 DROP POLICY IF EXISTS "acceso_anon_cip"         ON cip_registros;
 DROP POLICY IF EXISTS "acceso_anon_fort"        ON fortificados;
+DROP POLICY IF EXISTS "acceso_anon_fort_adic"   ON fort_adiciones;
+DROP POLICY IF EXISTS "acceso_anon_saldo"       ON saldo_silos;
+DROP POLICY IF EXISTS "acceso_anon_historial"   ON historial;
+DROP POLICY IF EXISTS "acceso_anon_config"      ON config;
+DROP POLICY IF EXISTS "auth_usuarios"    ON usuarios;
+DROP POLICY IF EXISTS "auth_tambos"      ON tambos;
 DROP POLICY IF EXISTS "auth_ingresos"    ON ingresos;
 DROP POLICY IF EXISTS "auth_cargas"      ON cargas;
 DROP POLICY IF EXISTS "auth_movimientos" ON movimientos;
 DROP POLICY IF EXISTS "auth_stock"       ON stock_turnos;
 DROP POLICY IF EXISTS "auth_cip"         ON cip_registros;
 DROP POLICY IF EXISTS "auth_fort"        ON fortificados;
-CREATE POLICY "auth_ingresos"    ON ingresos    FOR ALL USING (auth.uid() IS NOT NULL) WITH CHECK (auth.uid() IS NOT NULL);
-CREATE POLICY "auth_cargas"      ON cargas      FOR ALL USING (auth.uid() IS NOT NULL) WITH CHECK (auth.uid() IS NOT NULL);
-CREATE POLICY "auth_movimientos" ON movimientos FOR ALL USING (auth.uid() IS NOT NULL) WITH CHECK (auth.uid() IS NOT NULL);
-CREATE POLICY "auth_stock"       ON stock_turnos FOR ALL USING (auth.uid() IS NOT NULL) WITH CHECK (auth.uid() IS NOT NULL);
-CREATE POLICY "auth_cip"         ON cip_registros FOR ALL USING (auth.uid() IS NOT NULL) WITH CHECK (auth.uid() IS NOT NULL);
-CREATE POLICY "auth_fort"        ON fortificados FOR ALL USING (auth.uid() IS NOT NULL) WITH CHECK (auth.uid() IS NOT NULL);
+DROP POLICY IF EXISTS "auth_fort_adic"   ON fort_adiciones;
+DROP POLICY IF EXISTS "auth_saldo"       ON saldo_silos;
+DROP POLICY IF EXISTS "auth_historial"   ON historial;
+DROP POLICY IF EXISTS "auth_config"      ON config;
+CREATE POLICY "auth_usuarios"    ON usuarios       FOR ALL USING (auth.uid() IS NOT NULL) WITH CHECK (auth.uid() IS NOT NULL);
+CREATE POLICY "auth_tambos"      ON tambos         FOR ALL USING (auth.uid() IS NOT NULL) WITH CHECK (auth.uid() IS NOT NULL);
+CREATE POLICY "auth_ingresos"    ON ingresos       FOR ALL USING (auth.uid() IS NOT NULL) WITH CHECK (auth.uid() IS NOT NULL);
+CREATE POLICY "auth_cargas"      ON cargas         FOR ALL USING (auth.uid() IS NOT NULL) WITH CHECK (auth.uid() IS NOT NULL);
+CREATE POLICY "auth_movimientos" ON movimientos    FOR ALL USING (auth.uid() IS NOT NULL) WITH CHECK (auth.uid() IS NOT NULL);
+CREATE POLICY "auth_stock"       ON stock_turnos   FOR ALL USING (auth.uid() IS NOT NULL) WITH CHECK (auth.uid() IS NOT NULL);
+CREATE POLICY "auth_cip"         ON cip_registros  FOR ALL USING (auth.uid() IS NOT NULL) WITH CHECK (auth.uid() IS NOT NULL);
+CREATE POLICY "auth_fort"        ON fortificados   FOR ALL USING (auth.uid() IS NOT NULL) WITH CHECK (auth.uid() IS NOT NULL);
+CREATE POLICY "auth_fort_adic"   ON fort_adiciones FOR ALL USING (auth.uid() IS NOT NULL) WITH CHECK (auth.uid() IS NOT NULL);
+CREATE POLICY "auth_saldo"       ON saldo_silos    FOR ALL USING (auth.uid() IS NOT NULL) WITH CHECK (auth.uid() IS NOT NULL);
+CREATE POLICY "auth_historial"   ON historial      FOR ALL USING (auth.uid() IS NOT NULL) WITH CHECK (auth.uid() IS NOT NULL);
+CREATE POLICY "auth_config"      ON config         FOR ALL USING (auth.uid() IS NOT NULL) WITH CHECK (auth.uid() IS NOT NULL);
 
 -- =============================================================================
 --  VISTAS ÚTILES PARA REPORTES
@@ -459,13 +483,21 @@ CREATE TRIGGER trig_config_updated
 --
 --    SELECT supabase_auth.create_user(
 --      email      := 'admin@yatasto.internal',
---      password   := 'Yatastoficina2026',
+--      password   := '<contraseña-segura-admin>',
 --      user_metadata := '{"rol": "admin"}'::jsonb
 --    );
 --
---  NOTA: Elegir contraseñas fuertes (mínimo 12 caracteres, mayúsculas, números,
---  símbolos). Estas contraseñas reemplazan las que estaban hardcodeadas en el
---  código fuente — ahora se validan server-side vía Supabase Auth.
+--  ⚠ SEGURIDAD CRÍTICA — leer antes de configurar:
+--
+--  - Versiones anteriores de este archivo incluían una contraseña literal para
+--    admin@yatasto.internal. Si fue ejecutada sin reemplazo, ESA CONTRASEÑA
+--    DEBE ROTARSE INMEDIATAMENTE desde el panel Supabase (Authentication →
+--    Users → admin@yatasto.internal → ... → Send password recovery / Reset).
+--  - El password literal no debe quedar en el git history público — considerar
+--    `git filter-repo` o equivalente si el repo es accesible externamente.
+--  - Elegir contraseñas fuertes (mínimo 12 caracteres, mayúsculas, números,
+--    símbolos). Distintas por usuario. NUNCA reusar.
+--  - Las contraseñas se validan server-side vía Supabase Auth (PBKDF2/bcrypt).
 --
 --  NOTA: Los emails son internos y no se usan para notificaciones. El usuario
 --  de la app sigue ingresando solo "Supervisor" o "Jefe" como nombre de usuario.
