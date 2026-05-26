@@ -15,6 +15,7 @@ export {
   // ── Perfiles ─────────────────────────────────────────────────
   UserCog   as Supervisor,
   Crown     as Jefe,
+  HardHat   as Operador,
   Briefcase as Admin,
 
   // ── Header / acciones globales ────────────────────────────────

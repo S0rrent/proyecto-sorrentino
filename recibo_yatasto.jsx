@@ -7,7 +7,7 @@ import { track, initTelemetry } from "./telemetry.js";
 import {
   Ingresos as IcoIngresos, Movimientos as IcoMovimientos, Carga as IcoCarga,
   Fortificados as IcoFortificados, CIP as IcoCIP, Stock as IcoStock, Produccion as IcoProduccion,
-  Supervisor as IcoSupervisor, Jefe as IcoJefe, Admin as IcoAdmin,
+  Supervisor as IcoSupervisor, Jefe as IcoJefe, Operador as IcoOperador, Admin as IcoAdmin,
   ThemeLight, ThemeDark, DatePicker as IcoDate, Informe as IcoInforme, Offline as IcoOffline,
   Destino as IcoDestino, Concentrado as IcoConcentrado, Calidad as IcoCalidad,
   Temperatura as IcoTemp, Buscar as IcoBuscar, Instalacion as IcoInstalacion,
@@ -63,7 +63,7 @@ const FORT_DESTINOS = ["Tetra", "Ultra", "Yogur", "Postre", "Acción Correctiva"
 const PERFILES = {
   supervisor:   { usuario: "Supervisor",    email: "supervisor@yatasto.internal", label: "Supervisor",       Icon: IcoSupervisor },
   jefe:         { usuario: "Jefe",          email: "jefe@yatasto.internal",       label: "Jefe de Planta",   Icon: IcoJefe },
-  admin:        { usuario: "Administracion",email: "admin@yatasto.internal",      label: "Administración",   Icon: IcoAdmin },
+  operador:     { usuario: "Operador",      email: "operador@yatasto.app",        label: "Operador",         Icon: IcoOperador },
 };
 const SILOS = ["100 NUEVO", "100 VIEJO", "80", "60", "42", "40F", "20", "15"];
 const SILOS_TODOS = [...SILOS, "TQ1", "TQ2", "TQ3", "TQ5", "TQ6", "TQ7", "TQ8", "TQ9", "POSTRE", "TINA", "DULCE"];
@@ -7155,7 +7155,7 @@ const SecAdmin = ({ date, syncKey, perfil }) => {
         borderBottom: `1px solid ${C.border}`, paddingBottom: 2, marginBottom: 18,
         scrollbarWidth: "none",
       }}>
-        {ADMIN_TABS.filter(([id]) => !(id === "saldo" && perfil === "admin")).map(([id, Icon, label]) => (
+        {ADMIN_TABS.map(([id, Icon, label]) => (
           <button key={id} type="button" onClick={() => setTab(id)} style={tabBtn(tab === id)}>
             <Icon size={13} strokeWidth={SW} />
             {label}
@@ -7567,7 +7567,7 @@ ${cargas.map(r=>`<tr><td>${r._date}</td><td>${r.hora||""}</td><td>${escapeHtml(r
       })()}
 
       {/* ── SALDO INICIAL ── (solo supervisor/jefe) */}
-      {tab === "saldo" && perfil !== "admin" && <SaldoInicialPanel perfil={perfil} />}
+      {tab === "saldo" && <SaldoInicialPanel perfil={perfil} />}
 
     </div>
   );
@@ -7940,9 +7940,11 @@ export default function App() {
     ? [
         ...NAV,
         ...((perfil === "supervisor" || perfil === "jefe")
-          ? [{ id: "produccion", label: "Prod.", Icon: IcoProduccion }]
+          ? [
+              { id: "produccion", label: "Prod.", Icon: IcoProduccion },
+              { id: "supervisor", label: "Superv.", Icon: PERFILES[perfil]?.Icon || IcoSupervisor },
+            ]
           : []),
-        { id: "supervisor", label: perfil === "admin" ? "Admin" : "Superv.", Icon: PERFILES[perfil]?.Icon || IcoSupervisor },
       ]
     : NAV;
 
@@ -8644,8 +8646,8 @@ export default function App() {
             )}
           </button>
 
-          {/* Botón cerrar/reabrir día — solo supervisor y jefe, no admin */}
-          {perfil && perfil !== "admin" && (
+          {/* Botón cerrar/reabrir día — solo supervisor y jefe (operador no puede) */}
+          {(perfil === "supervisor" || perfil === "jefe") && (
             <button type="button"
               onClick={dayClosed ? (perfil === "jefe" ? handleReabrirDia : undefined) : handleCerrarDia}
               title={dayClosed ? (perfil === "jefe" ? "Reabrir día" : `Día cerrado por ${dayClosedBy}`) : "Cerrar día"}
@@ -8748,16 +8750,15 @@ export default function App() {
         )}
         <div style={{ maxWidth: isDesktop ? 960 : "100%", margin: isDesktop ? "0 auto" : undefined }}>
         {/* Gate: ninguna sección renderiza sin sesión válida — el login modal queda forzado en primer plano */}
-        {perfil && section === "ingresos" && <SecIngresos date={date} syncKey={syncKey} dayClosed={dayClosed || perfil === "admin"} perfil={perfil} />}
-        {perfil && section === "cip" && <SecCIP date={date} syncKey={syncKey} readOnly={perfil === "admin"} />}
-        {perfil && section === "carga" && <SecCarga date={date} syncKey={syncKey} dayClosed={dayClosed || perfil === "admin"} perfil={perfil} />}
-        {perfil && section === "movimientos" && <SecMovimientos date={date} syncKey={syncKey} dayClosed={dayClosed || perfil === "admin"} perfil={perfil} />}
-        {perfil && section === "stock" && <SecStock date={date} syncKey={syncKey} readOnly={perfil === "admin"} perfil={perfil} />}
-        {perfil && section === "fortificados" && <SecFortificados date={date} syncKey={syncKey} dayClosed={dayClosed || perfil === "admin"} perfil={perfil} />}
+        {perfil && section === "ingresos" && <SecIngresos date={date} syncKey={syncKey} dayClosed={dayClosed} perfil={perfil} />}
+        {perfil && section === "cip" && <SecCIP date={date} syncKey={syncKey} />}
+        {perfil && section === "carga" && <SecCarga date={date} syncKey={syncKey} dayClosed={dayClosed} perfil={perfil} />}
+        {perfil && section === "movimientos" && <SecMovimientos date={date} syncKey={syncKey} dayClosed={dayClosed} perfil={perfil} />}
+        {perfil && section === "stock" && <SecStock date={date} syncKey={syncKey} perfil={perfil} />}
+        {perfil && section === "fortificados" && <SecFortificados date={date} syncKey={syncKey} dayClosed={dayClosed} perfil={perfil} />}
         {perfil && section === "produccion" && (perfil === "supervisor" || perfil === "jefe") && <SecProduccion date={date} syncKey={syncKey} dayClosed={dayClosed} perfil={perfil} />}
         {perfil && section === "supervisor" && perfil === "supervisor" && <SecDashboard date={date} perfil={perfil} perfilLabel={PERFILES[perfil]?.label || ""} syncKey={syncKey} />}
         {perfil && section === "supervisor" && perfil === "jefe" && <SecJefeHub date={date} perfil={perfil} perfilLabel={PERFILES[perfil]?.label || ""} syncKey={syncKey} />}
-        {perfil && section === "supervisor" && perfil === "admin" && <SecAdmin date={date} syncKey={syncKey} perfil={perfil} />}
         </div>
       </div>
 

@@ -482,19 +482,23 @@ CREATE TRIGGER trig_config_updated
 --    );
 --
 --    SELECT supabase_auth.create_user(
---      email      := 'admin@yatasto.internal',
---      password   := '<contraseña-segura-admin>',
---      user_metadata := '{"rol": "admin"}'::jsonb
+--      email      := 'operador@yatasto.app',
+--      password   := '<contraseña-segura-operador>',
+--      user_metadata := '{"rol": "operador"}'::jsonb
 --    );
 --
---  ⚠ SEGURIDAD CRÍTICA — leer antes de configurar:
+--  Roles válidos: supervisor | jefe | operador.
+--  El rol 'admin' fue retirado — el usuario admin@yatasto.internal asociado
+--  ya no existe en Supabase Auth. Cualquier sesión cacheada con ese email
+--  resolverá a perfil=null y forzará re-login.
 --
---  - Versiones anteriores de este archivo incluían una contraseña literal para
---    admin@yatasto.internal. Si fue ejecutada sin reemplazo, ESA CONTRASEÑA
---    DEBE ROTARSE INMEDIATAMENTE desde el panel Supabase (Authentication →
---    Users → admin@yatasto.internal → ... → Send password recovery / Reset).
---  - El password literal no debe quedar en el git history público — considerar
---    `git filter-repo` o equivalente si el repo es accesible externamente.
+--  ⚠ SEGURIDAD — buenas prácticas al crear usuarios:
+--
+--  - Versiones anteriores de este archivo incluían una contraseña literal
+--    para admin@yatasto.internal. Ese usuario ya fue eliminado del panel
+--    Supabase, por lo que la rotación de esa contraseña ya no aplica.
+--    Si el repo es público, considerar limpiar el git history igual
+--    (`git filter-repo` o equivalente) para no dejar la cadena visible.
 --  - Elegir contraseñas fuertes (mínimo 12 caracteres, mayúsculas, números,
 --    símbolos). Distintas por usuario. NUNCA reusar.
 --  - Las contraseñas se validan server-side vía Supabase Auth (PBKDF2/bcrypt).
