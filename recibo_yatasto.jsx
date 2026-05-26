@@ -2145,14 +2145,15 @@ const CargaForm = ({ initial, onSave, onClose, onDelete }) => {
         </div>
       )}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-        <button type="button" style={btnSecondary} onClick={onClose}>Cancelar</button>
+        <button type="button" style={btnSecondary} onClick={() => { track("form_cancel", null, "carga"); onClose(); }}>Cancelar</button>
         <button type="button" style={btnPrimary} onClick={() => {
           const req = [["destino", "Destino"], ["siloProveniente", "Silo Proveniente"], ["limpCisterna", "Limpieza Cisterna"],
           ["litros", "Litros"], ["hora", "Hora"], ["responsable", "Responsable"],
           ["T", "T"], ["gC", "°C"], ["pH", "pH"], ["A", "A"], ["gD", "°D"]];
           const miss = req.filter(([k]) => !String(f[k] || "").trim()).map(([, v]) => v);
-          if (miss.length) { setFieldError("Faltan completar:\n• " + miss.join("\n• ")); return; }
+          if (miss.length) { setFieldError("Faltan completar:\n• " + miss.join("\n• ")); track("save_fail", miss[0], "carga"); return; }
           setFieldError("");
+          track("save_ok", null, "carga");
           onSave(f);
         }}>Guardar</button>
       </div>
@@ -2288,12 +2289,13 @@ const MovForm = ({ initial, onSave, onClose, onDelete }) => {
         </div>
       )}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-        <button type="button" style={btnSecondary} onClick={onClose}>Cancelar</button>
+        <button type="button" style={btnSecondary} onClick={() => { track("form_cancel", null, "movimientos"); onClose(); }}>Cancelar</button>
         <button type="button" style={btnPrimary} onClick={() => {
           const req = [["litros", "Litros"], ["desde", "Desde"], ["hasta", "Hasta"], ["motivo", "Motivo"], ["resp", "Responsable"]];
           const miss = req.filter(([k]) => !String(f[k] || "").trim()).map(([, v]) => v);
-          if (miss.length) { setFieldError("Faltan completar:\n• " + miss.join("\n• ")); return; }
+          if (miss.length) { setFieldError("Faltan completar:\n• " + miss.join("\n• ")); track("save_fail", miss[0], "movimientos"); return; }
           setFieldError("");
+          track("save_ok", null, "movimientos");
           onSave(f);
         }}>Guardar</button>
       </div>
@@ -2324,12 +2326,13 @@ const CtrlForm = ({ initial, onSave, onClose, onDelete }) => {
         </div>
       )}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-        <button type="button" style={btnSecondary} onClick={onClose}>Cancelar</button>
+        <button type="button" style={btnSecondary} onClick={() => { track("form_cancel", null, "ctrl_calidad"); onClose(); }}>Cancelar</button>
         <button type="button" style={btnPrimary} onClick={() => {
           const req = [["silo", "Silo"], ["ph", "pH"], ["gD", "°D"], ["gC", "°C"], ["alc", "Alc."], ["mg", "MG"], ["sng", "SNG"], ["dens", "Densidad"], ["fp", "FP"], ["prot", "Proteína"], ["resp", "Responsable"]];
           const miss = req.filter(([k]) => !String(f[k] || "").trim()).map(([, v]) => v);
-          if (miss.length) { setFieldError("Faltan completar:\n• " + miss.join("\n• ")); return; }
+          if (miss.length) { setFieldError("Faltan completar:\n• " + miss.join("\n• ")); track("save_fail", miss[0], "ctrl_calidad"); return; }
           setFieldError("");
+          track("save_ok", null, "ctrl_calidad");
           onSave(f);
         }}>Guardar</button>
       </div>
@@ -3759,14 +3762,15 @@ const FortForm = ({ initial, onSave, onClose, onDelete }) => {
         </div>
       )}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-        <button type="button" style={btnSecondary} onClick={onClose}>Cancelar</button>
+        <button type="button" style={btnSecondary} onClick={() => { track("form_cancel", null, "fortificados"); onClose(); }}>Cancelar</button>
         <button type="button" style={btnPrimary} onClick={() => {
           const req = [["siloOrigen", "Silo Origen"], ["litrosBase", "Litros base"], ["siloDestino", "Silo Destino"], ["responsable", "Responsable"]];
           const miss = req.filter(([k]) => !String(f[k] || "").trim()).map(([, v]) => v);
           const sinCant = f.adiciones.filter(a => !String(a.cantidad || "").trim()).map(a => a.producto || "Adición");
           const all = [...miss, ...sinCant.map(p => `Cantidad de ${p}`)];
-          if (all.length) { setFieldError("Faltan completar:\n• " + all.join("\n• ")); return; }
+          if (all.length) { setFieldError("Faltan completar:\n• " + all.join("\n• ")); track("save_fail", all[0], "fortificados"); return; }
           setFieldError("");
+          track("save_ok", null, "fortificados");
           onSave(f);
         }}>Guardar</button>
       </div>
