@@ -1,8 +1,9 @@
-import { useState, useEffect, Fragment } from "react";
+import { useState, useEffect, useRef, Fragment } from "react";
 import { useRegisterSW } from "virtual:pwa-register/react";
 import { DARK, LIGHT, FONT_SANS, FONT_MONO, EASE_OUT, DUR } from "./tokens.js";
 import { useViewport } from "./hooks.js";
 import { db, onWriteQueueChange, onSessionExpired, clearSessionExpired } from "./db-adapter.js";
+import { track, initTelemetry } from "./telemetry.js";
 import {
   Ingresos as IcoIngresos, Movimientos as IcoMovimientos, Carga as IcoCarga,
   Fortificados as IcoFortificados, CIP as IcoCIP, Stock as IcoStock, Produccion as IcoProduccion,
@@ -1059,6 +1060,47 @@ const FAB = ({ onClick }) => (
     touchAction: "manipulation", WebkitTapHighlightColor: "transparent",
   }}>+</button>
 );
+// Banner inline — reemplazo de window.alert() para validaciones de formulario.
+// Sticky=true lo mantiene visible al hacer scroll dentro de un Modal largo.
+// Uso: const [banner, setBanner] = useState(null);
+//      setBanner({ kind: "error", message: "..." }); para mostrar
+//      setBanner(null); para limpiar
+const Banner = ({ kind = "error", message, onClose, sticky = false }) => {
+  const palette = {
+    error:   { bg: C.danger,  fg: "#fff",  icon: "⚠" },
+    warning: { bg: C.accent,  fg: "#000",  icon: "!" },
+    info:    { bg: C.surface, fg: C.text,  icon: "i", border: C.border },
+  };
+  const c = palette[kind] || palette.error;
+  return (
+    <div role="alert" aria-live="polite" style={{
+      background: c.bg,
+      border: `1px solid ${c.border || c.bg}`,
+      color: c.fg,
+      padding: "12px 14px", borderRadius: 8, marginBottom: 14,
+      display: "flex", alignItems: "flex-start", gap: 10,
+      fontSize: 14, lineHeight: 1.45,
+      ...(sticky ? { position: "sticky", top: 0, zIndex: 10, boxShadow: "0 2px 8px rgba(0,0,0,0.25)" } : {}),
+    }}>
+      <span aria-hidden="true" style={{ fontSize: 18, fontWeight: 700, flexShrink: 0, marginTop: -1, lineHeight: 1 }}>{c.icon}</span>
+      <span style={{ flex: 1, whiteSpace: "pre-wrap", fontWeight: 500 }}>{message}</span>
+      {onClose && (
+        <button type="button" onClick={onClose} aria-label="Cerrar aviso" style={{
+          background: "rgba(255,255,255,0.18)", border: "none",
+          color: c.fg, cursor: "pointer", fontSize: 18, lineHeight: 1,
+          padding: 0, flexShrink: 0,
+          touchAction: "manipulation", WebkitTapHighlightColor: "transparent",
+          width: 32, height: 32, borderRadius: 6,
+          display: "flex", alignItems: "center", justifyContent: "center",
+        }}>×</button>
+      )}
+    </div>
+  );
+};
+// Tracks how many Modal instances are currently mounted — used by the back-button hook
+// below so only the outermost modal pushes a history entry. Nested modals skip pushState
+// to prevent a cascade where closing a phantom entry fires the parent modal's popstate handler.
+let _modalDepth = 0;
 const Modal = ({ title, onClose, children, zIndex = 100 }) => {
   const isDesktop = typeof window !== "undefined" && window.innerWidth >= 1024;
   // Body scroll lock — evita que el contenido detrás scrollee mientras hay un modal abierto.
@@ -1083,16 +1125,35 @@ const Modal = ({ title, onClose, children, zIndex = 100 }) => {
       }
     };
   }, []);
+  // Back button (Android / browser): only the outermost open Modal pushes a history entry.
+  // Pressing back closes that modal; pressing back again reaches the previous page / exits the app.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const isRoot = _modalDepth === 0;
+    _modalDepth++;
+    if (!isRoot) return () => { _modalDepth--; };
+    window.history.pushState({ yatasto: "modal" }, "");
+    let poppedByBack = false;
+    const handlePop = () => { poppedByBack = true; onClose(); };
+    window.addEventListener("popstate", handlePop);
+    return () => {
+      _modalDepth--;
+      window.removeEventListener("popstate", handlePop);
+      // Modal closed normally (not via back) — remove the phantom history entry.
+      // Listener is already detached, so the resulting popstate won't re-trigger onClose.
+      if (!poppedByBack) window.history.back();
+    };
+  }, []); // onClose is captured at mount; all callers in this app pass stable lambdas
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)", zIndex, display: "flex", alignItems: isDesktop ? "center" : "flex-end", justifyContent: "center" }}>
       <div style={{
         background: C.bg, padding: 20, overflowY: "auto",
         border: `1px solid ${C.border}`,
         ...(isDesktop ? {
-          borderRadius: 16, width: "min(580px, 90vw)", maxHeight: "85vh",
+          borderRadius: 16, width: "min(580px, 90vw)", maxHeight: "85dvh",
           boxShadow: "0 24px 48px rgba(0,0,0,0.45)",
         } : {
-          borderRadius: "20px 20px 0 0", width: "100%", maxHeight: "93vh", borderBottom: "none",
+          borderRadius: "20px 20px 0 0", width: "100%", maxHeight: "93dvh", borderBottom: "none",
         }),
       }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
@@ -1209,12 +1270,90 @@ const QUALITY_WARN_MAP = [
   { key: "densFca",   label: "Densidad",    ref: QUALITY_REFS["Densidad"]    },
 ];
 
+// Section colapsable para formularios largos en mobile.
+// - legacy=true → render compat con el panel viejo (no colapsable, sin header tappable). flat=true en legacy renderiza children inline (sin wrapper).
+// - legacy=false → header tappable de 56px con título, contador filled/total y chevron. aria-expanded para accesibilidad.
+// - hasError=true → header con bg rojo suave y contador rojo, para guiar la recuperación de error al panel correcto.
+// Definido fuera de IngresoForm para no recrearse en cada render (eso rompería el focus de inputs).
+const Section = ({ id, title, open, onToggle, total, filled, headerRef, legacy = false, flat = false, hasError = false, children }) => {
+  if (legacy) {
+    return flat
+      ? <>{children}</>
+      : <div style={panel}><div style={secTitle}>{title}</div>{children}</div>;
+  }
+  const countColor = hasError ? C.danger : (total > 0 && filled === total ? C.accent : C.sub);
+  const headerBg   = hasError ? `${C.danger}15` : "transparent";
+  return (
+    <div style={{ ...panel, padding: 0, overflow: "hidden", marginBottom: 12 }}>
+      <button
+        type="button"
+        ref={headerRef}
+        onClick={onToggle}
+        aria-expanded={open}
+        aria-controls={`section-${id}-body`}
+        style={{
+          width: "100%", padding: "12px 14px", minHeight: 56,
+          background: headerBg, border: "none", cursor: "pointer",
+          display: "flex", alignItems: "center", gap: 12,
+          textAlign: "left", color: C.text,
+          touchAction: "manipulation", WebkitTapHighlightColor: "transparent",
+          transition: "background-color 0.18s",
+        }}
+      >
+        <span style={{ ...secTitle, marginBottom: 0, flex: 1 }}>{title}</span>
+        {total > 0 && (
+          <span aria-label={`${filled} de ${total} requeridos`} style={{
+            fontSize: 12, fontWeight: 700, fontVariantNumeric: "tabular-nums",
+            color: countColor, fontFamily: FONT_MONO,
+            padding: "2px 8px", borderRadius: 999,
+            background: hasError ? `${C.danger}22` : (filled === total ? `${C.accent}18` : `${C.sub}15`),
+          }}>{filled}/{total}</span>
+        )}
+        <span aria-hidden style={{
+          color: C.sub, fontSize: 14,
+          transform: open ? "rotate(180deg)" : "rotate(0deg)",
+          transition: "transform 0.18s", display: "inline-block",
+        }}>▾</span>
+      </button>
+      {open && (
+        <div id={`section-${id}-body`} style={{ padding: "0 14px 14px 14px" }}>
+          {children}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo, siloStates = { totals: {}, productosBase: {} }, perfil = null }) => {
   const [f, setF] = useState(initial || emptyIng());
   const [aguadoAlerta, setAguadoAlerta] = useState(false);
   const [cipForzado, setCipForzado] = useState(false);
+  const overrideSavingRef = useRef(false); // double-tap guard for CIP/aguado override buttons
+  const savingRef = useRef(false); // double-tap guard for main Guardar button
   const [fieldError, setFieldError] = useState("");
-  const set = k => v => { setFieldError(""); setF(p => ({ ...p, [k]: v })); };
+  // PR3: estado y refs para form colapsable (sólo se usan cuando UX_V2 = true).
+  // En edit mode todos los paneles arrancan abiertos para revisión rápida.
+  const isEditMode = !!onDelete;
+  const [panelsOpen, setPanelsOpen] = useState({
+    identif: true,
+    destino: isEditMode,
+    calidad: isEditMode,
+  });
+  const [firstMissingPanel, setFirstMissingPanel] = useState(null);
+  const panelRefs = {
+    identif: useRef(null),
+    destino: useRef(null),
+    calidad: useRef(null),
+  };
+  // Ensures inner modals (cipForzado, aguadoAlerta) are dismissed before the form closes,
+  // regardless of which path triggers the close (Cancelar button, back button, parent × button).
+  const handleClose = () => { setCipForzado(false); setAguadoAlerta(false); onClose(); };
+  const togglePanel = k => setPanelsOpen(p => {
+    const next = !p[k];
+    track(next ? "panel_open" : "panel_close", k, "ingreso");
+    return { ...p, [k]: next };
+  });
+  const set = k => v => { setFieldError(""); setFirstMissingPanel(null); setF(p => ({ ...p, [k]: v })); };
   const pickTambo = nombre => {
     const t = tambos.find(t => t.nombre === nombre);
     setF(p => ({ ...p, tambo: nombre, num: t ? String(t.num) : p.num }));
@@ -1251,8 +1390,35 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo,
     return !isNaN(v) && (v < ref.min || v > ref.max);
   }).map(({ label, ref, key }) => `${label}: ${f[key]}  (ref ${ref.min}–${ref.max})`);
 
-  return (
-    <div>
+  // PR3: grupos requeridos por panel. El orden de allRequired se preserva igual al req legacy
+  // para que el mensaje "Faltan: X, Y, Z" no cambie de orden vs la versión anterior.
+  // Validación, persistencia y onSave permanecen sin cambios.
+  const identifRequired = isConcentrado
+    ? [["tambo", "Tambo"]]
+    : [["tambo", "Tambo"], ["producto", "Producto"]];
+  const destinoRequired = isConcentrado
+    ? [["litrosFca", "Litros"], ["destino", "Destino"]]
+    : [["litrosFca", "Litros Fábrica"], ["destino", "Destino"]];
+  const calidadRequired = isConcentrado
+    ? [["acidezFca", "Acidez"], ["phFca", "pH"]]
+    : [["acidezFca", "Acidez Fca."], ["phFca", "pH Fca."],
+       ["gbFca", "GB Fca."], ["sngFca", "SNG Fca."], ["densFca", "Densidad Fca."],
+       ["protFca", "Proteína Fca."], ["atm", "ATB"]];
+  // Reconstruye req en el mismo orden que la versión legacy para que el mensaje "Faltan: ..." sea idéntico.
+  const allRequired = isConcentrado
+    ? [["tambo", "Tambo"], ["litrosFca", "Litros"], ["destino", "Destino"], ["acidezFca", "Acidez"], ["phFca", "pH"]]
+    : [["tambo", "Tambo"], ["litrosFca", "Litros Fábrica"], ["destino", "Destino"], ["producto", "Producto"],
+       ["acidezFca", "Acidez Fca."], ["phFca", "pH Fca."],
+       ["gbFca", "GB Fca."], ["sngFca", "SNG Fca."], ["densFca", "Densidad Fca."], ["protFca", "Proteína Fca."], ["atm", "ATB"]];
+  const countFilled = (fields) => fields.filter(([k]) => String(f[k] || "").trim()).length;
+  const panelOf = (key) => {
+    if (identifRequired.some(([k]) => k === key)) return "identif";
+    if (destinoRequired.some(([k]) => k === key)) return "destino";
+    return "calidad";
+  };
+
+  const identifContent = (
+    <>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
         <F label="Hora"><input style={inp} type="time" value={f.hora} onChange={e => set("hora")(e.target.value)} /></F>
         <F label="N° Tambo"><Inp value={f.num} onChange={set("num")} placeholder="Nº" /></F>
@@ -1294,6 +1460,138 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo,
       <F label="Producto">
         <Sel value={f.producto || ""} onChange={set("producto")} options={PRODUCTOS} placeholder="Seleccionar producto..." />
       </F>
+    </>
+  );
+
+  const destinoContent = isConcentrado ? (
+    <>
+      <F label="Destino — Silo"><Sel value={f.destino} onChange={set("destino")} options={SILOS} placeholder="Seleccionar silo..." /></F>
+      <F label="Litros"><Inp type="number" value={f.litrosFca} onChange={set("litrosFca")} placeholder="0" /></F>
+      <F label="Temperatura llegada (°C)">
+        <SmartDecInp value={f.tC} onChange={set("tC")} decimalAfter={1} placeholder="°C" />
+        <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>Ref: 3 – 8 °C</div>
+      </F>
+    </>
+  ) : (
+    <>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        <F label="Litros Fábrica"><Inp type="number" value={f.litrosFca} onChange={set("litrosFca")} placeholder="0" /></F>
+        <F label="Litros Tambo"><Inp type="number" value={f.litrosTbo} onChange={set("litrosTbo")} placeholder="0" /></F>
+      </div>
+      <F label="Destino — Silo"><Sel value={f.destino} onChange={set("destino")} options={SILOS} placeholder="Seleccionar silo..." /></F>
+      <F label="Temperatura llegada (°C)">
+        <SmartDecInp value={f.tC} onChange={set("tC")} decimalAfter={1} placeholder="°C" />
+        <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>Ref: 3 – 8 °C</div>
+      </F>
+    </>
+  );
+
+  const subTitleStyle = {
+    fontSize: 11, fontWeight: 700, color: C.sub, textTransform: "uppercase",
+    letterSpacing: "0.06em", marginTop: 4, marginBottom: 10,
+  };
+
+  const calidadContent = isConcentrado ? (
+    <>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        <F label="Acidez">
+          <SmartDecInp value={f.acidezFca} onChange={set("acidezFca")} decimalAfter={2} />
+          <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>Ref: 14 – 18 °D</div>
+        </F>
+        <F label="pH">
+          <SmartDecInp value={f.phFca} onChange={set("phFca")} decimalAfter={1} />
+          <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>Ref: 6.6 – 6.8</div>
+        </F>
+      </div>
+      <F label="°BRIX"><SmartDecInp value={f.brix || ""} onChange={set("brix")} decimalAfter={2} placeholder="°Brix" /></F>
+      <F label="Organoléptico">
+        <Sel value={f.organoleptico || ""} onChange={set("organoleptico")} options={["Sí", "No"]} placeholder="¿Conforme?" />
+      </F>
+    </>
+  ) : (
+    <>
+      {UX_V2 && <div style={subTitleStyle}>Parámetros básicos</div>}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        <F label="Acidez Fca.">
+          <SmartDecInp value={f.acidezFca} onChange={set("acidezFca")} decimalAfter={2} />
+          <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>Ref: 14 – 18 °D</div>
+        </F>
+        <F label="pH Fca.">
+          <SmartDecInp value={f.phFca} onChange={set("phFca")} decimalAfter={1} />
+          <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>Ref: 6.6 – 6.8</div>
+        </F>
+      </div>
+      <Pair label="Prueba Alcohol" v1={f.alcFca} v2={f.alcTbo} on1={set("alcFca")} on2={set("alcTbo")} />
+      <div style={{ ...subTitleStyle, marginTop: 14 }}>Composición</div>
+      <Pair label="Grasa Butirosa (GB)" v1={f.gbFca} v2={f.gbTbo} on1={set("gbFca")} on2={set("gbTbo")} />
+      <div style={{ fontSize: 11, color: C.sub, marginTop: -8, marginBottom: 12 }}>Ref: 3.0 – 4.0 %</div>
+      <Pair label="Sólidos No Grasos (SNG)" v1={f.sngFca} v2={f.sngTbo} on1={set("sngFca")} on2={set("sngTbo")} />
+      <div style={{ fontSize: 11, color: C.sub, marginTop: -8, marginBottom: 12 }}>Ref: 8.0 – 8.7 %</div>
+      <DensityPair v1={f.densFca} v2={f.densTbo} on1={set("densFca")} on2={set("densTbo")} />
+      <Pair label="Aguado" v1={f.aguadoFca} v2={f.aguadoTbo} on1={set("aguadoFca")} on2={set("aguadoTbo")} />
+      <div style={{ fontSize: 11, color: C.danger, marginTop: -8, marginBottom: 12 }}>Debe ser exactamente 0 — indica adulteración</div>
+      <Pair label="Descenso Crioscópico" v1={f.dcFca} v2={f.dcTbo} on1={set("dcFca")} on2={set("dcTbo")} />
+      <Pair label="Proteína" v1={f.protFca} v2={f.protTbo} on1={set("protFca")} on2={set("protTbo")} />
+      <div style={{ fontSize: 11, color: C.sub, marginTop: -8, marginBottom: 12 }}>Ref: 2.9 – 3.5 %</div>
+      <F label="ATB"><Sel value={f.atm || ""} onChange={set("atm")} options={["-", "+"]} placeholder="ATB..." /></F>
+    </>
+  );
+
+  const onClickGuardar = () => {
+    const miss = allRequired.filter(([k]) => !String(f[k] || "").trim());
+    if (miss.length) {
+      setFieldError("Faltan completar:\n• " + miss.map(([, v]) => v).join("\n• "));
+      const firstKey = miss[0][0];
+      const target = panelOf(firstKey);
+      setFirstMissingPanel(target);
+      track("save_fail", firstKey, "ingreso");
+      if (UX_V2) {
+        setPanelsOpen(p => ({ ...p, [target]: true }));
+        setTimeout(() => {
+          panelRefs[target].current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }, 60);
+      }
+      return;
+    }
+    if (siloSucioLevel === "bloqueado") {
+      if (!canForce) {
+        setFieldError("El silo " + f.destino + " está pendiente de CIP. Solo el supervisor puede autorizar este ingreso.");
+        track("save_fail", "silo_sucio_blocked", "ingreso");
+        return;
+      }
+      track("save_fail", "silo_sucio_force", "ingreso");
+      setCipForzado(true);
+      return;
+    }
+    const aguFca = parseFloat(f.aguadoFca);
+    const aguTbo = parseFloat(f.aguadoTbo);
+    if ((!isNaN(aguFca) && aguFca > 0) || (!isNaN(aguTbo) && aguTbo > 0)) {
+      track("save_fail", "aguado", "ingreso");
+      setAguadoAlerta(true);
+      return;
+    }
+    setFieldError("");
+    setFirstMissingPanel(null);
+    track("save_ok", null, "ingreso");
+    onSave(f);
+  };
+
+  return (
+    <div>
+      <Section
+        id="identif"
+        title="1. Identificación"
+        legacy={!UX_V2}
+        flat
+        open={panelsOpen.identif}
+        onToggle={() => togglePanel("identif")}
+        total={identifRequired.length}
+        filled={countFilled(identifRequired)}
+        headerRef={panelRefs.identif}
+        hasError={firstMissingPanel === "identif"}
+      >
+        {identifContent}
+      </Section>
 
       {/* Badge que distingue el formulario */}
       {isConcentrado && (
@@ -1306,81 +1604,33 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo,
         </div>
       )}
 
-      {/* ── Formulario CONCENTRADOS (Lactosa / Suero / Concentrado) ── */}
-      {isConcentrado ? (
-        <>
-          <div style={panel}>
-            <div style={secTitle}>Destino & Litros</div>
-            <F label="Destino — Silo"><Sel value={f.destino} onChange={set("destino")} options={SILOS} placeholder="Seleccionar silo..." /></F>
-            <F label="Litros"><Inp type="number" value={f.litrosFca} onChange={set("litrosFca")} placeholder="0" /></F>
-            <F label="Temperatura llegada (°C)">
-              <SmartDecInp value={f.tC} onChange={set("tC")} decimalAfter={1} placeholder="°C" />
-              <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>Ref: 3 – 8 °C</div>
-            </F>
-          </div>
-          <div style={panel}>
-            <div style={secTitle}>Parámetros</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-              <F label="Acidez">
-                <SmartDecInp value={f.acidezFca} onChange={set("acidezFca")} decimalAfter={2} />
-                <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>Ref: 14 – 18 °D</div>
-              </F>
-              <F label="pH">
-                <SmartDecInp value={f.phFca} onChange={set("phFca")} decimalAfter={1} />
-                <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>Ref: 6.6 – 6.8</div>
-              </F>
-            </div>
-            <F label="°BRIX"><SmartDecInp value={f.brix || ""} onChange={set("brix")} decimalAfter={2} placeholder="°Brix" /></F>
-            <F label="Organoléptico">
-              <Sel value={f.organoleptico || ""} onChange={set("organoleptico")} options={["Sí", "No"]} placeholder="¿Conforme?" />
-            </F>
-          </div>
-        </>
-      ) : (
-        /* ── Formulario LECHE NORMAL ── */
-        <>
-          <div style={panel}>
-            <div style={secTitle}>Litros & Destino</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-              <F label="Litros Fábrica"><Inp type="number" value={f.litrosFca} onChange={set("litrosFca")} placeholder="0" /></F>
-              <F label="Litros Tambo"><Inp type="number" value={f.litrosTbo} onChange={set("litrosTbo")} placeholder="0" /></F>
-            </div>
-            <F label="Destino — Silo"><Sel value={f.destino} onChange={set("destino")} options={SILOS} placeholder="Seleccionar silo..." /></F>
-            <F label="Temperatura llegada (°C)">
-              <SmartDecInp value={f.tC} onChange={set("tC")} decimalAfter={1} placeholder="°C" />
-              <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>Ref: 3 – 8 °C</div>
-            </F>
-          </div>
-          <div style={panel}>
-            <div style={secTitle}>Parámetros básicos</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-              <F label="Acidez Fca.">
-                <SmartDecInp value={f.acidezFca} onChange={set("acidezFca")} decimalAfter={2} />
-                <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>Ref: 14 – 18 °D</div>
-              </F>
-              <F label="pH Fca.">
-                <SmartDecInp value={f.phFca} onChange={set("phFca")} decimalAfter={1} />
-                <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>Ref: 6.6 – 6.8</div>
-              </F>
-            </div>
-            <Pair label="Prueba Alcohol" v1={f.alcFca} v2={f.alcTbo} on1={set("alcFca")} on2={set("alcTbo")} />
-          </div>
-          <div style={panel}>
-            <div style={secTitle}>Composición</div>
-            <Pair label="Grasa Butirosa (GB)" v1={f.gbFca} v2={f.gbTbo} on1={set("gbFca")} on2={set("gbTbo")} />
-            <div style={{ fontSize: 11, color: C.sub, marginTop: -8, marginBottom: 12 }}>Ref: 3.0 – 4.0 %</div>
-            <Pair label="Sólidos No Grasos (SNG)" v1={f.sngFca} v2={f.sngTbo} on1={set("sngFca")} on2={set("sngTbo")} />
-            <div style={{ fontSize: 11, color: C.sub, marginTop: -8, marginBottom: 12 }}>Ref: 8.0 – 8.7 %</div>
-            <DensityPair v1={f.densFca} v2={f.densTbo} on1={set("densFca")} on2={set("densTbo")} />
-            <Pair label="Aguado" v1={f.aguadoFca} v2={f.aguadoTbo} on1={set("aguadoFca")} on2={set("aguadoTbo")} />
-            <div style={{ fontSize: 11, color: C.danger, marginTop: -8, marginBottom: 12 }}>Debe ser exactamente 0 — indica adulteración</div>
-            <Pair label="Descenso Crioscópico" v1={f.dcFca} v2={f.dcTbo} on1={set("dcFca")} on2={set("dcTbo")} />
-            <Pair label="Proteína" v1={f.protFca} v2={f.protTbo} on1={set("protFca")} on2={set("protTbo")} />
-            <div style={{ fontSize: 11, color: C.sub, marginTop: -8, marginBottom: 12 }}>Ref: 2.9 – 3.5 %</div>
-            <F label="ATB"><Sel value={f.atm || ""} onChange={set("atm")} options={["-", "+"]} placeholder="ATB..." /></F>
-          </div>
-        </>
-      )}
+      <Section
+        id="destino"
+        title={isConcentrado ? "2. Destino & Litros" : "2. Litros & Destino"}
+        legacy={!UX_V2}
+        open={panelsOpen.destino}
+        onToggle={() => togglePanel("destino")}
+        total={destinoRequired.length}
+        filled={countFilled(destinoRequired)}
+        headerRef={panelRefs.destino}
+        hasError={firstMissingPanel === "destino"}
+      >
+        {destinoContent}
+      </Section>
+
+      <Section
+        id="calidad"
+        title={isConcentrado ? "3. Parámetros" : "3. Calidad"}
+        legacy={!UX_V2}
+        open={panelsOpen.calidad}
+        onToggle={() => togglePanel("calidad")}
+        total={calidadRequired.length}
+        filled={countFilled(calidadRequired)}
+        headerRef={panelRefs.calidad}
+        hasError={firstMissingPanel === "calidad"}
+      >
+        {calidadContent}
+      </Section>
 
       <F label="Observaciones">
         <textarea style={{ ...inp, minHeight: 60, resize: "vertical" }} value={f.obs} onChange={e => set("obs")(e.target.value)} placeholder="Observaciones..." />
@@ -1421,36 +1671,17 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo,
           {fieldError}
         </div>
       )}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-        <button type="button" style={btnSecondary} onClick={onClose}>Cancelar</button>
-        <button type="button" style={btnPrimary} onClick={() => {
-          let req;
-          if (isConcentrado) {
-            req = [["tambo", "Tambo"], ["litrosFca", "Litros"], ["destino", "Destino"],
-                   ["acidezFca", "Acidez"], ["phFca", "pH"]];
-          } else {
-            req = [["tambo", "Tambo"], ["litrosFca", "Litros Fábrica"], ["destino", "Destino"], ["producto", "Producto"],
-                   ["acidezFca", "Acidez Fca."], ["phFca", "pH Fca."],
-                   ["gbFca", "GB Fca."], ["sngFca", "SNG Fca."], ["densFca", "Densidad Fca."], ["protFca", "Proteína Fca."], ["atm", "ATB"]];
-          }
-          const miss = req.filter(([k]) => !String(f[k] || "").trim()).map(([, v]) => v);
-          if (miss.length) { setFieldError("Faltan completar:\n• " + miss.join("\n• ")); return; }
-          // Silo sucio bloqueado
-          if (siloSucioLevel === "bloqueado") {
-            if (!canForce) { setFieldError("El silo " + f.destino + " está pendiente de CIP. Solo el supervisor puede autorizar este ingreso."); return; }
-            setCipForzado(true);
-            return;
-          }
-          // Aguado > 0 = adulteración — requiere confirmación explícita
-          const aguFca = parseFloat(f.aguadoFca);
-          const aguTbo = parseFloat(f.aguadoTbo);
-          if ((!isNaN(aguFca) && aguFca > 0) || (!isNaN(aguTbo) && aguTbo > 0)) {
-            setAguadoAlerta(true);
-            return;
-          }
-          setFieldError("");
-          onSave(f);
-        }}>Guardar</button>
+      {/* Row Cancelar/Guardar — sticky bottom en UX_V2 para resistir teclado Android virtual. */}
+      <div style={UX_V2 ? {
+        position: "sticky", bottom: 0, zIndex: 5,
+        background: C.bg, paddingTop: 12, paddingBottom: 4,
+        marginLeft: -20, marginRight: -20, paddingLeft: 20, paddingRight: 20,
+        marginTop: 4, borderTop: `1px solid ${C.border}`,
+      } : {}}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+          <button type="button" style={btnSecondary} onClick={() => { track("form_cancel", null, "ingreso"); handleClose(); }}>Cancelar</button>
+          <button type="button" style={btnPrimary} onClick={() => { if (savingRef.current) return; savingRef.current = true; setTimeout(() => { savingRef.current = false; }, 500); onClickGuardar(); }}>Guardar</button>
+        </div>
       </div>
       {onDelete && <button type="button" style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar este ingreso</button>}
 
@@ -1472,7 +1703,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo,
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
             <button type="button" style={btnSecondary} onClick={() => setCipForzado(false)}>Cancelar</button>
             <button type="button" style={{ ...btnPrimary, background: C.danger, borderColor: C.danger }}
-              onClick={() => { setCipForzado(false); onSave({ ...f, _forzadoCIP: true }); }}>
+              onClick={() => { if (overrideSavingRef.current) return; overrideSavingRef.current = true; setCipForzado(false); track("save_ok", "forzado_cip", "ingreso"); onSave({ ...f, _forzadoCIP: true }); }}>
               Autorizar y forzar ingreso
             </button>
           </div>
@@ -1495,7 +1726,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo,
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
             <button type="button" style={btnSecondary} onClick={() => setAguadoAlerta(false)}>Corregir valores</button>
-            <button type="button" style={{ ...btnPrimary, background: C.danger, borderColor: C.danger }} onClick={() => { setAguadoAlerta(false); onSave(f); }}>
+            <button type="button" style={{ ...btnPrimary, background: C.danger, borderColor: C.danger }} onClick={() => { if (overrideSavingRef.current) return; overrideSavingRef.current = true; setAguadoAlerta(false); track("save_ok", "forzado_aguado", "ingreso"); onSave(f); }}>
               Guardar de todas formas
             </button>
           </div>
@@ -1517,10 +1748,11 @@ const SecIngresos = ({ date, syncKey = 0, dayClosed = false, perfil = null }) =>
   const [confirmUI, askConfirm] = useConfirm();
 
   useEffect(() => {
+    if (modal) return; // no recargar mientras hay un form abierto — evita pisar edición en curso
     load(date, "ingresos", []).then(d => { setList(d); setLoading(false); });
     loadCfg().then(cfg => setTambos([...TAMBOS_BASE, ...(cfg.tambosCustom || [])]));
     calcAutoLitros(date).then(r => setSiloStates(r)).catch(() => {});
-  }, [date, syncKey]);
+  }, [date, syncKey, modal]);
 
   const persist = async updated => {
     const ok = await save(date, "ingresos", updated);
@@ -1843,6 +2075,7 @@ const emptyCarga = () => ({ id: crypto.randomUUID(), label: "CARGA 1", destino: 
 const CargaForm = ({ initial, onSave, onClose, onDelete }) => {
   const [f, setF] = useState(initial || emptyCarga());
   const [fieldError, setFieldError] = useState("");
+  const savingRef = useRef(false);
   const set = k => v => { setFieldError(""); setF(p => ({ ...p, [k]: v })); };
   const [transportistas, setTransportistas] = useState([]);
   const [cargaProductos, setCargaProductos] = useState(CARGA_PRODUCTOS_BASE);
@@ -1942,14 +2175,16 @@ const CargaForm = ({ initial, onSave, onClose, onDelete }) => {
         </div>
       )}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-        <button type="button" style={btnSecondary} onClick={onClose}>Cancelar</button>
+        <button type="button" style={btnSecondary} onClick={() => { track("form_cancel", null, "carga"); onClose(); }}>Cancelar</button>
         <button type="button" style={btnPrimary} onClick={() => {
+          if (savingRef.current) return; savingRef.current = true; setTimeout(() => { savingRef.current = false; }, 500);
           const req = [["destino", "Destino"], ["siloProveniente", "Silo Proveniente"], ["limpCisterna", "Limpieza Cisterna"],
           ["litros", "Litros"], ["hora", "Hora"], ["responsable", "Responsable"],
           ["T", "T"], ["gC", "°C"], ["pH", "pH"], ["A", "A"], ["gD", "°D"]];
           const miss = req.filter(([k]) => !String(f[k] || "").trim()).map(([, v]) => v);
-          if (miss.length) { setFieldError("Faltan completar:\n• " + miss.join("\n• ")); return; }
+          if (miss.length) { setFieldError("Faltan completar:\n• " + miss.join("\n• ")); track("save_fail", miss[0], "carga"); return; }
           setFieldError("");
+          track("save_ok", null, "carga");
           onSave(f);
         }}>Guardar</button>
       </div>
@@ -1991,7 +2226,7 @@ const SecCarga = ({ date, syncKey = 0, dayClosed = false }) => {
   const [modal, setModal] = useState(null);
   const [loading, setLoading] = useState(true);
   const [confirmUI, askConfirm] = useConfirm();
-  useEffect(() => { load(date, "carga", []).then(d => { setList(d); setLoading(false); }); }, [date, syncKey]);
+  useEffect(() => { if (modal) return; load(date, "carga", []).then(d => { setList(d); setLoading(false); }); }, [date, syncKey, modal]);
   const persist = async u => {
     const ok = await save(date, "carga", u);
     if (ok !== false) setList(u);
@@ -2065,6 +2300,7 @@ const emptyCtrl = () => ({ id: crypto.randomUUID(), hora: getNow(), silo: "", ph
 const MovForm = ({ initial, onSave, onClose, onDelete }) => {
   const [f, setF] = useState(initial || emptyMov());
   const [fieldError, setFieldError] = useState("");
+  const savingRef = useRef(false);
   const set = k => v => { setFieldError(""); setF(p => ({ ...p, [k]: v })); };
   return (
     <div>
@@ -2085,12 +2321,14 @@ const MovForm = ({ initial, onSave, onClose, onDelete }) => {
         </div>
       )}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-        <button type="button" style={btnSecondary} onClick={onClose}>Cancelar</button>
+        <button type="button" style={btnSecondary} onClick={() => { track("form_cancel", null, "movimientos"); onClose(); }}>Cancelar</button>
         <button type="button" style={btnPrimary} onClick={() => {
+          if (savingRef.current) return; savingRef.current = true; setTimeout(() => { savingRef.current = false; }, 500);
           const req = [["litros", "Litros"], ["desde", "Desde"], ["hasta", "Hasta"], ["motivo", "Motivo"], ["resp", "Responsable"]];
           const miss = req.filter(([k]) => !String(f[k] || "").trim()).map(([, v]) => v);
-          if (miss.length) { setFieldError("Faltan completar:\n• " + miss.join("\n• ")); return; }
+          if (miss.length) { setFieldError("Faltan completar:\n• " + miss.join("\n• ")); track("save_fail", miss[0], "movimientos"); return; }
           setFieldError("");
+          track("save_ok", null, "movimientos");
           onSave(f);
         }}>Guardar</button>
       </div>
@@ -2101,6 +2339,7 @@ const MovForm = ({ initial, onSave, onClose, onDelete }) => {
 const CtrlForm = ({ initial, onSave, onClose, onDelete }) => {
   const [f, setF] = useState(initial || emptyCtrl());
   const [fieldError, setFieldError] = useState("");
+  const savingRef = useRef(false);
   const set = k => v => { setFieldError(""); setF(p => ({ ...p, [k]: v })); };
   // "dens" se renderiza aparte con DensityInput; el resto se mapea con Inp genérico.
   const campos = [["pH", "ph"], ["°D", "gD"], ["°C", "gC"], ["Alc.", "alc"], ["MG", "mg"], ["SNG", "sng"], ["FP", "fp"], ["Prot.", "prot"]];
@@ -2121,12 +2360,14 @@ const CtrlForm = ({ initial, onSave, onClose, onDelete }) => {
         </div>
       )}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-        <button type="button" style={btnSecondary} onClick={onClose}>Cancelar</button>
+        <button type="button" style={btnSecondary} onClick={() => { track("form_cancel", null, "ctrl_calidad"); onClose(); }}>Cancelar</button>
         <button type="button" style={btnPrimary} onClick={() => {
+          if (savingRef.current) return; savingRef.current = true; setTimeout(() => { savingRef.current = false; }, 500);
           const req = [["silo", "Silo"], ["ph", "pH"], ["gD", "°D"], ["gC", "°C"], ["alc", "Alc."], ["mg", "MG"], ["sng", "SNG"], ["dens", "Densidad"], ["fp", "FP"], ["prot", "Proteína"], ["resp", "Responsable"]];
           const miss = req.filter(([k]) => !String(f[k] || "").trim()).map(([, v]) => v);
-          if (miss.length) { setFieldError("Faltan completar:\n• " + miss.join("\n• ")); return; }
+          if (miss.length) { setFieldError("Faltan completar:\n• " + miss.join("\n• ")); track("save_fail", miss[0], "ctrl_calidad"); return; }
           setFieldError("");
+          track("save_ok", null, "ctrl_calidad");
           onSave(f);
         }}>Guardar</button>
       </div>
@@ -2141,7 +2382,7 @@ const SecMovimientos = ({ date, syncKey = 0, dayClosed = false }) => {
   const [tab, setTab] = useState("movs");
   const [loading, setLoading] = useState(true);
   const [confirmUI, askConfirm] = useConfirm();
-  useEffect(() => { load(date, "movimientos", { movs: [], ctrls: [] }).then(d => { setData(d); setLoading(false); }); }, [date, syncKey]);
+  useEffect(() => { if (modal) return; load(date, "movimientos", { movs: [], ctrls: [] }).then(d => { setData(d); setLoading(false); }); }, [date, syncKey, modal]);
   const persist = async u => {
     const ok = await save(date, "movimientos", u);
     if (ok !== false) setData(u);
@@ -2282,7 +2523,8 @@ const emptyLote = (preOrigen = null) => ({
   sobranteL: 0,
 });
 
-const ProduccionForm = ({ initial, onSave, onClose, onDelete, date, perfil, isEdit = false }) => {
+const ProduccionForm = ({ initial, onSave, onClose: _onCloseRaw, onDelete, date, perfil, isEdit = false }) => {
+  const onClose = () => { track("form_cancel", isEdit ? "edit" : "new", "produccion"); _onCloseRaw(); };
   const [view, setView] = useState(!isEdit ? "cat" : "main");
   const [f, setF] = useState(initial);
   const [saving, setSaving] = useState(false);
@@ -2293,6 +2535,7 @@ const ProduccionForm = ({ initial, onSave, onClose, onDelete, date, perfil, isEd
   const [showAddOrigen, setShowAddOrigen] = useState(false);
   const [newOrigen, setNewOrigen] = useState({ silo: "", litros: "" });
   const [confirmUI, askConfirm] = useConfirm();
+  const [banner, setBanner] = useState(null);
 
   const prodInfo = PRODS_PRODUCCION_LIST.find(p => p.nombre === f.producto);
   const totalEnviado = (f.origenes || []).reduce((s, o) => s + (parseFloat(o.litros) || 0), 0);
@@ -2377,7 +2620,8 @@ const ProduccionForm = ({ initial, onSave, onClose, onDelete, date, perfil, isEd
         : null;
       const check = await checkSiloBalance(date, siloKey, totalL, excludeFn);
       if (!check.ok) {
-        alert(`Silo ${siloKey}: ${Math.round(check.current).toLocaleString("es-AR")} L disponibles, necesitás ${Math.round(totalL).toLocaleString("es-AR")} L.`);
+        setBanner({ kind: "error", message: `Silo ${siloKey}: ${Math.round(check.current).toLocaleString("es-AR")} L disponibles, necesitás ${Math.round(totalL).toLocaleString("es-AR")} L.` });
+        track("save_fail", "balance_silo", "produccion");
         return false;
       }
     }
@@ -2386,37 +2630,40 @@ const ProduccionForm = ({ initial, onSave, onClose, onDelete, date, perfil, isEd
 
   // Guardar lote activo (envasando) — datos básicos
   const doGuardarEnvasando = async () => {
+    setBanner(null);
     const filled = (f.origenes || []).filter(o => o.silo && parseFloat(o.litros) > 0);
-    if (!f.lote?.trim()) { alert("Ingresá el número de lote."); return; }
-    if (filled.length === 0) { alert("Agregá al menos un silo origen con litros."); return; }
+    if (!f.lote?.trim()) { setBanner({ kind: "error", message: "Ingresá el número de lote." }); track("save_fail", "lote", "produccion"); return; }
+    if (filled.length === 0) { setBanner({ kind: "error", message: "Agregá al menos un silo origen con litros." }); track("save_fail", "origenes", "produccion"); return; }
     setSaving(true);
     try {
       if (!(await runBalance(filled))) return;
       // Normalizar estado: si era legacy "enviado", pasarlo a "envasando" al guardar.
+      track("save_ok", "envasando", "produccion");
       onSave({ ...f, estado: "envasando", origenes: filled, litrosUsados: null, sobranteL: 0, destinoSobrante: null, siloSobrante: null }, initial);
     } finally { setSaving(false); }
   };
 
   // Confirmar finalización — pide litros reales, cajas y destino sobrante
   const doConfirmarFinalizacion = async () => {
+    setBanner(null);
     const filled = (f.origenes || []).filter(o => o.silo && parseFloat(o.litros) > 0);
-    if (!f.lote?.trim()) { alert("Ingresá el número de lote."); return; }
-    if (filled.length === 0) { alert("Agregá al menos un silo origen con litros."); return; }
+    if (!f.lote?.trim()) { setBanner({ kind: "error", message: "Ingresá el número de lote." }); track("save_fail", "lote", "produccion"); return; }
+    if (filled.length === 0) { setBanner({ kind: "error", message: "Agregá al menos un silo origen con litros." }); track("save_fail", "origenes", "produccion"); return; }
 
     const lu = f.litrosUsados || [];
     for (let i = 0; i < filled.length; i++) {
       const env = parseFloat(filled[i].litros) || 0;
       const us = parseFloat(lu[i]?.litros);
-      if (isNaN(us)) { alert(`Ingresá los litros realmente usados del ${filled[i].silo}.`); return; }
-      if (us < 0) { alert(`Litros usados no puede ser negativo (${filled[i].silo}).`); return; }
-      if (us > env) { alert(`${filled[i].silo}: usados (${us.toLocaleString("es-AR")}) no puede superar enviados (${env.toLocaleString("es-AR")}).`); return; }
+      if (isNaN(us)) { setBanner({ kind: "error", message: `Ingresá los litros realmente usados del ${filled[i].silo}.` }); track("save_fail", "usados_vacio", "produccion"); return; }
+      if (us < 0) { setBanner({ kind: "error", message: `Litros usados no puede ser negativo (${filled[i].silo}).` }); track("save_fail", "usados_negativo", "produccion"); return; }
+      if (us > env) { setBanner({ kind: "error", message: `${filled[i].silo}: usados (${us.toLocaleString("es-AR")}) no puede superar enviados (${env.toLocaleString("es-AR")}).` }); track("save_fail", "usados_exceso", "produccion"); return; }
     }
     const totalUsadoFinal = lu.reduce((s, u) => s + (parseFloat(u.litros) || 0), 0);
     const sobranteCalcFinal = Math.max(0, totalEnviado - totalUsadoFinal);
     if (sobranteCalcFinal > 0 && !f.destinoSobrante) {
-      alert(`Sobraron ${Math.round(sobranteCalcFinal).toLocaleString("es-AR")} L. Indicá qué hacer con ellos.`); return;
+      setBanner({ kind: "error", message: `Sobraron ${Math.round(sobranteCalcFinal).toLocaleString("es-AR")} L. Indicá qué hacer con ellos.` }); track("save_fail", "destino_sobrante", "produccion"); return;
     }
-    if (f.destinoSobrante === "otro_silo" && !f.siloSobrante) { alert("Seleccioná el silo destino del sobrante."); return; }
+    if (f.destinoSobrante === "otro_silo" && !f.siloSobrante) { setBanner({ kind: "error", message: "Seleccioná el silo destino del sobrante." }); track("save_fail", "silo_sobrante", "produccion"); return; }
     const usadosStr = `${Math.round(totalUsadoFinal).toLocaleString("es-AR")} L usados` + (sobranteCalcFinal > 0 ? ` · Sobrante: ${Math.round(sobranteCalcFinal).toLocaleString("es-AR")} L` : "");
     if (!(await askConfirm({ title: "Finalizar lote", message: usadosStr, confirmLabel: "Finalizar" }))) return;
     const litrosUsadosFinal = filled.map((o, i) => ({
@@ -2424,8 +2671,10 @@ const ProduccionForm = ({ initial, onSave, onClose, onDelete, date, perfil, isEd
       litros: String(Math.round(parseFloat(lu[i]?.litros) || 0)),
     }));
     setSaving(true);
-    try { onSave({ ...f, estado: "finalizado", origenes: filled, litrosUsados: litrosUsadosFinal, sobranteL: sobranteCalcFinal }, initial); }
-    finally { setSaving(false); }
+    try {
+      track("save_ok", "finalizado", "produccion");
+      onSave({ ...f, estado: "finalizado", origenes: filled, litrosUsados: litrosUsadosFinal, sobranteL: sobranteCalcFinal }, initial);
+    } finally { setSaving(false); }
   };
 
   // Re-guardar un lote ya finalizado (editar datos del cierre)
@@ -2542,6 +2791,7 @@ const ProduccionForm = ({ initial, onSave, onClose, onDelete, date, perfil, isEd
     return (
       <Modal title={f.producto || "Nuevo lote"} onClose={onClose}>
         {confirmUI}
+        {banner && <Banner {...banner} onClose={() => setBanner(null)} sticky />}
         {!isEdit && (
           <button type="button" onClick={() => setView(selCat ? "variant" : "cat")}
             style={{ ...btnSecondary, fontSize: 12, marginBottom: 12, alignSelf: "flex-start", padding: "6px 12px" }}>← Volver</button>
@@ -2837,6 +3087,7 @@ const SecProduccion = ({ date, syncKey = 0, dayClosed = false, perfil = null }) 
   const [confirmUI, askConfirm] = useConfirm();
 
   useEffect(() => {
+    if (modal) return; // no recargar mientras hay un form abierto
     load(date, "produccion", []).then(d => {
       // R3: normalización defensiva al cargar. Lotes legacy "enviado" → "envasando".
       // Lotes activos sin campo litrosUsados explícito → setear null para evitar
@@ -2852,7 +3103,7 @@ const SecProduccion = ({ date, syncKey = 0, dayClosed = false, perfil = null }) 
       setList(norm);
       setLoading(false);
     });
-  }, [date, syncKey]);
+  }, [date, syncKey, modal]);
 
   const persist = async updated => {
     const ok = await save(date, "produccion", updated);
@@ -3464,6 +3715,7 @@ const emptyFort = () => ({
 const FortForm = ({ initial, onSave, onClose, onDelete }) => {
   const [f, setF] = useState(() => initial ? { ...emptyFort(), ...initial } : emptyFort());
   const [fieldError, setFieldError] = useState("");
+  const savingRef = useRef(false);
   const set = k => v => { setFieldError(""); setF(p => ({ ...p, [k]: v })); };
 
   const updAdicion = (id, key, val) =>
@@ -3547,14 +3799,16 @@ const FortForm = ({ initial, onSave, onClose, onDelete }) => {
         </div>
       )}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-        <button type="button" style={btnSecondary} onClick={onClose}>Cancelar</button>
+        <button type="button" style={btnSecondary} onClick={() => { track("form_cancel", null, "fortificados"); onClose(); }}>Cancelar</button>
         <button type="button" style={btnPrimary} onClick={() => {
+          if (savingRef.current) return; savingRef.current = true; setTimeout(() => { savingRef.current = false; }, 500);
           const req = [["siloOrigen", "Silo Origen"], ["litrosBase", "Litros base"], ["siloDestino", "Silo Destino"], ["responsable", "Responsable"]];
           const miss = req.filter(([k]) => !String(f[k] || "").trim()).map(([, v]) => v);
           const sinCant = f.adiciones.filter(a => !String(a.cantidad || "").trim()).map(a => a.producto || "Adición");
           const all = [...miss, ...sinCant.map(p => `Cantidad de ${p}`)];
-          if (all.length) { setFieldError("Faltan completar:\n• " + all.join("\n• ")); return; }
+          if (all.length) { setFieldError("Faltan completar:\n• " + all.join("\n• ")); track("save_fail", all[0], "fortificados"); return; }
           setFieldError("");
+          track("save_ok", null, "fortificados");
           onSave(f);
         }}>Guardar</button>
       </div>
@@ -3570,8 +3824,9 @@ const SecFortificados = ({ date, syncKey = 0, dayClosed = false }) => {
   const [confirmUI, askConfirm] = useConfirm();
 
   useEffect(() => {
+    if (modal) return; // no recargar mientras hay un form abierto
     load(date, "fortificados", []).then(d => { setList(d); setLoading(false); });
-  }, [date, syncKey]);
+  }, [date, syncKey, modal]);
 
   const persist = async u => {
     const ok = await save(date, "fortificados", u);
@@ -7675,6 +7930,16 @@ export default function App() {
       .catch(() => setStorageOk(false));
   }, []);
 
+  // Telemetría local — no-op si yatasto:telemetry !== "true".
+  useEffect(() => { initTelemetry(); }, []);
+
+  // section_enter/section_leave — emparejables para derivar tiempo en sección
+  // y reaperturas rápidas (<30s entre leave y enter de la misma sección).
+  useEffect(() => {
+    track("section_enter", section);
+    return () => { track("section_leave", section); };
+  }, [section]);
+
   // Suscribir al estado de la cola de escritura
   useEffect(() => onWriteQueueChange((len, retrying) => {
     setQueueLen(len);
@@ -7944,7 +8209,7 @@ export default function App() {
           position: "fixed", top: 0, left: 0, right: 0, zIndex: 9999,
           background: C.accent, color: "#000",
           display: "flex", alignItems: "center", justifyContent: "space-between",
-          padding: "8px 16px", gap: 12,
+          paddingTop: "calc(env(safe-area-inset-top, 0px) + 8px)", paddingBottom: "8px", paddingLeft: "16px", paddingRight: "16px", gap: 12,
         }}>
           <span style={{ fontSize: 13, fontWeight: 600 }}>
             Nueva versión disponible
@@ -7984,7 +8249,7 @@ export default function App() {
             {navItems.map(n => {
               const active = section === n.id;
               return (
-                <button type="button" key={n.id} onClick={() => setSection(n.id)} style={{
+                <button type="button" key={n.id} onClick={() => { track("tab_open", n.id); setSection(n.id); }} style={{
                   width: "100%", border: "none", cursor: "pointer", textAlign: "left",
                   background: active ? C.accentDim : "none",
                   color: active ? C.accent : C.sub,
@@ -8024,7 +8289,8 @@ export default function App() {
       {dayClosedBlocked && (
         <div style={{
           background: `${C.danger}18`, borderBottom: `2px solid ${C.danger}`,
-          padding: "8px 16px", display: "flex", alignItems: "center", gap: 10,
+          paddingTop: "calc(env(safe-area-inset-top, 0px) + 8px)", paddingBottom: "8px", paddingLeft: "16px", paddingRight: "16px",
+          display: "flex", alignItems: "center", gap: 10,
           position: "sticky", top: 0, zIndex: 301,
           marginLeft: isDesktop ? SIDEBAR_W : 0,
         }}>
@@ -8043,7 +8309,8 @@ export default function App() {
         return (
           <div style={{
             background: "#7c1d1d20", borderBottom: "2px solid #ef4444",
-            padding: "10px 16px", display: "flex", alignItems: "center", gap: 10,
+            paddingTop: "calc(env(safe-area-inset-top, 0px) + 10px)", paddingBottom: "10px", paddingLeft: "16px", paddingRight: "16px",
+            display: "flex", alignItems: "center", gap: 10,
             position: "sticky", top: 0, zIndex: 302,
             marginLeft: isDesktop ? SIDEBAR_W : 0,
           }}>
@@ -8074,7 +8341,8 @@ export default function App() {
       {queueLen > 0 && (
         <div style={{
           background: `${C.accent}15`, borderBottom: `2px solid ${C.accent}88`,
-          padding: "8px 16px", display: "flex", alignItems: "center", gap: 10,
+          paddingTop: "calc(env(safe-area-inset-top, 0px) + 8px)", paddingBottom: "8px", paddingLeft: "16px", paddingRight: "16px",
+          display: "flex", alignItems: "center", gap: 10,
           position: "sticky", top: 0, zIndex: 299,
           marginLeft: isDesktop ? SIDEBAR_W : 0,
         }}>
@@ -8095,7 +8363,8 @@ export default function App() {
       {sessionExpired && (
         <div style={{
           background: "#7c2d1215", borderBottom: "2px solid #f97316",
-          padding: "10px 16px", display: "flex", alignItems: "center", gap: 10,
+          paddingTop: "calc(env(safe-area-inset-top, 0px) + 10px)", paddingBottom: "10px", paddingLeft: "16px", paddingRight: "16px",
+          display: "flex", alignItems: "center", gap: 10,
           position: "sticky", top: 0, zIndex: 301,
           marginLeft: isDesktop ? SIDEBAR_W : 0,
         }}>
@@ -8120,7 +8389,8 @@ export default function App() {
       {!storageOk && (
         <div style={{
           background: C.danger.replace(/\)$/, " / 0.12)"), borderBottom: `2px solid ${C.danger}`,
-          padding: "10px 16px", display: "flex", alignItems: "center", gap: 10,
+          paddingTop: "calc(env(safe-area-inset-top, 0px) + 10px)", paddingBottom: "10px", paddingLeft: "16px", paddingRight: "16px",
+          display: "flex", alignItems: "center", gap: 10,
           position: "sticky", top: 0, zIndex: 300,
           marginLeft: isDesktop ? SIDEBAR_W : 0,
         }}>
@@ -8388,7 +8658,7 @@ export default function App() {
       )}
 
       {/* Content */}
-      <div style={{ padding: isDesktop ? "16px 24px 24px" : "12px 12px 80px", marginLeft: isDesktop ? SIDEBAR_W : 0, position: "relative", overflowX: "hidden", minWidth: 0 }}>
+      <div style={{ padding: isDesktop ? "16px 24px 24px" : `12px 12px calc(env(safe-area-inset-bottom, 0px) + 120px)`, marginLeft: isDesktop ? SIDEBAR_W : 0, position: "relative", overflowX: "hidden", minWidth: 0 }}>
         {/* Overlay día cerrado — bloquea edición sin ocultar contenido */}
         {dayClosed && section !== "supervisor" && (
           <div style={{
@@ -8446,7 +8716,7 @@ export default function App() {
         {navItems.map(n => {
           const active = section === n.id;
           return (
-            <button type="button" key={n.id} onClick={() => setSection(n.id)}
+            <button type="button" key={n.id} onClick={() => { track("tab_open", n.id); setSection(n.id); }}
               aria-current={active ? "page" : undefined}
               style={{
                 background: active && UX_V2 ? `${C.accent}1a` : "none",
