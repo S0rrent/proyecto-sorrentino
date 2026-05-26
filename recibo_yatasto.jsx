@@ -3,6 +3,7 @@ import { useRegisterSW } from "virtual:pwa-register/react";
 import { DARK, LIGHT, FONT_SANS, FONT_MONO, EASE_OUT, DUR } from "./tokens.js";
 import { useViewport } from "./hooks.js";
 import { db, onWriteQueueChange, onSessionExpired, clearSessionExpired } from "./db-adapter.js";
+import { track, initTelemetry } from "./telemetry.js";
 import {
   Ingresos as IcoIngresos, Movimientos as IcoMovimientos, Carga as IcoCarga,
   Fortificados as IcoFortificados, CIP as IcoCIP, Stock as IcoStock, Produccion as IcoProduccion,
@@ -1319,7 +1320,11 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo,
     destino: useRef(null),
     calidad: useRef(null),
   };
-  const togglePanel = k => setPanelsOpen(p => ({ ...p, [k]: !p[k] }));
+  const togglePanel = k => setPanelsOpen(p => {
+    const next = !p[k];
+    track(next ? "panel_open" : "panel_close", k, "ingreso");
+    return { ...p, [k]: next };
+  });
   const set = k => v => { setFieldError(""); setFirstMissingPanel(null); setF(p => ({ ...p, [k]: v })); };
   const pickTambo = nombre => {
     const t = tambos.find(t => t.nombre === nombre);
@@ -1511,6 +1516,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo,
       const firstKey = miss[0][0];
       const target = panelOf(firstKey);
       setFirstMissingPanel(target);
+      track("save_fail", firstKey, "ingreso");
       if (UX_V2) {
         setPanelsOpen(p => ({ ...p, [target]: true }));
         setTimeout(() => {
@@ -1520,18 +1526,25 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo,
       return;
     }
     if (siloSucioLevel === "bloqueado") {
-      if (!canForce) { setFieldError("El silo " + f.destino + " está pendiente de CIP. Solo el supervisor puede autorizar este ingreso."); return; }
+      if (!canForce) {
+        setFieldError("El silo " + f.destino + " está pendiente de CIP. Solo el supervisor puede autorizar este ingreso.");
+        track("save_fail", "silo_sucio_blocked", "ingreso");
+        return;
+      }
+      track("save_fail", "silo_sucio_force", "ingreso");
       setCipForzado(true);
       return;
     }
     const aguFca = parseFloat(f.aguadoFca);
     const aguTbo = parseFloat(f.aguadoTbo);
     if ((!isNaN(aguFca) && aguFca > 0) || (!isNaN(aguTbo) && aguTbo > 0)) {
+      track("save_fail", "aguado", "ingreso");
       setAguadoAlerta(true);
       return;
     }
     setFieldError("");
     setFirstMissingPanel(null);
+    track("save_ok", null, "ingreso");
     onSave(f);
   };
 
@@ -1638,7 +1651,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo,
         marginTop: 4, borderTop: `1px solid ${C.border}`,
       } : {}}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-          <button type="button" style={btnSecondary} onClick={onClose}>Cancelar</button>
+          <button type="button" style={btnSecondary} onClick={() => { track("form_cancel", null, "ingreso"); onClose(); }}>Cancelar</button>
           <button type="button" style={btnPrimary} onClick={onClickGuardar}>Guardar</button>
         </div>
       </div>
@@ -1662,7 +1675,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo,
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
             <button type="button" style={btnSecondary} onClick={() => setCipForzado(false)}>Cancelar</button>
             <button type="button" style={{ ...btnPrimary, background: C.danger, borderColor: C.danger }}
-              onClick={() => { setCipForzado(false); onSave({ ...f, _forzadoCIP: true }); }}>
+              onClick={() => { setCipForzado(false); track("save_ok", "forzado_cip", "ingreso"); onSave({ ...f, _forzadoCIP: true }); }}>
               Autorizar y forzar ingreso
             </button>
           </div>
@@ -1685,7 +1698,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo,
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
             <button type="button" style={btnSecondary} onClick={() => setAguadoAlerta(false)}>Corregir valores</button>
-            <button type="button" style={{ ...btnPrimary, background: C.danger, borderColor: C.danger }} onClick={() => { setAguadoAlerta(false); onSave(f); }}>
+            <button type="button" style={{ ...btnPrimary, background: C.danger, borderColor: C.danger }} onClick={() => { setAguadoAlerta(false); track("save_ok", "forzado_aguado", "ingreso"); onSave(f); }}>
               Guardar de todas formas
             </button>
           </div>
@@ -2472,7 +2485,8 @@ const emptyLote = (preOrigen = null) => ({
   sobranteL: 0,
 });
 
-const ProduccionForm = ({ initial, onSave, onClose, onDelete, date, perfil, isEdit = false }) => {
+const ProduccionForm = ({ initial, onSave, onClose: _onCloseRaw, onDelete, date, perfil, isEdit = false }) => {
+  const onClose = () => { track("form_cancel", isEdit ? "edit" : "new", "produccion"); _onCloseRaw(); };
   const [view, setView] = useState(!isEdit ? "cat" : "main");
   const [f, setF] = useState(initial);
   const [saving, setSaving] = useState(false);
@@ -2569,6 +2583,7 @@ const ProduccionForm = ({ initial, onSave, onClose, onDelete, date, perfil, isEd
       const check = await checkSiloBalance(date, siloKey, totalL, excludeFn);
       if (!check.ok) {
         setBanner({ kind: "error", message: `Silo ${siloKey}: ${Math.round(check.current).toLocaleString("es-AR")} L disponibles, necesitás ${Math.round(totalL).toLocaleString("es-AR")} L.` });
+        track("save_fail", "balance_silo", "produccion");
         return false;
       }
     }
@@ -2579,12 +2594,13 @@ const ProduccionForm = ({ initial, onSave, onClose, onDelete, date, perfil, isEd
   const doGuardarEnvasando = async () => {
     setBanner(null);
     const filled = (f.origenes || []).filter(o => o.silo && parseFloat(o.litros) > 0);
-    if (!f.lote?.trim()) { setBanner({ kind: "error", message: "Ingresá el número de lote." }); return; }
-    if (filled.length === 0) { setBanner({ kind: "error", message: "Agregá al menos un silo origen con litros." }); return; }
+    if (!f.lote?.trim()) { setBanner({ kind: "error", message: "Ingresá el número de lote." }); track("save_fail", "lote", "produccion"); return; }
+    if (filled.length === 0) { setBanner({ kind: "error", message: "Agregá al menos un silo origen con litros." }); track("save_fail", "origenes", "produccion"); return; }
     setSaving(true);
     try {
       if (!(await runBalance(filled))) return;
       // Normalizar estado: si era legacy "enviado", pasarlo a "envasando" al guardar.
+      track("save_ok", "envasando", "produccion");
       onSave({ ...f, estado: "envasando", origenes: filled, litrosUsados: null, sobranteL: 0, destinoSobrante: null, siloSobrante: null }, initial);
     } finally { setSaving(false); }
   };
@@ -2593,23 +2609,23 @@ const ProduccionForm = ({ initial, onSave, onClose, onDelete, date, perfil, isEd
   const doConfirmarFinalizacion = async () => {
     setBanner(null);
     const filled = (f.origenes || []).filter(o => o.silo && parseFloat(o.litros) > 0);
-    if (!f.lote?.trim()) { setBanner({ kind: "error", message: "Ingresá el número de lote." }); return; }
-    if (filled.length === 0) { setBanner({ kind: "error", message: "Agregá al menos un silo origen con litros." }); return; }
+    if (!f.lote?.trim()) { setBanner({ kind: "error", message: "Ingresá el número de lote." }); track("save_fail", "lote", "produccion"); return; }
+    if (filled.length === 0) { setBanner({ kind: "error", message: "Agregá al menos un silo origen con litros." }); track("save_fail", "origenes", "produccion"); return; }
 
     const lu = f.litrosUsados || [];
     for (let i = 0; i < filled.length; i++) {
       const env = parseFloat(filled[i].litros) || 0;
       const us = parseFloat(lu[i]?.litros);
-      if (isNaN(us)) { setBanner({ kind: "error", message: `Ingresá los litros realmente usados del ${filled[i].silo}.` }); return; }
-      if (us < 0) { setBanner({ kind: "error", message: `Litros usados no puede ser negativo (${filled[i].silo}).` }); return; }
-      if (us > env) { setBanner({ kind: "error", message: `${filled[i].silo}: usados (${us.toLocaleString("es-AR")}) no puede superar enviados (${env.toLocaleString("es-AR")}).` }); return; }
+      if (isNaN(us)) { setBanner({ kind: "error", message: `Ingresá los litros realmente usados del ${filled[i].silo}.` }); track("save_fail", "usados_vacio", "produccion"); return; }
+      if (us < 0) { setBanner({ kind: "error", message: `Litros usados no puede ser negativo (${filled[i].silo}).` }); track("save_fail", "usados_negativo", "produccion"); return; }
+      if (us > env) { setBanner({ kind: "error", message: `${filled[i].silo}: usados (${us.toLocaleString("es-AR")}) no puede superar enviados (${env.toLocaleString("es-AR")}).` }); track("save_fail", "usados_exceso", "produccion"); return; }
     }
     const totalUsadoFinal = lu.reduce((s, u) => s + (parseFloat(u.litros) || 0), 0);
     const sobranteCalcFinal = Math.max(0, totalEnviado - totalUsadoFinal);
     if (sobranteCalcFinal > 0 && !f.destinoSobrante) {
-      setBanner({ kind: "error", message: `Sobraron ${Math.round(sobranteCalcFinal).toLocaleString("es-AR")} L. Indicá qué hacer con ellos.` }); return;
+      setBanner({ kind: "error", message: `Sobraron ${Math.round(sobranteCalcFinal).toLocaleString("es-AR")} L. Indicá qué hacer con ellos.` }); track("save_fail", "destino_sobrante", "produccion"); return;
     }
-    if (f.destinoSobrante === "otro_silo" && !f.siloSobrante) { setBanner({ kind: "error", message: "Seleccioná el silo destino del sobrante." }); return; }
+    if (f.destinoSobrante === "otro_silo" && !f.siloSobrante) { setBanner({ kind: "error", message: "Seleccioná el silo destino del sobrante." }); track("save_fail", "silo_sobrante", "produccion"); return; }
     const usadosStr = `${Math.round(totalUsadoFinal).toLocaleString("es-AR")} L usados` + (sobranteCalcFinal > 0 ? ` · Sobrante: ${Math.round(sobranteCalcFinal).toLocaleString("es-AR")} L` : "");
     if (!(await askConfirm({ title: "Finalizar lote", message: usadosStr, confirmLabel: "Finalizar" }))) return;
     const litrosUsadosFinal = filled.map((o, i) => ({
@@ -2617,8 +2633,10 @@ const ProduccionForm = ({ initial, onSave, onClose, onDelete, date, perfil, isEd
       litros: String(Math.round(parseFloat(lu[i]?.litros) || 0)),
     }));
     setSaving(true);
-    try { onSave({ ...f, estado: "finalizado", origenes: filled, litrosUsados: litrosUsadosFinal, sobranteL: sobranteCalcFinal }, initial); }
-    finally { setSaving(false); }
+    try {
+      track("save_ok", "finalizado", "produccion");
+      onSave({ ...f, estado: "finalizado", origenes: filled, litrosUsados: litrosUsadosFinal, sobranteL: sobranteCalcFinal }, initial);
+    } finally { setSaving(false); }
   };
 
   // Re-guardar un lote ya finalizado (editar datos del cierre)
@@ -7869,6 +7887,16 @@ export default function App() {
       .catch(() => setStorageOk(false));
   }, []);
 
+  // Telemetría local — no-op si yatasto:telemetry !== "true".
+  useEffect(() => { initTelemetry(); }, []);
+
+  // section_enter/section_leave — emparejables para derivar tiempo en sección
+  // y reaperturas rápidas (<30s entre leave y enter de la misma sección).
+  useEffect(() => {
+    track("section_enter", section);
+    return () => { track("section_leave", section); };
+  }, [section]);
+
   // Suscribir al estado de la cola de escritura
   useEffect(() => onWriteQueueChange((len, retrying) => {
     setQueueLen(len);
@@ -8178,7 +8206,7 @@ export default function App() {
             {navItems.map(n => {
               const active = section === n.id;
               return (
-                <button type="button" key={n.id} onClick={() => setSection(n.id)} style={{
+                <button type="button" key={n.id} onClick={() => { track("tab_open", n.id); setSection(n.id); }} style={{
                   width: "100%", border: "none", cursor: "pointer", textAlign: "left",
                   background: active ? C.accentDim : "none",
                   color: active ? C.accent : C.sub,
@@ -8640,7 +8668,7 @@ export default function App() {
         {navItems.map(n => {
           const active = section === n.id;
           return (
-            <button type="button" key={n.id} onClick={() => setSection(n.id)}
+            <button type="button" key={n.id} onClick={() => { track("tab_open", n.id); setSection(n.id); }}
               aria-current={active ? "page" : undefined}
               style={{
                 background: active && UX_V2 ? `${C.accent}1a` : "none",
