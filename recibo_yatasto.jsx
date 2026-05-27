@@ -77,8 +77,35 @@ const TURNO_CIERRE = { "07:00": "14:00", "14:00": "21:00", "21:00": "07:00" }; /
 const PRODUCTOS = ["Leche Cruda", "Leche Descremada", "Lactosa", "Suero"];
 const PRODS_STOCK = [
   "Leche Cruda", "Leche Entera", "Leche Descremada", "Leche Fortificada",
+  "Leche Pasteurizada", "Leche Homogeneizada", "Leche PyH",
   "Lactosa", "Suero", "Yogurt", "Sucio (vacío)", "Limpio",
 ];
+
+// Deriva el label canónico de un lote fort según sus flags de proceso.
+// Pura — sin side effects. Siempre usa ?? false para compat con datos viejos.
+const buildFortLabel = (fort) => {
+  const p = fort?.pasteurizado ?? false;
+  const h = fort?.homogeneizado ?? false;
+  if (p && h) return "Leche PyH";
+  if (p)      return "Leche Pasteurizada";
+  if (h)      return "Leche Homogeneizada";
+  return "Leche Fortificada";
+};
+
+// Diferencia en días entre dos fechas ISO "YYYY-MM-DD". Resultado positivo = to es posterior.
+const diffDays = (from, to) => {
+  const [fy, fm, fd] = from.split("-").map(Number);
+  const [ty, tm, td] = to.split("-").map(Number);
+  return Math.round((Date.UTC(ty, tm - 1, td) - Date.UTC(fy, fm - 1, fd)) / 86400000);
+};
+
+// Badge SF+N: null si no hay fecha o inconsistencia.
+const calcSF = (fechaSilo, today) => {
+  if (!fechaSilo || !today) return null;
+  const d = diffDays(fechaSilo, today);
+  if (d < 0 || d > 999) return null;
+  return d === 0 ? "SF" : `SF+${d}`;
+};
 const NAV = [
   { id: "ingresos",    label: "Ingr.",  Icon: IcoIngresos },
   { id: "movimientos", label: "Movim.", Icon: IcoMovimientos },
@@ -122,6 +149,9 @@ const PROD_COLOR = {
   "Leche Entera": "#1a6fcc",
   "Leche Descremada": "#00ff00ff",
   "Leche Fortificada": "#ffa600ff",
+  "Leche Pasteurizada": "#ff7c00",
+  "Leche Homogeneizada": "#e06000",
+  "Leche PyH": "#c84800",
   "Lactosa": "#d4b896",
   "Suero": "#ffe000",
   "Yogurt": "#f4a0c0",
@@ -299,10 +329,11 @@ async function loadCfg() {
 async function loadSaldo() {
   try { const r = await db.get(SALDO_KEY); return r ? JSON.parse(r.value) : null; } catch { return null; }
 }
-async function saveSaldo(data, fromDate, productos) {
+async function saveSaldo(data, fromDate, productos, fechas) {
   try {
     const payload = { data, fromDate };
     if (productos && Object.keys(productos).length > 0) payload.productos = productos;
+    if (fechas && Object.keys(fechas).length > 0) payload.fechas = fechas;
     await db.set(SALDO_KEY, JSON.stringify(payload));
   } catch { }
 }
@@ -513,7 +544,7 @@ function invalidateAutoLitrosFrom(fromDate) {
 // calcAutoLitros puede llamarse en dos modos:
 // - modo normal (sin args extra): lee el saldo desde DB
 // - modo cadena (con _baseTotals y _baseProductos): usa la base provista, no va a DB para el saldo
-async function calcAutoLitros(date, _baseTotals, _baseProductos) {
+async function calcAutoLitros(date, _baseTotals, _baseProductos, _baseFechas) {
   const chainMode = _baseTotals != null;
 
   if (!chainMode) {
@@ -533,11 +564,14 @@ async function calcAutoLitros(date, _baseTotals, _baseProductos) {
   const totals = {};
   // productosBase: carry-over de productos del día anterior, luego sobreescrito por operaciones del día
   const productosBase = {};
+  // fechasBase: fecha ISO más antigua del contenido de cada silo (worst-case para SF+N)
+  const fechasBase = {};
 
   if (chainMode) {
     // Base provista externamente (cadena de días) — modo chain no toca DB para el saldo
     Object.entries(_baseTotals).forEach(([k, v]) => { if (v > 0) totals[k] = v; });
     Object.entries(_baseProductos || {}).forEach(([k, p]) => { if (p) productosBase[k] = p; });
+    Object.entries(_baseFechas || {}).forEach(([k, f]) => { if (f) fechasBase[k] = f; });
   } else if (saldo && saldo.fromDate && saldo.fromDate < date) {
     // Fast path: SALDO_KEY tiene el resultado encadenado hasta (al menos) ayer → usarlo directo
     Object.entries(saldo.data || {}).forEach(([key, litros]) => {
@@ -545,6 +579,9 @@ async function calcAutoLitros(date, _baseTotals, _baseProductos) {
     });
     Object.entries(saldo.productos || {}).forEach(([key, prod]) => {
       if (prod) productosBase[key] = prod;
+    });
+    Object.entries(saldo.fechas || {}).forEach(([key, f]) => {
+      if (f) fechasBase[key] = f;
     });
   } else if (baseSaldo && baseSaldo.fromDate && baseSaldo.fromDate < date) {
     // Fallback: SALDO_KEY es demasiado reciente (o no existe) para esta fecha histórica.
@@ -554,45 +591,70 @@ async function calcAutoLitros(date, _baseTotals, _baseProductos) {
       // Base es exactamente el día anterior — usar directamente sin encadenar
       Object.entries(baseSaldo.data || {}).forEach(([k, v]) => { if (v > 0) totals[k] = v; });
       Object.entries(baseSaldo.productos || {}).forEach(([k, p]) => { if (p) productosBase[k] = p; });
+      Object.entries(baseSaldo.fechas || {}).forEach(([k, f]) => { if (f) fechasBase[k] = f; });
     } else {
       // Encadenar desde baseSaldo hasta prevDate (date-1)
       const chain = await buildChainedSaldo(baseSaldo, prevDate);
       Object.entries(chain.totals).forEach(([k, v]) => { if (v > 0) totals[k] = v; });
       Object.assign(productosBase, chain.productosBase);
+      Object.assign(fechasBase, chain.fechasBase || {});
     }
   }
   ingresos.forEach(ing => {
     const key = SILO_STOCK_KEY[ing.destino];
     if (key) {
-      totals[key] = (totals[key] || 0) + (parseFloat(ing.litrosFca) || 0);
+      const prevLitros = totals[key] || 0;
+      totals[key] = prevLitros + (parseFloat(ing.litrosFca) || 0);
       // Ingreso define el producto del silo (sobreescribe el carry-over)
       if (ing.producto) productosBase[key] = ing.producto;
+      // fecha: si el silo estaba vacío antes de este ingreso, resetear a hoy
+      // Si ya tenía contenido, conservar la fecha más antigua (worst-case)
+      if (prevLitros <= 0) fechasBase[key] = date;
     }
   });
   (movData.movs || []).forEach(mov => {
     const from = SILO_STOCK_KEY[mov.desde];
     const to = SILO_STOCK_KEY[mov.hasta];
     const L = parseFloat(mov.litros) || 0;
-    if (from) totals[from] = (totals[from] || 0) - L;
+    // Capturar fecha del origen antes de modificar (puede quedar vacío y nullearse)
+    const fromFechaSnap = from ? (fechasBase[from] || null) : null;
+    if (from) {
+      totals[from] = (totals[from] || 0) - L;
+      if ((totals[from] || 0) <= 0) fechasBase[from] = null;
+    }
     if (to) {
       totals[to] = (totals[to] || 0) + L;
       // Movimiento lleva el producto del silo origen al destino
       if (productosBase[from] && !productosBase[to]) productosBase[to] = productosBase[from];
+      // Fecha: tomar la más antigua entre origen y destino (worst-case)
+      const toFecha = fechasBase[to] || null;
+      if (fromFechaSnap || toFecha) {
+        fechasBase[to] = (fromFechaSnap && toFecha)
+          ? (fromFechaSnap < toFecha ? fromFechaSnap : toFecha)
+          : (fromFechaSnap || toFecha);
+      }
     }
   });
   cargas.forEach(c => {
     const from = SILO_STOCK_KEY[c.siloProveniente];
     const L = parseFloat(c.litros) || 0;
-    if (from && L > 0) totals[from] = (totals[from] || 0) - L;
+    if (from && L > 0) {
+      totals[from] = (totals[from] || 0) - L;
+      if ((totals[from] || 0) <= 0) fechasBase[from] = null;
+    }
   });
   forts.forEach(f => {
     const from = SILO_STOCK_KEY[f.siloOrigen];
     const to = SILO_STOCK_KEY[f.siloDestino];
     const L = parseFloat(f.litrosBase) || 0;
-    if (from && L > 0) totals[from] = (totals[from] || 0) - L;
+    if (from && L > 0) {
+      totals[from] = (totals[from] || 0) - L;
+      if ((totals[from] || 0) <= 0) fechasBase[from] = null;
+    }
     if (to && L > 0) {
       totals[to] = (totals[to] || 0) + L;
-      productosBase[to] = "Leche Fortificada"; // fortified overrides
+      productosBase[to] = buildFortLabel(f); // deriva label según flags P/H
+      fechasBase[to] = date; // fort crea producto nuevo — fecha se resetea al día del lote
     }
     // Adiciones líquidas (L / mL) suman volumen al destino
     (f.adiciones || []).forEach(a => {
@@ -620,7 +682,10 @@ async function calcAutoLitros(date, _baseTotals, _baseProductos) {
       sources.forEach(o => {
         const from = SILO_STOCK_KEY[o.silo];
         const L = parseFloat(o.litros) || 0;
-        if (from && L > 0) totals[from] = (totals[from] || 0) - L;
+        if (from && L > 0) {
+          totals[from] = (totals[from] || 0) - L;
+          if ((totals[from] || 0) <= 0) fechasBase[from] = null;
+        }
       });
       // Si el sobrante va a otro silo lo maneja el movimiento automático (procesado arriba)
     } else if (!("litrosUsados" in p)) {
@@ -628,7 +693,10 @@ async function calcAutoLitros(date, _baseTotals, _baseProductos) {
       (p.origenes || []).forEach(o => {
         const from = SILO_STOCK_KEY[o.silo];
         const L = parseFloat(o.litros) || 0;
-        if (from && L > 0) totals[from] = (totals[from] || 0) - L;
+        if (from && L > 0) {
+          totals[from] = (totals[from] || 0) - L;
+          if ((totals[from] || 0) <= 0) fechasBase[from] = null;
+        }
       });
     } else {
       // enviado / envasando con nueva lógica: reservar sin descontar stock real
@@ -647,7 +715,7 @@ async function calcAutoLitros(date, _baseTotals, _baseProductos) {
       });
     }
   });
-  const result = { totals, productosBase, reservados };
+  const result = { totals, productosBase, reservados, fechasBase };
   // Solo cachear en modo normal (no en cadena, que es one-shot)
   if (!chainMode) _autoLitrosCache.set(date, { result, ts: Date.now() });
   return result;
@@ -661,13 +729,15 @@ const _CHAIN_MAX_DAYS = 365;
 async function buildChainedSaldo(baseSaldo, targetDate) {
   let totals = { ...baseSaldo.data };
   let productosBase = { ...(baseSaldo.productos || {}) };
+  let fechasBase = { ...(baseSaldo.fechas || {}) };
   let d = addDay(baseSaldo.fromDate);
   let iters = 0;
   let lastDate = baseSaldo.fromDate;
   while (d <= targetDate && iters < _CHAIN_MAX_DAYS) {
-    const r = await calcAutoLitros(d, totals, productosBase);
+    const r = await calcAutoLitros(d, totals, productosBase, fechasBase);
     totals = r.totals;
     productosBase = r.productosBase;
+    fechasBase = r.fechasBase || {};
     lastDate = d;
     d = addDay(d);
     iters++;
@@ -676,7 +746,7 @@ async function buildChainedSaldo(baseSaldo, targetDate) {
   if (truncated) {
     console.warn(`[buildChainedSaldo] cadena truncada: ${iters} iteraciones, último día procesado ${lastDate}, falta llegar a ${targetDate}`);
   }
-  return { totals, productosBase, truncated, daysProcessed: iters, lastDate };
+  return { totals, productosBase, fechasBase, truncated, daysProcessed: iters, lastDate };
 }
 
 // ─── REBUILD SALDO CHAIN ─────────────────────────────────────
@@ -709,7 +779,7 @@ async function rebuildSaldoChain(fromDate, reason = "manual") {
   if (result.truncated) {
     console.warn(`[rebuildSaldoChain] cadena TRUNCADA en ${result.lastDate}, falta hasta ${yesterday} (${result.daysProcessed} días procesados)`);
   }
-  await saveSaldo(result.totals, yesterday, result.productosBase);
+  await saveSaldo(result.totals, yesterday, result.productosBase, result.fechasBase);
   // Cache de hoy debe regenerarse en próxima lectura
   invalidateAutoLitrosFrom(today);
   return { rebuilt: true, truncated: result.truncated, base: base.fromDate, lastDate: result.lastDate, daysProcessed: result.daysProcessed };
@@ -3407,6 +3477,7 @@ const SecStock = ({ date, syncKey = 0, perfil = null }) => {
   const [turno, setTurno] = useState(getCurrentTurno());
   const [autoLitros, setAutoLitros] = useState({});
   const [autoReservados, setAutoReservados] = useState({});
+  const [autoFechas, setAutoFechas] = useState({});
   const [silosVaciados, setSilosVaciados] = useState([]);
   const [envasarModal, setEnvasarModal] = useState(null);
 
@@ -3415,9 +3486,10 @@ const SecStock = ({ date, syncKey = 0, perfil = null }) => {
       load(date, "stock", {}),
       calcAutoLitros(date),
       load(date, "cip", {}),
-    ]).then(([d, { totals: autoTotals, productosBase, reservados: rsv }, cipData]) => {
+    ]).then(([d, { totals: autoTotals, productosBase, reservados: rsv, fechasBase: fbs }, cipData]) => {
       setAutoLitros(autoTotals);
       setAutoReservados(rsv || {});
+      setAutoFechas(fbs || {});
 
       // Silos con CIP completado hoy (tienen hora registrada)
       const cipDone = {};
@@ -3558,6 +3630,8 @@ const SecStock = ({ date, syncKey = 0, perfil = null }) => {
             const hasData = litrosAuto > 0 || sd.producto || sd.ph;
             const pct = (fillPct * 100).toFixed(1);
             const tieneReserva = reservadoL > 0;
+            const sfBadge = litrosAuto > 0 ? calcSF(autoFechas[silo], date) : null;
+            const sfOld = sfBadge && sfBadge !== "SF"; // SF+1 o más → alerta visual
 
             return (
               <div key={silo} style={{
@@ -3582,6 +3656,17 @@ const SecStock = ({ date, syncKey = 0, perfil = null }) => {
                       }}>
                         <span style={{ width: 6, height: 6, borderRadius: 3, background: C.accent, animation: "yatPulse 1.8s ease-in-out infinite" }} />
                         Reservado
+                      </span>
+                    )}
+                    {sfBadge && (
+                      <span style={{
+                        fontSize: 10, fontWeight: 800, padding: "2px 7px", borderRadius: 8,
+                        background: sfOld ? C.danger.replace(/\)$/, " / 0.15)") : C.surface,
+                        color: sfOld ? C.danger : C.sub,
+                        border: `1px solid ${sfOld ? C.danger.replace(/\)$/, " / 0.4)") : C.border}`,
+                        fontFamily: FONT_MONO, letterSpacing: "0.04em",
+                      }}>
+                        {sfBadge}
                       </span>
                     )}
                   </div>
@@ -3722,6 +3807,8 @@ const emptyFort = () => ({
   siloOrigen: "",
   litrosBase: "",
   siloDestino: "",
+  pasteurizado: false,
+  homogeneizado: false,
   adiciones: [
     { id: 1, producto: "Lactosa", cantidad: "", unidad: "kg" },
     { id: 2, producto: "Variolac", cantidad: "", unidad: "g" },
@@ -3757,6 +3844,29 @@ const FortForm = ({ initial, onSave, onClose, onDelete }) => {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
         <F label="Silo Origen"><Sel value={f.siloOrigen} onChange={set("siloOrigen")} options={SILOS_TODOS} placeholder="Origen..." /></F>
         <F label="Silo Destino"><Sel value={f.siloDestino} onChange={set("siloDestino")} options={SILOS_TODOS} placeholder="Destino..." /></F>
+      </div>
+
+      {/* Procesos industriales — booleanos independientes, backward compat vía ?? false */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+        {[["pasteurizado", "P · Pasteurizado"], ["homogeneizado", "H · Homogeneizado"]].map(([key, label]) => {
+          const active = f[key] ?? false;
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setF(p => ({ ...p, [key]: !(p[key] ?? false) }))}
+              style={{
+                padding: "12px 8px", borderRadius: 8, border: `1.5px solid ${active ? C.accent : C.border}`,
+                background: active ? C.accent.replace(/\)$/, " / 0.12)") : C.card,
+                color: active ? C.accent : C.sub,
+                fontWeight: 700, fontSize: 13, letterSpacing: "0.04em",
+                cursor: "pointer", transition: "all 0.15s ease",
+              }}
+            >
+              {label}
+            </button>
+          );
+        })}
       </div>
 
       <div style={panel}>
@@ -3916,6 +4026,12 @@ const SecFortificados = ({ date, syncKey = 0, dayClosed = false, perfil = null }
             <span style={{ fontFamily: FONT_MONO, fontWeight: 700, color: C.accent, fontSize: 17 }}>{f.hora}</span>
             <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
               {f.paraQue && <span style={{ background: C.success.replace(/\)$/, " / 0.15)"), color: C.success, borderRadius: 6, padding: "2px 8px", fontSize: 11, fontWeight: 700, border: `1px solid ${C.success.replace(/\)$/, " / 0.35)")}` }}>{f.paraQue}</span>}
+              {/* Chip de proceso — visible solo si al menos un flag está activo */}
+              {(f.pasteurizado ?? false) || (f.homogeneizado ?? false) ? (
+                <span style={{ background: C.accent.replace(/\)$/, " / 0.15)"), color: C.accent, borderRadius: 6, padding: "2px 8px", fontSize: 11, fontWeight: 800, border: `1px solid ${C.accent.replace(/\)$/, " / 0.4)")}`, letterSpacing: "0.04em" }}>
+                  {buildFortLabel(f).replace("Leche ", "")}
+                </span>
+              ) : null}
               <span style={{ background: C.success.replace(/\)$/, " / 0.15)"), color: C.success, borderRadius: 6, padding: "2px 10px", fontSize: 12, fontWeight: 700 }}>
                 {f.litrosBase ? `${parseFloat(f.litrosBase).toLocaleString("es-AR")} L` : "Sin litros"}
               </span>
@@ -7636,11 +7752,11 @@ const SaldoInicialPanel = ({ perfil }) => {
     const yesterday = getPreviousDate(today);
     if (baseDate < yesterday) {
       setStatus("chaining");
-      const { totals, productosBase } = await buildChainedSaldo({ data, fromDate: baseDate, productos }, yesterday);
-      await saveSaldo(totals, yesterday, productosBase);
+      const { totals, productosBase, fechasBase } = await buildChainedSaldo({ data, fromDate: baseDate, productos }, yesterday);
+      await saveSaldo(totals, yesterday, productosBase, fechasBase);
       _autoLitrosCache.clear();
     } else if (baseDate <= today) {
-      await saveSaldo(data, baseDate, productos);
+      await saveSaldo(data, baseDate, productos); // base manual, sin fechas — compat ok
     }
 
     setBaseSaldo({ data, fromDate: baseDate, productos });
@@ -8047,15 +8163,15 @@ export default function App() {
     const yesterday = getPreviousDate(today);
     loadSaldo().then(async saldo => {
       if (saldo && saldo.fromDate === yesterday) return; // ya está al día
-      let totals, productosBase;
+      let totals, productosBase, fechasBase;
       if (saldo && saldo.fromDate && saldo.fromDate < yesterday) {
         // Hay un gap: encadenar desde la fecha del saldo hasta ayer
-        ({ totals, productosBase } = await buildChainedSaldo(saldo, yesterday));
+        ({ totals, productosBase, fechasBase } = await buildChainedSaldo(saldo, yesterday));
       } else {
         // No hay saldo previo o es futuro: calcular ayer directamente
-        ({ totals, productosBase } = await calcAutoLitros(yesterday));
+        ({ totals, productosBase, fechasBase } = await calcAutoLitros(yesterday));
       }
-      await saveSaldo(totals, yesterday, productosBase);
+      await saveSaldo(totals, yesterday, productosBase, fechasBase);
     });
   }, []);
 
@@ -8085,13 +8201,13 @@ export default function App() {
       if (today !== lastDate) {
         const yesterday = getPreviousDate(today);
         loadSaldo().then(async saldo => {
-          let totals, productosBase;
+          let totals, productosBase, fechasBase;
           if (saldo && saldo.fromDate && saldo.fromDate < yesterday) {
-            ({ totals, productosBase } = await buildChainedSaldo(saldo, yesterday));
+            ({ totals, productosBase, fechasBase } = await buildChainedSaldo(saldo, yesterday));
           } else {
-            ({ totals, productosBase } = await calcAutoLitros(yesterday));
+            ({ totals, productosBase, fechasBase } = await calcAutoLitros(yesterday));
           }
-          await saveSaldo(totals, yesterday, productosBase);
+          await saveSaldo(totals, yesterday, productosBase, fechasBase);
         });
         lastDate = today;
       }
@@ -8132,13 +8248,13 @@ export default function App() {
     const est = { closed: true, closedAt: new Date().toISOString(), closedBy: PERFILES[perfil]?.label || "Supervisor" };
     await saveEstado(date, est);
     // Snapshot del saldo en el resumen de auditoría
-    const { totals: finalTotals, productosBase: finalProductos } = await calcAutoLitros(date);
+    const { totals: finalTotals, productosBase: finalProductos, fechasBase: finalFechas } = await calcAutoLitros(date);
     const totalLitros = Object.values(finalTotals).reduce((s, v) => s + (v > 0 ? v : 0), 0);
     await logAudit(date, "close_day", "dia", `Día ${date} cerrado · saldo total ${Math.round(totalLitros).toLocaleString("es-AR")} L`, est.closedBy);
     const today = getToday();
     if (date >= getPreviousDate(today)) {
       // Cerrando hoy o ayer — saldo del día cerrado se vuelve la base para mañana
-      await saveSaldo(finalTotals, date, finalProductos);
+      await saveSaldo(finalTotals, date, finalProductos, finalFechas);
     } else {
       // Cierre retroactivo — no pisar SALDO_KEY con la fecha antigua porque
       // rompería el saldo encadenado de hoy. Disparar reconstrucción completa.
