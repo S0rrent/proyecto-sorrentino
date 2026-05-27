@@ -74,11 +74,12 @@ const STOCK_SILOS   = [...SILOS_GRUPO, ...PROCESO_GRUPO];
 const TURNOS = ["07:00", "14:00", "21:00"];
 const TURNO_LABELS = { "07:00": "Mañana", "14:00": "Tarde", "21:00": "Noche" };
 const TURNO_CIERRE = { "07:00": "14:00", "14:00": "21:00", "21:00": "07:00" }; // hora de cierre
-const PRODUCTOS = ["Leche Cruda", "Leche Descremada", "Lactosa", "Suero"];
+const PRODUCTOS = ["Leche Cruda", "Leche Descremada", "Lactosa", "Suero", "Permeado", "Permeado de Suero", "Permeado de Lactosa"];
 const PRODS_STOCK = [
   "Leche Cruda", "Leche Entera", "Leche Descremada", "Leche Fortificada",
   "Leche Pasteurizada", "Leche Homogeneizada", "Leche PyH",
-  "Lactosa", "Suero", "Yogurt", "Sucio (vacío)", "Limpio",
+  "Lactosa", "Suero", "Permeado", "Permeado de Suero", "Permeado de Lactosa",
+  "Yogurt", "Postre", "Sucio (vacío)", "Limpio",
 ];
 
 // Deriva el label canónico de un lote fort según sus flags de proceso.
@@ -154,7 +155,11 @@ const PROD_COLOR = {
   "Leche PyH": "#c84800",
   "Lactosa": "#d4b896",
   "Suero": "#ffe000",
+  "Permeado": "#fff4a8",
+  "Permeado de Suero": "#e8d090",
+  "Permeado de Lactosa": "#d8d0b0",
   "Yogurt": "#f4a0c0",
+  "Postre": "#8b6242",
   "Sucio (vacío)": "#dc2626",
   "Limpio": "#16a34a",
 };
@@ -643,6 +648,11 @@ async function calcAutoLitros(date, _baseTotals, _baseProductos, _baseFechas) {
       if ((totals[from] || 0) <= 0) fechasBase[from] = null;
     }
   });
+  // Forts: corren DESPUÉS de ingresos y movs → label de fort siempre gana sobre el
+  // carry-over y sobre cualquier escritura previa de productosBase para el mismo silo.
+  // Same-silo (from===to) funciona: subtract+add neutralizan litros, label y fecha
+  // del bloque `to` se aplican al final. Multi-fort sobre mismo silo: last-write-wins
+  // (no acumula P+H→PyH; eso requeriría leer el label actual y mergear, fuera de scope).
   forts.forEach(f => {
     const from = SILO_STOCK_KEY[f.siloOrigen];
     const to = SILO_STOCK_KEY[f.siloDestino];
@@ -3660,11 +3670,12 @@ const SecStock = ({ date, syncKey = 0, perfil = null }) => {
                     )}
                     {sfBadge && (
                       <span style={{
-                        fontSize: 10, fontWeight: 800, padding: "2px 7px", borderRadius: 8,
-                        background: sfOld ? C.danger.replace(/\)$/, " / 0.15)") : C.surface,
-                        color: sfOld ? C.danger : C.sub,
-                        border: `1px solid ${sfOld ? C.danger.replace(/\)$/, " / 0.4)") : C.border}`,
-                        fontFamily: FONT_MONO, letterSpacing: "0.04em",
+                        fontSize: 13, fontWeight: 800, padding: "4px 11px", borderRadius: 8,
+                        background: sfOld ? C.danger.replace(/\)$/, " / 0.22)") : C.surface,
+                        color: sfOld ? C.danger : C.text,
+                        border: `1.5px solid ${sfOld ? C.danger.replace(/\)$/, " / 0.6)") : C.border}`,
+                        fontFamily: FONT_MONO, letterSpacing: "0.06em",
+                        whiteSpace: "nowrap", lineHeight: 1,
                       }}>
                         {sfBadge}
                       </span>
