@@ -3670,12 +3670,13 @@ const SecStock = ({ date, syncKey = 0, perfil = null }) => {
                     )}
                     {sfBadge && (
                       <span style={{
-                        fontSize: 13, fontWeight: 800, padding: "4px 11px", borderRadius: 8,
-                        background: sfOld ? C.danger.replace(/\)$/, " / 0.22)") : C.surface,
+                        fontSize: 16, fontWeight: 900, padding: "6px 14px", borderRadius: 10,
+                        background: sfOld ? C.danger.replace(/\)$/, " / 0.28)") : C.surface,
                         color: sfOld ? C.danger : C.text,
-                        border: `1.5px solid ${sfOld ? C.danger.replace(/\)$/, " / 0.6)") : C.border}`,
-                        fontFamily: FONT_MONO, letterSpacing: "0.06em",
+                        border: `2px solid ${sfOld ? C.danger.replace(/\)$/, " / 0.75)") : C.border}`,
+                        fontFamily: FONT_MONO, letterSpacing: "0.08em",
                         whiteSpace: "nowrap", lineHeight: 1,
+                        boxShadow: sfOld ? `0 0 0 1px ${C.danger.replace(/\)$/, " / 0.18)")}, 0 1px 2px rgba(0,0,0,0.3)` : "none",
                       }}>
                         {sfBadge}
                       </span>
