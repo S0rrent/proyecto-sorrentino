@@ -2445,6 +2445,52 @@ const MovForm = ({ initial, onSave, onClose, onDelete, date }) => {
         </div>
       </div>
       <F label="Pérdida (L)"><Inp type="number" value={f.perdidaLitros ?? ""} onChange={set("perdidaLitros")} placeholder="0" /></F>
+
+      {/* Resumen en vivo: total descontado del origen = litros + perdida.
+          Al editar, el snapshot de stock ya descontó el mov original → re-sumamos su
+          impacto previo si el silo origen no cambió, para que el warning no dé falso positivo. */}
+      {(() => {
+        const litrosN = parseFloat(f.litros) || 0;
+        const perdidaN = parseFloat(f.perdidaLitros ?? 0) || 0;
+        const totalSalida = litrosN + perdidaN;
+        if (totalSalida <= 0) return null;
+        const tienePerdida = perdidaN > 0;
+        const dispOrigenRaw = dispOf(f.desde);
+        const aportePrevio = (initial && initial.desde === f.desde)
+          ? (parseFloat(initial.litros) || 0) + (parseFloat(initial.perdidaLitros ?? 0) || 0)
+          : 0;
+        const dispOrigen = dispOrigenRaw !== null ? dispOrigenRaw + aportePrevio : null;
+        const excedido = dispOrigen !== null && totalSalida > dispOrigen;
+        const accentColor = excedido ? C.danger : (tienePerdida ? C.accent : C.success);
+        return (
+          <div style={{
+            marginBottom: 12, padding: "10px 12px", borderRadius: 8,
+            background: accentColor.replace(/\)$/, " / 0.10)"),
+            border: `1.5px solid ${accentColor.replace(/\)$/, " / 0.5)")}`,
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+              <span style={{ fontSize: 11, color: C.sub, textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700 }}>
+                Total descontado del origen
+              </span>
+              <span style={{ fontSize: 20, fontFamily: FONT_MONO, fontWeight: 800, color: accentColor, lineHeight: 1 }}>
+                {totalSalida.toLocaleString("es-AR")} L
+              </span>
+            </div>
+            {tienePerdida && (
+              <div style={{ fontSize: 11, color: C.sub, marginTop: 4, fontFamily: FONT_MONO }}>
+                {litrosN.toLocaleString("es-AR")} L movidos + {perdidaN.toLocaleString("es-AR")} L pérdida
+              </div>
+            )}
+            {excedido && (
+              <div style={{ fontSize: 12, color: C.danger, fontWeight: 700, marginTop: 6, display: "flex", alignItems: "center", gap: 5 }}>
+                <AlertaError size={13} strokeWidth={SW} />
+                La salida total supera el disponible del silo origen ({dispOrigen.toLocaleString("es-AR")} L)
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
       <F label="Producto que se mueve"><Sel value={f.producto || ""} onChange={set("producto")} options={PRODS_STOCK} placeholder="Seleccionar producto..." /></F>
       <F label="Motivo"><Inp value={f.motivo || ""} onChange={set("motivo")} placeholder="Ej: Trasvase, Mezcla, etc." /></F>
       <F label="Responsable"><Inp value={f.resp} onChange={set("resp")} /></F>
@@ -2602,11 +2648,24 @@ const SecMovimientos = ({ date, syncKey = 0, dayClosed = false, perfil = null })
                   </span>
                 )}
               </div>
-              {(parseFloat(m.perdidaLitros ?? 0) || 0) > 0 && (
-                <div style={{ fontSize: 12, color: C.danger, fontWeight: 600, marginTop: 2, fontFamily: FONT_MONO }}>
-                  Pérdida: {parseFloat(m.perdidaLitros).toLocaleString("es-AR")} L
-                </div>
-              )}
+              {(parseFloat(m.perdidaLitros ?? 0) || 0) > 0 && (() => {
+                const litrosN = parseFloat(m.litros) || 0;
+                const perdidaN = parseFloat(m.perdidaLitros) || 0;
+                const total = litrosN + perdidaN;
+                return (
+                  <div style={{ marginTop: 6, padding: "6px 8px", borderRadius: 6, background: C.accent.replace(/\)$/, " / 0.08)"), border: `1px solid ${C.accent.replace(/\)$/, " / 0.3)")}` }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: C.sub, fontFamily: FONT_MONO }}>
+                      <span>Movido</span><span style={{ color: C.text, fontWeight: 600 }}>{litrosN.toLocaleString("es-AR")} L</span>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: C.danger, fontFamily: FONT_MONO, fontWeight: 600 }}>
+                      <span>Pérdida</span><span>{perdidaN.toLocaleString("es-AR")} L</span>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.accent, fontFamily: FONT_MONO, fontWeight: 800, borderTop: `1px solid ${C.accent.replace(/\)$/, " / 0.25)")}`, paddingTop: 3, marginTop: 3 }}>
+                      <span>Total salida</span><span>{total.toLocaleString("es-AR")} L</span>
+                    </div>
+                  </div>
+                );
+              })()}
               {m.motivo && <div style={{ fontSize: 12, color: C.sub, marginTop: 2, fontStyle: "italic" }}>{m.motivo}</div>}
               {m.resp && <div style={{ fontSize: 12, color: C.muted, marginTop: 1 }}>{m.resp}</div>}
             </div>
