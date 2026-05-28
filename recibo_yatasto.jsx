@@ -107,6 +107,9 @@ const calcSF = (fechaSilo, today) => {
   if (d < 0 || d > 999) return null;
   return d === 0 ? "SF" : `SF+${d}`;
 };
+
+// SF solo aplica a productos sin procesar. Productos industrializados no muestran antigüedad de materia prima.
+const shouldShowSF = (producto) => producto === "Leche Cruda" || producto === "Suero";
 const NAV = [
   { id: "ingresos",    label: "Ingr.",  Icon: IcoIngresos },
   { id: "movimientos", label: "Movim.", Icon: IcoMovimientos },
@@ -588,6 +591,12 @@ async function calcAutoLitros(date, _baseTotals, _baseProductos, _baseFechas) {
     Object.entries(saldo.fechas || {}).forEach(([key, f]) => {
       if (f) fechasBase[key] = f;
     });
+    // Bootstrap: silos con litros en saldo pero sin fecha → usar saldo.fromDate como fecha conservadora.
+    // Necesario para datos pre-feature donde saldo.fechas no existía: garantiza que SF+N
+    // se propague correctamente en movimientos desde el primer día que corre el nuevo código.
+    Object.entries(saldo.data || {}).forEach(([key, litros]) => {
+      if (litros > 0 && !fechasBase[key]) fechasBase[key] = saldo.fromDate;
+    });
   } else if (baseSaldo && baseSaldo.fromDate && baseSaldo.fromDate < date) {
     // Fallback: SALDO_KEY es demasiado reciente (o no existe) para esta fecha histórica.
     // Usar SALDO_BASE_KEY (ancla manual) y encadenar día a día hasta date-1.
@@ -597,6 +606,10 @@ async function calcAutoLitros(date, _baseTotals, _baseProductos, _baseFechas) {
       Object.entries(baseSaldo.data || {}).forEach(([k, v]) => { if (v > 0) totals[k] = v; });
       Object.entries(baseSaldo.productos || {}).forEach(([k, p]) => { if (p) productosBase[k] = p; });
       Object.entries(baseSaldo.fechas || {}).forEach(([k, f]) => { if (f) fechasBase[k] = f; });
+      // Bootstrap para base sin fecha
+      Object.entries(baseSaldo.data || {}).forEach(([k, litros]) => {
+        if (litros > 0 && !fechasBase[k]) fechasBase[k] = baseSaldo.fromDate;
+      });
     } else {
       // Encadenar desde baseSaldo hasta prevDate (date-1)
       const chain = await buildChainedSaldo(baseSaldo, prevDate);
@@ -740,6 +753,10 @@ async function buildChainedSaldo(baseSaldo, targetDate) {
   let totals = { ...baseSaldo.data };
   let productosBase = { ...(baseSaldo.productos || {}) };
   let fechasBase = { ...(baseSaldo.fechas || {}) };
+  // Bootstrap: silos con litros en la base sin fecha → usar baseSaldo.fromDate
+  Object.entries(baseSaldo.data || {}).forEach(([k, litros]) => {
+    if (litros > 0 && !fechasBase[k]) fechasBase[k] = baseSaldo.fromDate;
+  });
   let d = addDay(baseSaldo.fromDate);
   let iters = 0;
   let lastDate = baseSaldo.fromDate;
@@ -3480,6 +3497,29 @@ const SecProduccion = ({ date, syncKey = 0, dayClosed = false, perfil = null }) 
   );
 };
 
+// Input numérico con estado local — persiste solo en onBlur para evitar
+// el revert causado por el conflicto de timestamps cuando se guarda en cada tecla.
+// useRef(dirty) evita que el sync periódico de syncKey resetee el valor mientras el
+// usuario está escribiendo activamente.
+const SiloField = ({ label, value, onSave, step }) => {
+  const [local, setLocal] = useState(value ?? "");
+  const dirtyRef = useRef(false);
+  useEffect(() => {
+    if (!dirtyRef.current) setLocal(value ?? "");
+  }, [value]);
+  return (
+    <F label={label}>
+      <input
+        style={{ ...inp, padding: "8px 10px", fontSize: 13 }}
+        type="number" inputMode="decimal" step={step}
+        value={local}
+        onChange={e => { dirtyRef.current = true; setLocal(e.target.value); }}
+        onBlur={() => { dirtyRef.current = false; onSave(local); }}
+      />
+    </F>
+  );
+};
+
 // ─── STOCK POR TURNO ─────────────────────────────────────────
 const SecStock = ({ date, syncKey = 0, perfil = null }) => {
   const [data, setData] = useState({});
@@ -3488,6 +3528,7 @@ const SecStock = ({ date, syncKey = 0, perfil = null }) => {
   const [autoLitros, setAutoLitros] = useState({});
   const [autoReservados, setAutoReservados] = useState({});
   const [autoFechas, setAutoFechas] = useState({});
+  const [autoProductos, setAutoProductos] = useState({});
   const [silosVaciados, setSilosVaciados] = useState([]);
   const [envasarModal, setEnvasarModal] = useState(null);
 
@@ -3500,6 +3541,7 @@ const SecStock = ({ date, syncKey = 0, perfil = null }) => {
       setAutoLitros(autoTotals);
       setAutoReservados(rsv || {});
       setAutoFechas(fbs || {});
+      setAutoProductos(productosBase || {});
 
       // Silos con CIP completado hoy (tienen hora registrada)
       const cipDone = {};
@@ -3640,7 +3682,10 @@ const SecStock = ({ date, syncKey = 0, perfil = null }) => {
             const hasData = litrosAuto > 0 || sd.producto || sd.ph;
             const pct = (fillPct * 100).toFixed(1);
             const tieneReserva = reservadoL > 0;
-            const sfBadge = litrosAuto > 0 ? calcSF(autoFechas[silo], date) : null;
+            // SF solo visible para productos sin procesar; usa el producto calculado por
+            // calcAutoLitros para no depender del selector manual del operario.
+            const prodSistema = autoProductos[silo] || sd.producto || "";
+            const sfBadge = litrosAuto > 0 && shouldShowSF(prodSistema) ? calcSF(autoFechas[silo], date) : null;
             const sfOld = sfBadge && sfBadge !== "SF"; // SF+1 o más → alerta visual
 
             return (
@@ -3763,24 +3808,13 @@ const SecStock = ({ date, syncKey = 0, perfil = null }) => {
                   </div>
                 </div>
 
-                {/* pH / Grasa / °D / °C */}
+                {/* pH / Grasa / °D / °C — SiloField usa estado local + guarda en onBlur
+                    para evitar revert por conflicto de timestamp al guardar en cada tecla */}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-                  <F label="pH">
-                    <input style={{ ...inp, padding: "8px 10px", fontSize: 13 }} type="number" inputMode="decimal"
-                      value={sd.ph || ""} onChange={e => updateSilo(turno, silo, "ph", e.target.value)} step="0.01" />
-                  </F>
-                  <F label="Grasa %">
-                    <input style={{ ...inp, padding: "8px 10px", fontSize: 13 }} type="number" inputMode="decimal"
-                      value={sd.grasa || ""} onChange={e => updateSilo(turno, silo, "grasa", e.target.value)} step="0.01" />
-                  </F>
-                  <F label="°D">
-                    <input style={{ ...inp, padding: "8px 10px", fontSize: 13 }} type="number" inputMode="decimal"
-                      value={sd.gD || ""} onChange={e => updateSilo(turno, silo, "gD", e.target.value)} step="0.1" />
-                  </F>
-                  <F label="°C">
-                    <input style={{ ...inp, padding: "8px 10px", fontSize: 13 }} type="number" inputMode="decimal"
-                      value={sd.gC || ""} onChange={e => updateSilo(turno, silo, "gC", e.target.value)} step="0.1" />
-                  </F>
+                  <SiloField label="pH"     value={sd.ph    || ""} step="0.01" onSave={v => updateSilo(turno, silo, "ph",    v)} />
+                  <SiloField label="Grasa %" value={sd.grasa || ""} step="0.01" onSave={v => updateSilo(turno, silo, "grasa", v)} />
+                  <SiloField label="°D"     value={sd.gD    || ""} step="0.1"  onSave={v => updateSilo(turno, silo, "gD",    v)} />
+                  <SiloField label="°C"     value={sd.gC    || ""} step="0.1"  onSave={v => updateSilo(turno, silo, "gC",    v)} />
                 </div>
 
                 {disponibleL > 0 && (perfil === "supervisor" || perfil === "jefe") && (
