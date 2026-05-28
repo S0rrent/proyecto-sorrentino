@@ -3809,7 +3809,9 @@ const SecStock = ({ date, syncKey = 0, perfil = null }) => {
                       </span>
                     )}
                     {sfBadge && (
-                      <span style={{
+                      <span
+                        title={sfBadge === "SF" ? "Sin fermentar — ingresó hoy" : `Sin fermentar — ${sfBadge.replace("SF+", "")} día(s) desde ingreso`}
+                        style={{
                         fontSize: 16, fontWeight: 900, padding: "6px 14px", borderRadius: 10,
                         background: sfOld ? C.danger.replace(/\)$/, " / 0.28)") : C.surface,
                         color: sfOld ? C.danger : C.text,
@@ -3817,6 +3819,7 @@ const SecStock = ({ date, syncKey = 0, perfil = null }) => {
                         fontFamily: FONT_MONO, letterSpacing: "0.08em",
                         whiteSpace: "nowrap", lineHeight: 1,
                         boxShadow: sfOld ? `0 0 0 1px ${C.danger.replace(/\)$/, " / 0.18)")}, 0 1px 2px rgba(0,0,0,0.3)` : "none",
+                        cursor: "help",
                       }}>
                         {sfBadge}
                       </span>
