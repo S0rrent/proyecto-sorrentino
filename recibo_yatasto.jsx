@@ -634,10 +634,13 @@ async function calcAutoLitros(date, _baseTotals, _baseProductos, _baseFechas) {
     const from = SILO_STOCK_KEY[mov.desde];
     const to = SILO_STOCK_KEY[mov.hasta];
     const L = parseFloat(mov.litros) || 0;
+    // Pérdida operativa manual (derrame, purga, residuo). Sale del origen, NO entra al destino.
+    // Fallback ?? 0 para movimientos viejos sin el campo.
+    const perdida = parseFloat(mov.perdidaLitros ?? 0) || 0;
     // Capturar fecha del origen antes de modificar (puede quedar vacío y nullearse)
     const fromFechaSnap = from ? (fechasBase[from] || null) : null;
     if (from) {
-      totals[from] = (totals[from] || 0) - L;
+      totals[from] = (totals[from] || 0) - L - perdida;
       if ((totals[from] || 0) <= 0) fechasBase[from] = null;
     }
     if (to) {
@@ -2401,14 +2404,30 @@ const SecCarga = ({ date, syncKey = 0, dayClosed = false, perfil = null }) => {
 };
 
 // ─── MOVIMIENTOS ─────────────────────────────────────────────
-const emptyMov = () => ({ id: crypto.randomUUID(), hora: getNow(), desde: "", hasta: "", litros: "", producto: "", motivo: "", resp: "" });
+const emptyMov = () => ({ id: crypto.randomUUID(), hora: getNow(), desde: "", hasta: "", litros: "", perdidaLitros: "", producto: "", motivo: "", resp: "" });
 const emptyCtrl = () => ({ id: crypto.randomUUID(), hora: getNow(), silo: "", ph: "", gD: "", gC: "", alc: "", mg: "", sng: "", dens: "", fp: "", prot: "", resp: "" });
 
-const MovForm = ({ initial, onSave, onClose, onDelete }) => {
+const MovForm = ({ initial, onSave, onClose, onDelete, date }) => {
   const [f, setF] = useState(initial || emptyMov());
   const [fieldError, setFieldError] = useState("");
+  const [stocks, setStocks] = useState({ totals: {}, reservados: {} });
   const savingRef = useRef(false);
   const set = k => v => { setFieldError(""); setF(p => ({ ...p, [k]: v })); };
+  useEffect(() => {
+    if (!date) return;
+    calcAutoLitros(date).then(r => setStocks({ totals: r.totals || {}, reservados: r.reservados || {} })).catch(() => {});
+  }, [date]);
+  // Disponible real = total - reservado. Lookup vía SILO_STOCK_KEY para normalizar nombre.
+  const dispOf = silo => {
+    if (!silo) return null;
+    const key = SILO_STOCK_KEY[silo] || silo;
+    return Math.max(0, (stocks.totals[key] || 0) - (stocks.reservados[key] || 0));
+  };
+  const SiloDisp = ({ silo }) => {
+    const d = dispOf(silo);
+    if (d === null || d <= 0) return <div style={{ fontSize: 11, color: C.muted, marginTop: 2, height: 14 }}>{silo ? "Sin stock" : ""}</div>;
+    return <div style={{ fontSize: 11, color: C.sub, marginTop: 2, fontFamily: FONT_MONO }}>Disp.: <span style={{ color: C.text, fontWeight: 700 }}>{d.toLocaleString("es-AR")} L</span></div>;
+  };
   return (
     <div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
@@ -2416,9 +2435,62 @@ const MovForm = ({ initial, onSave, onClose, onDelete }) => {
         <F label="Litros"><Inp type="number" value={f.litros} onChange={set("litros")} placeholder="0" /></F>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-        <F label="Desde"><Sel value={f.desde} onChange={set("desde")} options={SILOS_TODOS} placeholder="Origen..." /></F>
-        <F label="Hasta"><Sel value={f.hasta} onChange={set("hasta")} options={SILOS_TODOS} placeholder="Destino..." /></F>
+        <div>
+          <F label="Desde"><Sel value={f.desde} onChange={set("desde")} options={SILOS_TODOS} placeholder="Origen..." /></F>
+          <SiloDisp silo={f.desde} />
+        </div>
+        <div>
+          <F label="Hasta"><Sel value={f.hasta} onChange={set("hasta")} options={SILOS_TODOS} placeholder="Destino..." /></F>
+          <SiloDisp silo={f.hasta} />
+        </div>
       </div>
+      <F label="Pérdida (L)"><Inp type="number" value={f.perdidaLitros ?? ""} onChange={set("perdidaLitros")} placeholder="0" /></F>
+
+      {/* Resumen en vivo: total descontado del origen = litros + perdida.
+          Al editar, el snapshot de stock ya descontó el mov original → re-sumamos su
+          impacto previo si el silo origen no cambió, para que el warning no dé falso positivo. */}
+      {(() => {
+        const litrosN = parseFloat(f.litros) || 0;
+        const perdidaN = parseFloat(f.perdidaLitros ?? 0) || 0;
+        const totalSalida = litrosN + perdidaN;
+        if (totalSalida <= 0) return null;
+        const tienePerdida = perdidaN > 0;
+        const dispOrigenRaw = dispOf(f.desde);
+        const aportePrevio = (initial && initial.desde === f.desde)
+          ? (parseFloat(initial.litros) || 0) + (parseFloat(initial.perdidaLitros ?? 0) || 0)
+          : 0;
+        const dispOrigen = dispOrigenRaw !== null ? dispOrigenRaw + aportePrevio : null;
+        const excedido = dispOrigen !== null && totalSalida > dispOrigen;
+        const accentColor = excedido ? C.danger : (tienePerdida ? C.accent : C.success);
+        return (
+          <div style={{
+            marginBottom: 12, padding: "10px 12px", borderRadius: 8,
+            background: accentColor.replace(/\)$/, " / 0.10)"),
+            border: `1.5px solid ${accentColor.replace(/\)$/, " / 0.5)")}`,
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+              <span style={{ fontSize: 11, color: C.sub, textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700 }}>
+                Total descontado del origen
+              </span>
+              <span style={{ fontSize: 20, fontFamily: FONT_MONO, fontWeight: 800, color: accentColor, lineHeight: 1 }}>
+                {totalSalida.toLocaleString("es-AR")} L
+              </span>
+            </div>
+            {tienePerdida && (
+              <div style={{ fontSize: 11, color: C.sub, marginTop: 4, fontFamily: FONT_MONO }}>
+                {litrosN.toLocaleString("es-AR")} L movidos + {perdidaN.toLocaleString("es-AR")} L pérdida
+              </div>
+            )}
+            {excedido && (
+              <div style={{ fontSize: 12, color: C.danger, fontWeight: 700, marginTop: 6, display: "flex", alignItems: "center", gap: 5 }}>
+                <AlertaError size={13} strokeWidth={SW} />
+                La salida total supera el disponible del silo origen ({dispOrigen.toLocaleString("es-AR")} L)
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
       <F label="Producto que se mueve"><Sel value={f.producto || ""} onChange={set("producto")} options={PRODS_STOCK} placeholder="Seleccionar producto..." /></F>
       <F label="Motivo"><Inp value={f.motivo || ""} onChange={set("motivo")} placeholder="Ej: Trasvase, Mezcla, etc." /></F>
       <F label="Responsable"><Inp value={f.resp} onChange={set("resp")} /></F>
@@ -2497,8 +2569,13 @@ const SecMovimientos = ({ date, syncKey = 0, dayClosed = false, perfil = null })
   };
   const saveMov = async item => {
     const existing = data.movs.find(i => i.id === item.id);
-    const exclude = existing ? () => parseFloat(existing.litros) || 0 : null;
-    const check = await checkSiloBalance(date, item.desde, item.litros, exclude);
+    // Para excluir el impacto del mov anterior al editar: total = litros + perdida ?? 0
+    const exclude = existing
+      ? () => (parseFloat(existing.litros) || 0) + (parseFloat(existing.perdidaLitros ?? 0) || 0)
+      : null;
+    // El impacto real al origen es litros + perdida, no solo litros
+    const impactoOrigen = (parseFloat(item.litros) || 0) + (parseFloat(item.perdidaLitros ?? 0) || 0);
+    const check = await checkSiloBalance(date, item.desde, impactoOrigen, exclude);
     if (!check.ok) {
       const ok = await askConfirm({
         title: "Saldo insuficiente",
@@ -2571,6 +2648,24 @@ const SecMovimientos = ({ date, syncKey = 0, dayClosed = false, perfil = null })
                   </span>
                 )}
               </div>
+              {(parseFloat(m.perdidaLitros ?? 0) || 0) > 0 && (() => {
+                const litrosN = parseFloat(m.litros) || 0;
+                const perdidaN = parseFloat(m.perdidaLitros) || 0;
+                const total = litrosN + perdidaN;
+                return (
+                  <div style={{ marginTop: 6, padding: "6px 8px", borderRadius: 6, background: C.accent.replace(/\)$/, " / 0.08)"), border: `1px solid ${C.accent.replace(/\)$/, " / 0.3)")}` }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: C.sub, fontFamily: FONT_MONO }}>
+                      <span>Movido</span><span style={{ color: C.text, fontWeight: 600 }}>{litrosN.toLocaleString("es-AR")} L</span>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: C.danger, fontFamily: FONT_MONO, fontWeight: 600 }}>
+                      <span>Pérdida</span><span>{perdidaN.toLocaleString("es-AR")} L</span>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.accent, fontFamily: FONT_MONO, fontWeight: 800, borderTop: `1px solid ${C.accent.replace(/\)$/, " / 0.25)")}`, paddingTop: 3, marginTop: 3 }}>
+                      <span>Total salida</span><span>{total.toLocaleString("es-AR")} L</span>
+                    </div>
+                  </div>
+                );
+              })()}
               {m.motivo && <div style={{ fontSize: 12, color: C.sub, marginTop: 2, fontStyle: "italic" }}>{m.motivo}</div>}
               {m.resp && <div style={{ fontSize: 12, color: C.muted, marginTop: 1 }}>{m.resp}</div>}
             </div>
@@ -2604,7 +2699,7 @@ const SecMovimientos = ({ date, syncKey = 0, dayClosed = false, perfil = null })
           onClose={() => setModal(null)}
         >
           {modal.type === "mov"
-            ? <MovForm initial={modal.item} onSave={saveMov} onClose={() => setModal(null)} onDelete={modal.item ? () => delMov(modal.item.id) : null} />
+            ? <MovForm initial={modal.item} onSave={saveMov} onClose={() => setModal(null)} onDelete={modal.item ? () => delMov(modal.item.id) : null} date={date} />
             : <CtrlForm initial={modal.item} onSave={saveCtrl} onClose={() => setModal(null)} onDelete={modal.item ? () => delCtrl(modal.item.id) : null} />
           }
         </Modal>
