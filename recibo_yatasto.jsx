@@ -7838,10 +7838,12 @@ const SaldoInicialPanel = ({ perfil }) => {
     Object.fromEntries(STOCK_SILOS.map(s => [s, { litros: "", producto: "" }]))
   );
   const [editing, setEditing] = useState(false);
+  const [editingDate, setEditingDate] = useState(false);
+  const [newDate, setNewDate] = useState("");
   const [viewDate, setViewDate] = useState(getToday());
   const [viewResult, setViewResult] = useState(null);
   const [loadingView, setLoadingView] = useState(false);
-  const [status, setStatus] = useState(null); // null | "saving" | "chaining" | "saved"
+  const [status, setStatus] = useState(null); // null | "saving" | "chaining" | "saved" | "saving-date"
 
   const canEdit = perfil === "supervisor" || perfil === "jefe";
 
@@ -7906,6 +7908,59 @@ const SaldoInicialPanel = ({ perfil }) => {
     setTimeout(() => setStatus(null), 5000);
   };
 
+  // Cambia SOLO la fecha del saldo base. Litros y productos quedan intactos.
+  // Reusa el mismo flujo de re-encadenado que handleSave para que SF+N se
+  // recalcule desde la nueva fecha en toda la cadena.
+  const handleSaveDate = async () => {
+    if (perfil !== "supervisor" && perfil !== "jefe") {
+      console.warn("[SaldoInicialPanel.handleSaveDate] perfil sin permiso:", perfil);
+      return;
+    }
+    if (!baseSaldo) return;
+    if (!newDate || !/^\d{4}-\d{2}-\d{2}$/.test(newDate)) {
+      setStatus(null);
+      return;
+    }
+    const oldDate = baseSaldo.fromDate;
+    if (newDate === oldDate) { setEditingDate(false); return; }
+    const oldLabel = new Date(oldDate + "T00:00:00").toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" });
+    const newLabel = new Date(newDate + "T00:00:00").toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" });
+    const ok = await askConfirm({
+      title: "Cambiar fecha del Saldo Base",
+      message: `Se cambiará la fecha del saldo base de ${oldLabel} a ${newLabel}.\n\nLitros y productos NO se modifican.\nSF+N se recalcula desde la nueva fecha.\nLa cadena histórica se reconstruye automáticamente.\n\n¿Confirmar?`,
+      danger: true,
+      confirmLabel: "Cambiar fecha",
+    });
+    if (!ok) return;
+
+    setStatus("saving-date");
+    const data = baseSaldo.data || {};
+    const productos = baseSaldo.productos || {};
+
+    // Guardar base con la nueva fecha (mismo data + productos)
+    await saveBaseSaldo(data, newDate, productos);
+    _autoLitrosCache.clear();
+
+    // Re-encadenar SALDO_KEY desde la nueva base — idéntico flujo a handleSave
+    const today = getToday();
+    const yesterday = getPreviousDate(today);
+    if (newDate < yesterday) {
+      setStatus("chaining");
+      const { totals, productosBase, fechasBase } = await buildChainedSaldo({ data, fromDate: newDate, productos }, yesterday);
+      await saveSaldo(totals, yesterday, productosBase, fechasBase);
+      _autoLitrosCache.clear();
+    } else if (newDate <= today) {
+      // Base = ayer o hoy → SALDO_KEY apunta directo a la base con la nueva fecha
+      await saveSaldo(data, newDate, productos);
+    }
+
+    setBaseSaldo({ data, fromDate: newDate, productos });
+    setEditingDate(false);
+    setNewDate("");
+    setStatus("saved");
+    setTimeout(() => setStatus(null), 5000);
+  };
+
   const handleCalculate = async () => {
     setLoadingView(true);
     setViewResult(null);
@@ -7928,18 +7983,53 @@ const SaldoInicialPanel = ({ perfil }) => {
 
       {/* ── ZONA 1: Saldo Base Oficial ── */}
       <div style={{ ...card, marginBottom: 16, borderColor: `${C.accent}50` }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <span style={{
               background: C.accent, color: "#000", fontSize: 10, fontWeight: 800,
               letterSpacing: "0.08em", padding: "3px 8px", borderRadius: 4,
               textTransform: "uppercase", flexShrink: 0,
             }}>SALDO BASE OFICIAL</span>
-            {baseDate && (
-              <span style={{ fontSize: 12, color: C.sub }}>Cierre {baseDateLabel}</span>
+            {baseDate && !editingDate && (
+              <span style={{ fontSize: 12, color: C.sub, display: "inline-flex", alignItems: "center", gap: 6 }}>
+                Cierre {baseDateLabel}
+                {canEdit && !editing && (
+                  <button type="button"
+                    style={{
+                      background: "transparent", border: `1px solid ${C.border}`, color: C.accent,
+                      fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 4,
+                      cursor: "pointer", letterSpacing: "0.04em",
+                    }}
+                    onClick={() => { setNewDate(baseDate); setEditingDate(true); }}>
+                    Cambiar fecha
+                  </button>
+                )}
+              </span>
+            )}
+            {baseDate && editingDate && (
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                <input
+                  type="date"
+                  style={{ ...inp, fontSize: 12, padding: "5px 8px", width: "auto", minWidth: 130 }}
+                  value={newDate}
+                  max={getToday()}
+                  onChange={e => setNewDate(e.target.value)}
+                />
+                <button type="button"
+                  style={{ ...btnPrimary, fontSize: 11, padding: "5px 10px", width: "auto" }}
+                  disabled={status === "saving-date" || status === "chaining" || !newDate || newDate === baseDate}
+                  onClick={handleSaveDate}>
+                  {status === "saving-date" ? "Guardando…" : status === "chaining" ? "Recalc…" : "Guardar"}
+                </button>
+                <button type="button"
+                  style={{ ...btnSecondary, fontSize: 11, padding: "5px 10px", width: "auto" }}
+                  onClick={() => { setEditingDate(false); setNewDate(""); }}>
+                  Cancelar
+                </button>
+              </span>
             )}
           </div>
-          {canEdit && !editing && (
+          {canEdit && !editing && !editingDate && (
             <button type="button"
               style={{ ...btnSecondary, fontSize: 11, padding: "5px 12px", width: "auto", flexShrink: 0 }}
               onClick={() => setEditing(true)}>
