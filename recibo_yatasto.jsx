@@ -1564,7 +1564,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo,
           ))}
         </select>
       </F>
-      {!isConcentrado && tamboPickerField("Tambo / Procedencia")}
+      {tamboPickerField(isConcentrado ? "Tambo (opcional)" : "Tambo / Procedencia")}
       <F label="Producto">
         <Sel value={f.producto || ""} onChange={set("producto")} options={PRODUCTOS} placeholder="Seleccionar producto..." />
       </F>
@@ -1599,23 +1599,36 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo,
     letterSpacing: "0.06em", marginTop: 4, marginBottom: 10,
   };
 
+  const hasTamboSelected = !!f.tambo;
+
   const calidadContent = isConcentrado ? (
     <>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-        <F label="Acidez">
-          <SmartDecInp value={f.acidezFca} onChange={set("acidezFca")} decimalAfter={2} />
-          <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>Ref: 14 – 18 °D</div>
-        </F>
-        <F label="pH">
-          <SmartDecInp value={f.phFca} onChange={set("phFca")} decimalAfter={1} />
-          <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>Ref: 6.6 – 6.8</div>
-        </F>
-      </div>
-      <F label="°BRIX"><SmartDecInp value={f.brix || ""} onChange={set("brix")} decimalAfter={2} placeholder="°Brix" /></F>
+      {hasTamboSelected ? (
+        <>
+          <Pair label="Acidez" v1={f.acidezFca} v2={f.acidezTbo ?? ""} on1={set("acidezFca")} on2={set("acidezTbo")} decimalAfter={2} />
+          <div style={{ fontSize: 11, color: C.sub, marginTop: -8, marginBottom: 12 }}>Ref: 14 – 18 °D</div>
+          <Pair label="pH" v1={f.phFca} v2={f.phTbo ?? ""} on1={set("phFca")} on2={set("phTbo")} decimalAfter={1} />
+          <div style={{ fontSize: 11, color: C.sub, marginTop: -8, marginBottom: 12 }}>Ref: 6.6 – 6.8</div>
+          <Pair label="°BRIX" v1={f.brix || ""} v2={f.brixTbo ?? ""} on1={set("brix")} on2={set("brixTbo")} decimalAfter={2} />
+        </>
+      ) : (
+        <>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <F label="Acidez">
+              <SmartDecInp value={f.acidezFca} onChange={set("acidezFca")} decimalAfter={2} />
+              <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>Ref: 14 – 18 °D</div>
+            </F>
+            <F label="pH">
+              <SmartDecInp value={f.phFca} onChange={set("phFca")} decimalAfter={1} />
+              <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>Ref: 6.6 – 6.8</div>
+            </F>
+          </div>
+          <F label="°BRIX"><SmartDecInp value={f.brix || ""} onChange={set("brix")} decimalAfter={2} placeholder="°Brix" /></F>
+        </>
+      )}
       <F label="Organoléptico">
         <Sel value={f.organoleptico || ""} onChange={set("organoleptico")} options={["Sí", "No"]} placeholder="¿Conforme?" />
       </F>
-      {tamboPickerField("Tambo (opcional)")}
     </>
   ) : (
     <>
