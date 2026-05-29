@@ -108,8 +108,10 @@ const calcSF = (fechaSilo, today) => {
   return d === 0 ? "SF" : `SF+${d}`;
 };
 
+// Familia "Suero-like": suero y sus permeados comparten parámetros, color base, SF, form simplificado y disponibilidad en carga.
+const isSueroLike = (p) => p === "Suero" || p === "Permeado" || p === "Permeado de Suero" || p === "Permeado de Lactosa";
 // SF solo aplica a productos sin procesar. Productos industrializados no muestran antigüedad de materia prima.
-const shouldShowSF = (producto) => producto === "Leche Cruda" || producto === "Suero";
+const shouldShowSF = (producto) => producto === "Leche Cruda" || isSueroLike(producto);
 const NAV = [
   { id: "ingresos",    label: "Ingr.",  Icon: IcoIngresos },
   { id: "movimientos", label: "Movim.", Icon: IcoMovimientos },
@@ -178,7 +180,7 @@ const SILO_STOCK_KEY = {
   "TINA": "TINA", "DULCE": "DULCE", "POSTRE": "POSTRE",
 };
 // Productos de despacho para carga de camiones
-const CARGA_PRODUCTOS_BASE = ["Leche Entera", "Leche Descremada", "Suero", "Lactosa", "Concentrado", "Crema", "Otro"];
+const CARGA_PRODUCTOS_BASE = ["Leche Entera", "Leche Descremada", "Suero", "Permeado", "Permeado de Suero", "Permeado de Lactosa", "Lactosa", "Concentrado", "Crema", "Otro"];
 // Categorías de producción y sus variantes para el wizard
 const PROD_CATEGORIAS = {
   "Leche Tetra":    ["Entera", "Descremada"],
@@ -221,7 +223,7 @@ const PRODS_PRODUCCION_LIST = [
   { cat: "Otro",           variant: "Otro",           nombre: "Otro",                    up: 1,  vol: 1.0  },
 ];
 // Productos concentrados que usan formulario simplificado en ingresos
-const PRODS_CONCENTRADOS = ["Lactosa", "Suero", "Concentrado"];
+const PRODS_CONCENTRADOS = ["Lactosa", "Suero", "Permeado", "Permeado de Suero", "Permeado de Lactosa", "Concentrado"];
 
 // ─── UTILS ────────────────────────────────────────────────────
 const getToday = () => new Date().toISOString().split("T")[0];
