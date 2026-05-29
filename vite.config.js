@@ -11,8 +11,21 @@ export default defineConfig({
       workbox: {
         clientsClaim: true,
         skipWaiting: true,
-        globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2}"],
+        cleanupOutdatedCaches: true,
+        globPatterns: ["**/*.{js,css,ico,png,svg,woff2}"],
+        navigateFallback: "index.html",
+        navigateFallbackDenylist: [/^\/api/, /^\/_/],
         runtimeCaching: [
+          {
+            urlPattern: ({ request }) => request.mode === "navigate",
+            handler: "NetworkFirst",
+            options: {
+              cacheName: "html-cache",
+              networkTimeoutSeconds: 5,
+              expiration: { maxEntries: 5, maxAgeSeconds: 60 * 60 * 24 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
           {
             urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
             handler: "CacheFirst",
