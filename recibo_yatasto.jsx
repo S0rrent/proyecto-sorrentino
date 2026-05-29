@@ -3971,6 +3971,7 @@ const emptyFort = () => ({
   hora: getNow(),
   paraQue: "",
   siloOrigen: "",
+  productoBase: "",
   litrosBase: "",
   siloDestino: "",
   pasteurizado: false,
@@ -3985,11 +3986,20 @@ const emptyFort = () => ({
   obs: "",
 });
 
-const FortForm = ({ initial, onSave, onClose, onDelete }) => {
+const FortForm = ({ initial, onSave, onClose, onDelete, siloStates = { totals: {}, productos: {}, reservados: {}, fechas: {} }, date = null }) => {
   const [f, setF] = useState(() => initial ? { ...emptyFort(), ...initial } : emptyFort());
   const [fieldError, setFieldError] = useState("");
   const savingRef = useRef(false);
   const set = k => v => { setFieldError(""); setF(p => ({ ...p, [k]: v })); };
+
+  // Selección de silo origen con autocompletado del producto base detectado en el saldo.
+  // El productoBase es ayuda/captura visual — no participa de ningún cálculo de litros.
+  const pickOrigen = silo => {
+    setFieldError("");
+    const key = SILO_STOCK_KEY[silo] || silo;
+    const detected = siloStates.productos[key] || "";
+    setF(p => ({ ...p, siloOrigen: silo, productoBase: detected || p.productoBase }));
+  };
 
   const updAdicion = (id, key, val) =>
     setF(p => ({ ...p, adiciones: p.adiciones.map(a => a.id === id ? { ...a, [key]: val } : a) }));
@@ -4008,9 +4018,57 @@ const FortForm = ({ initial, onSave, onClose, onDelete }) => {
         <F label="Litros base"><Inp type="number" value={f.litrosBase} onChange={set("litrosBase")} placeholder="0" /></F>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
-        <F label="Silo Origen"><Sel value={f.siloOrigen} onChange={set("siloOrigen")} options={SILOS_TODOS} placeholder="Origen..." /></F>
+        <F label="Silo Origen"><Sel value={f.siloOrigen} onChange={pickOrigen} options={SILOS_TODOS} placeholder="Origen..." /></F>
         <F label="Silo Destino"><Sel value={f.siloDestino} onChange={set("siloDestino")} options={SILOS_TODOS} placeholder="Destino..." /></F>
       </div>
+
+      {/* Card contextual del silo origen: contenido actual + SF + disponible.
+          Ayuda visual anti-misclick — lee el saldo igual que SecStock, sin tocar cálculos. */}
+      {f.siloOrigen && (() => {
+        const key = SILO_STOCK_KEY[f.siloOrigen] || f.siloOrigen;
+        const prod = siloStates.productos[key] || "";
+        const disp = Math.max(0, (siloStates.totals[key] || 0) - (siloStates.reservados[key] || 0));
+        const vacio = disp <= 0;
+        const swatch = PROD_COLOR[prod] || (vacio ? C.border : PROD_COLOR["Leche Cruda"]);
+        const sf = !vacio && shouldShowSF(prod) ? calcSF(siloStates.fechas[key], date) : null;
+        const sfOld = sf && sf !== "SF";
+        const siloLabel = f.siloOrigen.startsWith("TQ")
+          ? f.siloOrigen
+          : (["TINA", "DULCE", "POSTRE"].includes(f.siloOrigen) ? f.siloOrigen : `SILO ${f.siloOrigen}`);
+        return (
+          <div style={{
+            display: "flex", alignItems: "center", gap: 10,
+            padding: "10px 12px", marginBottom: 8, borderRadius: 10,
+            background: vacio ? C.danger.replace(/\)$/, " / 0.08)") : C.surface,
+            border: `1px solid ${vacio ? C.danger.replace(/\)$/, " / 0.4)") : C.border}`,
+          }}>
+            <span style={{ width: 14, height: 14, borderRadius: 4, flexShrink: 0, background: swatch, border: `1px solid ${C.border}` }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <span style={{ fontWeight: 700, fontSize: 13, color: C.text, letterSpacing: "0.04em" }}>{siloLabel}</span>
+                {sf && (
+                  <span style={{
+                    fontSize: 12, fontWeight: 900, padding: "2px 8px", borderRadius: 8,
+                    background: sfOld ? C.danger.replace(/\)$/, " / 0.28)") : C.card,
+                    color: sfOld ? C.danger : C.text,
+                    border: `1.5px solid ${sfOld ? C.danger.replace(/\)$/, " / 0.7)") : C.border}`,
+                    fontFamily: FONT_MONO, letterSpacing: "0.06em", lineHeight: 1,
+                  }}>{sf}</span>
+                )}
+              </div>
+              <div style={{ fontSize: 12, color: vacio ? C.danger : C.sub, marginTop: 2 }}>
+                {vacio ? "Sin stock — verificar silo" : (prod || "Producto sin identificar")}
+              </div>
+            </div>
+            <div style={{ textAlign: "right", flexShrink: 0 }}>
+              <div style={{ fontSize: 9, color: C.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>Disponible</div>
+              <div style={{ fontFamily: FONT_MONO, fontWeight: 700, fontSize: 15, color: vacio ? C.danger : C.text }}>
+                {disp.toLocaleString("es-AR")} L
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Procesos industriales — booleanos independientes, backward compat vía ?? false */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
@@ -4117,12 +4175,23 @@ const SecFortificados = ({ date, syncKey = 0, dayClosed = false, perfil = null }
   const [list, setList] = useState([]);
   const [modal, setModal] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [siloStates, setSiloStates] = useState({ totals: {}, productos: {}, reservados: {}, fechas: {} });
   const [confirmUI, askConfirm] = useConfirm();
 
   useEffect(() => {
     if (modal) return; // no recargar mientras hay un form abierto
     load(date, "fortificados", []).then(d => { setList(d); setLoading(false); });
   }, [date, syncKey, modal]);
+
+  // Snapshot del saldo para la card contextual del silo origen (ayuda visual, no toca cálculos).
+  useEffect(() => {
+    calcAutoLitros(date).then(r => setSiloStates({
+      totals: r.totals || {},
+      productos: r.productosBase || {},
+      reservados: r.reservados || {},
+      fechas: r.fechasBase || {},
+    })).catch(() => {});
+  }, [date, syncKey]);
 
   const persist = async u => {
     const ok = await save(date, "fortificados", u);
@@ -4227,6 +4296,7 @@ const SecFortificados = ({ date, syncKey = 0, dayClosed = false, perfil = null }
             initial={modal === "new" ? null : modal}
             onSave={onSave} onClose={() => setModal(null)}
             onDelete={modal !== "new" ? () => onDelete(modal.id) : null}
+            siloStates={siloStates} date={date}
           />
         </Modal>
       )}
