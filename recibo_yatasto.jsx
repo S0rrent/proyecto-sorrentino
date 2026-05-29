@@ -1496,7 +1496,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo,
   // para que el mensaje "Faltan: X, Y, Z" no cambie de orden vs la versión anterior.
   // Validación, persistencia y onSave permanecen sin cambios.
   const identifRequired = isConcentrado
-    ? [["tambo", "Tambo"]]
+    ? [["producto", "Producto"]]
     : [["tambo", "Tambo"], ["producto", "Producto"]];
   const destinoRequired = isConcentrado
     ? [["litrosFca", "Litros"], ["destino", "Destino"]]
@@ -1508,7 +1508,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo,
        ["protFca", "Proteína Fca."], ["atm", "ATB"]];
   // Reconstruye req en el mismo orden que la versión legacy para que el mensaje "Faltan: ..." sea idéntico.
   const allRequired = isConcentrado
-    ? [["tambo", "Tambo"], ["litrosFca", "Litros"], ["destino", "Destino"], ["acidezFca", "Acidez"], ["phFca", "pH"]]
+    ? [["producto", "Producto"], ["litrosFca", "Litros"], ["destino", "Destino"], ["acidezFca", "Acidez"], ["phFca", "pH"]]
     : [["tambo", "Tambo"], ["litrosFca", "Litros Fábrica"], ["destino", "Destino"], ["producto", "Producto"],
        ["acidezFca", "Acidez Fca."], ["phFca", "pH Fca."],
        ["gbFca", "GB Fca."], ["sngFca", "SNG Fca."], ["densFca", "Densidad Fca."], ["protFca", "Proteína Fca."], ["atm", "ATB"]];
@@ -1518,6 +1518,37 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo,
     if (destinoRequired.some(([k]) => k === key)) return "destino";
     return "calidad";
   };
+
+  // Selector de tambo reutilizable: obligatorio en identificación para leche cruda,
+  // opcional al final de "Parámetros" para Suero/Permeado.
+  const tamboPickerField = (labelText) => (
+    <F label={labelText}>
+      <select value={f.tambo || ""} onChange={e => pickTambo(e.target.value)} style={inp}>
+        <option value="">Seleccionar tambo...</option>
+        {f.transportista && tambosPropios.length > 0 ? (
+          <>
+            <optgroup label={`Tambos de ${f.transportista}`}>
+              {tambosPropios.map(t => (
+                <option key={t.nombre} value={t.nombre}>{t.num} — {t.nombre}</option>
+              ))}
+            </optgroup>
+            <optgroup label="Otros tambos">
+              {tambosOtros.map(t => (
+                <option key={t.nombre} value={t.nombre}>{t.num} — {t.nombre}</option>
+              ))}
+            </optgroup>
+          </>
+        ) : (
+          tambos.map(t => (
+            <option key={t.nombre} value={t.nombre}>{t.num} — {t.nombre}</option>
+          ))
+        )}
+      </select>
+      <button type="button" onClick={onNuevoTambo} style={{ marginTop: 6, background: "none", border: "none", color: C.accent, fontSize: 12, cursor: "pointer", padding: "4px 0", textDecoration: "underline" }}>
+        + Agregar nuevo tambo
+      </button>
+    </F>
+  );
 
   const identifContent = (
     <>
@@ -1533,32 +1564,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo,
           ))}
         </select>
       </F>
-      <F label="Tambo / Procedencia">
-        <select value={f.tambo || ""} onChange={e => pickTambo(e.target.value)} style={inp}>
-          <option value="">Seleccionar tambo...</option>
-          {f.transportista && tambosPropios.length > 0 ? (
-            <>
-              <optgroup label={`Tambos de ${f.transportista}`}>
-                {tambosPropios.map(t => (
-                  <option key={t.nombre} value={t.nombre}>{t.num} — {t.nombre}</option>
-                ))}
-              </optgroup>
-              <optgroup label="Otros tambos">
-                {tambosOtros.map(t => (
-                  <option key={t.nombre} value={t.nombre}>{t.num} — {t.nombre}</option>
-                ))}
-              </optgroup>
-            </>
-          ) : (
-            tambos.map(t => (
-              <option key={t.nombre} value={t.nombre}>{t.num} — {t.nombre}</option>
-            ))
-          )}
-        </select>
-        <button type="button" onClick={onNuevoTambo} style={{ marginTop: 6, background: "none", border: "none", color: C.accent, fontSize: 12, cursor: "pointer", padding: "4px 0", textDecoration: "underline" }}>
-          + Agregar nuevo tambo
-        </button>
-      </F>
+      {!isConcentrado && tamboPickerField("Tambo / Procedencia")}
       <F label="Producto">
         <Sel value={f.producto || ""} onChange={set("producto")} options={PRODUCTOS} placeholder="Seleccionar producto..." />
       </F>
@@ -1609,6 +1615,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo,
       <F label="Organoléptico">
         <Sel value={f.organoleptico || ""} onChange={set("organoleptico")} options={["Sí", "No"]} placeholder="¿Conforme?" />
       </F>
+      {tamboPickerField("Tambo (opcional)")}
     </>
   ) : (
     <>
