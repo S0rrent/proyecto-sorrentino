@@ -4059,7 +4059,18 @@ const FortForm = ({ initial, onSave, onClose, onDelete, siloStates = { totals: {
   };
 
   const updAdicion = (id, key, val) =>
-    setF(p => ({ ...p, adiciones: p.adiciones.map(a => a.id === id ? { ...a, [key]: val } : a) }));
+    setF(p => ({
+      ...p,
+      adiciones: p.adiciones.map(a => {
+        if (a.id !== id) return a;
+        // Enforce defensivo: si la adición tiene sourceSilo, solo unidades de volumen.
+        // Cubre el camino "operario cambia la unidad después de elegir el silo".
+        if (key === "unidad" && a.sourceSilo && !VOLUME_UNITS.includes(val)) {
+          return { ...a, unidad: "L" };
+        }
+        return { ...a, [key]: val };
+      }),
+    }));
   const addAdicion = () =>
     setF(p => ({ ...p, adiciones: [...p.adiciones, { id: crypto.randomUUID(), producto: "", cantidad: "", unidad: "kg" }] }));
   const delAdicion = id =>
@@ -4296,6 +4307,43 @@ const SecFortificados = ({ date, syncKey = 0, dayClosed = false, perfil = null }
   };
   const onSave = async item => {
     const existing = list.find(i => i.id === item.id);
+
+    // Edge case #1: sourceSilo == siloOrigen → doble consumo del mismo silo.
+    // Edge case #2: sourceSilo == siloDestino → entra y sale del mismo silo (neto cero).
+    // Ambos son legítimos en algunos flujos pero deben ser confirmados explícitamente.
+    const origenKey = item.siloOrigen ? (SILO_STOCK_KEY[item.siloOrigen] || item.siloOrigen) : null;
+    const destinoKey = item.siloDestino ? (SILO_STOCK_KEY[item.siloDestino] || item.siloDestino) : null;
+    const baseL = parseFloat(item.litrosBase) || 0;
+    const overlapOrigen = [];
+    const overlapDestino = [];
+    (item.adiciones || []).forEach(a => {
+      if (!a?.sourceSilo) return;
+      const L = adicionLitros(a.unidad, a.cantidad);
+      if (L <= 0) return;
+      const srcKey = SILO_STOCK_KEY[a.sourceSilo] || a.sourceSilo;
+      if (origenKey && srcKey === origenKey) overlapOrigen.push({ silo: srcKey, litros: L, producto: a.producto });
+      if (destinoKey && srcKey === destinoKey) overlapDestino.push({ silo: srcKey, litros: L, producto: a.producto });
+    });
+    if (overlapOrigen.length > 0) {
+      const det = overlapOrigen.map(o => `• ${o.producto || "Adición"}: ${o.litros.toFixed(0)} L`).join("\n");
+      const totalAporte = overlapOrigen.reduce((s, o) => s + o.litros, 0);
+      const ok = await askConfirm({
+        title: "Doble consumo del silo origen",
+        message: `El silo ${origenKey} se está consumiendo por dos vías:\n\n• siloOrigen: ${baseL.toFixed(0)} L\n${det}\n\nTotal descontado de ${origenKey}: ${(baseL + totalAporte).toFixed(0)} L\n\n¿Es correcto?`,
+        confirmLabel: "Sí, confirmar",
+      });
+      if (!ok) return;
+    }
+    if (overlapDestino.length > 0) {
+      const det = overlapDestino.map(o => `• ${o.producto || "Adición"}: ${o.litros.toFixed(0)} L`).join("\n");
+      const ok = await askConfirm({
+        title: "Aporte hacia el mismo silo destino",
+        message: `Una o más adiciones salen del mismo silo destino (${destinoKey}). El neto es cero (entra y sale del mismo silo):\n\n${det}\n\n¿Continuar?`,
+        confirmLabel: "Sí, continuar",
+      });
+      if (!ok) return;
+    }
+
     // Total que el lote consume por silo (siloOrigen + adiciones con sourceSilo).
     // Al editar, re-sumamos el impacto previo del lote en cada silo para que el check
     // no dé falso positivo sobre saldo que era propio del lote.
@@ -4363,7 +4411,11 @@ const SecFortificados = ({ date, syncKey = 0, dayClosed = false, perfil = null }
           <div style={{ fontSize: 15 }}>Sin lotes de leche fortificada hoy</div>
           <div style={{ fontSize: 13, marginTop: 6 }}>Tocá + para agregar</div>
         </div>
-      ) : list.map(f => (
+      ) : list.map(f => {
+        // Trazabilidad: aportes desde silo (sourceSilo) — para auditoría visual sin editar.
+        const aportesSilo = (f.adiciones || []).filter(a => a?.sourceSilo && adicionLitros(a.unidad, a.cantidad) > 0);
+        const baseL = parseFloat(f.litrosBase) || 0;
+        return (
         <div key={f.id} onClick={() => setModal(f)} style={{ ...card, cursor: "pointer", border: `1px solid ${C.success.replace(/\)$/, " / 0.3)")}`, background: C.success.replace(/\)$/, " / 0.06)") }}>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
             <span style={{ fontFamily: FONT_MONO, fontWeight: 700, color: C.accent, fontSize: 17 }}>{f.hora}</span>
@@ -4385,18 +4437,45 @@ const SecFortificados = ({ date, syncKey = 0, dayClosed = false, perfil = null }
               {f.siloOrigen}{f.siloOrigen && f.siloDestino && " → "}{f.siloDestino}
             </div>
           )}
+
+          {/* Bloque de trazabilidad: consumo por silo (siloOrigen + sourceSilo de adiciones).
+              Visible cuando hay aportes desde silo. Permite auditar sin abrir el form. */}
+          {aportesSilo.length > 0 && (
+            <div style={{ marginTop: 6, padding: "8px 10px", borderRadius: 8, background: C.surface, border: `1px solid ${C.border}` }}>
+              <div style={{ fontSize: 10, color: C.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 5, fontWeight: 700 }}>
+                Consumo por silo
+              </div>
+              {f.siloOrigen && baseL > 0 && (
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 12, color: C.text, marginBottom: 3, fontFamily: FONT_MONO }}>
+                  <span>{f.siloOrigen} <span style={{ color: C.muted }}>· base ({f.productoBase || "—"})</span></span>
+                  <span style={{ fontWeight: 700 }}>−{baseL.toLocaleString("es-AR")} L</span>
+                </div>
+              )}
+              {aportesSilo.map(a => {
+                const L = adicionLitros(a.unidad, a.cantidad);
+                return (
+                  <div key={a.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 12, color: C.text, marginBottom: 3, fontFamily: FONT_MONO }}>
+                    <span>{a.sourceSilo} <span style={{ color: C.muted }}>· {a.producto || "—"} ({a.cantidad} {a.unidad})</span></span>
+                    <span style={{ fontWeight: 700 }}>−{L.toLocaleString("es-AR", { maximumFractionDigits: 2 })} L</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           {f.adiciones?.filter(a => a.cantidad).length > 0 && (
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 4 }}>
               {f.adiciones.filter(a => a.cantidad).map(a => (
                 <span key={a.id} style={{ background: C.surface, borderRadius: 6, padding: "2px 8px", fontSize: 11, color: C.sub, border: `1px solid ${C.border}` }}>
-                  {a.producto}: {a.cantidad} {a.unidad}
+                  {a.producto}: {a.cantidad} {a.unidad}{a.sourceSilo ? ` · desde ${a.sourceSilo}` : ""}
                 </span>
               ))}
             </div>
           )}
           {f.responsable && <div style={{ fontSize: 12, color: C.muted, marginTop: 4 }}>{f.responsable}</div>}
         </div>
-      ))}
+        );
+      })}
       {!dayClosed && <FAB onClick={() => setModal("new")} />}
       {modal && (
         <Modal title={modal === "new" ? "Nuevo Lote Fortificado" : "Editar Lote Fortificado"} onClose={() => setModal(null)}>
