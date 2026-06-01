@@ -46,6 +46,15 @@ function _is401(error) {
     (typeof error?.message === "string" && error.message.includes("JWT"));
 }
 
+// Errores 4xx permanentes (validación, constraint, payload inválido, etc.) NO se
+// recuperan reintentando. Excluye 401 (refresh token), 408 (timeout, transitorio)
+// y 429 (rate limit, transitorio) — esos sí ameritan retry.
+function _isPermanent4xx(error) {
+  const s = error?.status;
+  if (typeof s !== "number") return false;
+  return s >= 400 && s < 500 && s !== 401 && s !== 408 && s !== 429;
+}
+
 async function _tryRefresh() {
   try {
     const { error } = await _sb.auth.refreshSession();
@@ -111,6 +120,14 @@ async function _flushQueue() {
       _queue.shift();
       _queuePersist();
       _queueNotify();
+    } else if (_isPermanent4xx(lastError)) {
+      // 4xx permanente (validación, constraint, payload corrupto): reintentar es
+      // inútil y bloquea la cola indefinidamente. Descartar con log y seguir.
+      console.error(`[queue] descartando entrada con error 4xx permanente (status=${lastError?.status}) key=${key}:`, lastError);
+      _queue.shift();
+      _queuePersist();
+      _queueNotify();
+      continue;
     } else {
       // Si el fallo fue por 401, intentar refresh una sola vez y reintentar
       if (_is401(lastError) && !_refreshing) {
