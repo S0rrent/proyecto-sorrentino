@@ -66,7 +66,7 @@ const PERFILES = {
   operador:     { usuario: "Operador",      email: "operador@yatasto.app",        label: "Operador",         Icon: IcoOperador },
 };
 const SILOS = ["100 NUEVO", "100 VIEJO", "80", "60", "42", "40F", "20", "15"];
-const SILOS_TODOS = [...SILOS, "TQ1", "TQ2", "TQ3", "TQ5", "TQ6", "TQ7", "TQ8", "TQ9", "POSTRE", "TINA", "DULCE"];
+const SILOS_TODOS = [...SILOS, "TQ1", "TQ2", "TQ3", "TQ5", "TQ6", "TQ7", "TQ8", "TQ9", "POSTRE", "TINA", "DULCE", "BIN"];
 const CIP_SILOS = ["100 N", "100 V", "80", "60", "42", "40F", "20", "15", "LINEA 1", "LINEA 2"];
 const SILOS_GRUPO   = ["100 N","100 V","80","60","42","40F","20","15"];
 const PROCESO_GRUPO = ["TQ1","TQ2","TQ3","TQ5","TQ6","TQ7","TQ8","TQ9","TINA","DULCE","POSTRE"];
@@ -74,12 +74,12 @@ const STOCK_SILOS   = [...SILOS_GRUPO, ...PROCESO_GRUPO];
 const TURNOS = ["07:00", "14:00", "21:00"];
 const TURNO_LABELS = { "07:00": "Mañana", "14:00": "Tarde", "21:00": "Noche" };
 const TURNO_CIERRE = { "07:00": "14:00", "14:00": "21:00", "21:00": "07:00" }; // hora de cierre
-const PRODUCTOS = ["Leche Cruda", "Leche Descremada", "Lactosa", "Suero", "Permeado", "Permeado de Suero", "Permeado de Lactosa"];
+const PRODUCTOS = ["Leche Cruda", "Leche Descremada", "Lactosa", "Suero", "Permeado", "Permeado de Suero", "Permeado de Lactosa", "Crema"];
 const PRODS_STOCK = [
   "Leche Cruda", "Leche Entera", "Leche Descremada", "Leche Fortificada",
   "Leche Pasteurizada", "Leche Homogeneizada", "Leche PyH",
   "Lactosa", "Suero", "Permeado", "Permeado de Suero", "Permeado de Lactosa",
-  "Yogurt", "Postre", "Sucio (vacío)", "Limpio",
+  "Crema", "Yogurt", "Postre", "Sucio (vacío)", "Limpio",
 ];
 
 // Deriva el label canónico de un lote fort según sus flags de proceso.
@@ -163,6 +163,7 @@ const PROD_COLOR = {
   "Permeado": "#fff4a8",
   "Permeado de Suero": "#e8d090",
   "Permeado de Lactosa": "#d8d0b0",
+  "Crema": "#fdf0b0",
   "Yogurt": "#f4a0c0",
   "Postre": "#8b6242",
   "Sucio (vacío)": "#dc2626",
