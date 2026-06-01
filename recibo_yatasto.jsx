@@ -305,7 +305,10 @@ async function save(date, sec, data) {
     const ts = await db.set(key, JSON.stringify(data));
     if (ts) _loadedAt.set(key, ts);
     else _loadedAt.delete(key);
-  } catch (e) { console.error(e); }
+  } catch (e) {
+    console.error(`[save] fallo al persistir ${key}:`, e);
+    return false;
+  }
   // Edición retroactiva: cualquier guardado en una fecha anterior o igual a ayer
   // invalida el saldo encadenado y dispara una reconstrucción debounceada.
   // (<=yesterday porque editar ayer también deja SALDO_KEY stale si ya se cerró.)
@@ -345,7 +348,11 @@ async function saveSaldo(data, fromDate, productos, fechas) {
     if (productos && Object.keys(productos).length > 0) payload.productos = productos;
     if (fechas && Object.keys(fechas).length > 0) payload.fechas = fechas;
     await db.set(SALDO_KEY, JSON.stringify(payload));
-  } catch { }
+    return true;
+  } catch (e) {
+    console.error("[saveSaldo] fallo al persistir SALDO_KEY:", e);
+    return false;
+  }
 }
 async function loadBaseSaldo() {
   try { const r = await db.get(SALDO_BASE_KEY); return r ? JSON.parse(r.value) : null; } catch { return null; }
@@ -355,7 +362,11 @@ async function saveBaseSaldo(data, fromDate, productos) {
     const payload = { data, fromDate };
     if (productos && Object.keys(productos).length > 0) payload.productos = productos;
     await db.set(SALDO_BASE_KEY, JSON.stringify(payload));
-  } catch { }
+    return true;
+  } catch (e) {
+    console.error("[saveBaseSaldo] fallo al persistir SALDO_BASE_KEY:", e);
+    return false;
+  }
 }
 async function saveCfg(data) {
   try { await db.set(CFG_KEY, JSON.stringify(data)); } catch (e) { console.error(e); }
