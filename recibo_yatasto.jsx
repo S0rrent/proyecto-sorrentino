@@ -551,6 +551,42 @@ function invalidateAutoLitrosFrom(fromDate) {
   return count;
 }
 
+// Conversión de unidad de adición → litros equivalentes para el balance del silo destino
+// y para el descuento opcional del sourceSilo. 1 kg ≈ 1 L (densidad ~1 g/mL).
+const adicionLitros = (unidad, cantidad) => {
+  const qty = parseFloat(cantidad) || 0;
+  if (qty <= 0) return 0;
+  switch (unidad) {
+    case "L":  return qty;
+    case "mL": return qty / 1000;
+    case "cc": return qty / 1000;
+    case "kg": return qty;
+    case "g":  return qty / 1000;
+    case "mg": return qty / 1000000;
+    default:   return 0;
+  }
+};
+
+// Suma por silo (clave normalizada) los litros que un fort descuenta:
+// siloOrigen (litrosBase) + cada adición con sourceSilo (litros equivalentes).
+// Reusado por calcAutoLitros y checkSiloBalance — única fuente de verdad.
+const fortSourceDraws = (fort) => {
+  const draws = {};
+  const baseL = parseFloat(fort?.litrosBase) || 0;
+  if (fort?.siloOrigen && baseL > 0) {
+    const k = SILO_STOCK_KEY[fort.siloOrigen] || fort.siloOrigen;
+    draws[k] = (draws[k] || 0) + baseL;
+  }
+  (fort?.adiciones || []).forEach(a => {
+    if (!a?.sourceSilo) return;
+    const L = adicionLitros(a.unidad, a.cantidad);
+    if (L <= 0) return;
+    const k = SILO_STOCK_KEY[a.sourceSilo] || a.sourceSilo;
+    draws[k] = (draws[k] || 0) + L;
+  });
+  return draws;
+};
+
 // calcAutoLitros puede llamarse en dos modos:
 // - modo normal (sin args extra): lee el saldo desde DB
 // - modo cadena (con _baseTotals y _baseProductos): usa la base provista, no va a DB para el saldo
@@ -684,16 +720,18 @@ async function calcAutoLitros(date, _baseTotals, _baseProductos, _baseFechas) {
       productosBase[to] = buildFortLabel(f); // deriva label según flags P/H
       fechasBase[to] = date; // fort crea producto nuevo — fecha se resetea al día del lote
     }
-    // Adiciones líquidas (L / mL) suman volumen al destino
+    // Adiciones: suman volumen al destino (mismo comportamiento histórico).
+    // Si la adición declara sourceSilo, también descuenta esos litros equivalentes
+    // del silo origen del aporte — backward compat: adiciones viejas sin sourceSilo
+    // no descuentan nada (igual que antes).
     (f.adiciones || []).forEach(a => {
-      const qty = parseFloat(a.cantidad) || 0;
-      if (qty > 0 && to) {
-        if (a.unidad === "L") totals[to] = (totals[to] || 0) + qty;
-        if (a.unidad === "mL") totals[to] = (totals[to] || 0) + qty / 1000;
-        if (a.unidad === "cc") totals[to] = (totals[to] || 0) + qty / 1000;
-        if (a.unidad === "kg") totals[to] = (totals[to] || 0) + qty; // 1 kg ≈ 1 L
-        if (a.unidad === "g") totals[to] = (totals[to] || 0) + qty / 1000;
-        if (a.unidad === "mg") totals[to] = (totals[to] || 0) + qty / 1000000;
+      const L = adicionLitros(a?.unidad, a?.cantidad);
+      if (L <= 0) return;
+      if (to) totals[to] = (totals[to] || 0) + L;
+      const src = a.sourceSilo ? (SILO_STOCK_KEY[a.sourceSilo] || a.sourceSilo) : null;
+      if (src) {
+        totals[src] = (totals[src] || 0) - L;
+        if ((totals[src] || 0) <= 0) fechasBase[src] = null;
       }
     });
   });
@@ -4001,6 +4039,25 @@ const FortForm = ({ initial, onSave, onClose, onDelete, siloStates = { totals: {
     setF(p => ({ ...p, siloOrigen: silo, productoBase: detected || p.productoBase }));
   };
 
+  // Adición desde silo/tanque: al elegir un silo, autocompleta el campo "producto"
+  // (si está vacío) con el producto detectado, y fuerza la unidad a "L" si la actual
+  // no es de volumen — los aportes desde silo son siempre volumen físico.
+  const VOLUME_UNITS = ["L", "mL", "cc"];
+  const pickAdicionSource = (id, silo) => {
+    setFieldError("");
+    const key = silo ? (SILO_STOCK_KEY[silo] || silo) : null;
+    const detected = key ? (siloStates.productos[key] || "") : "";
+    setF(p => ({
+      ...p,
+      adiciones: p.adiciones.map(a => {
+        if (a.id !== id) return a;
+        const nextProd = silo && !String(a.producto || "").trim() ? detected || a.producto : a.producto;
+        const nextUnit = silo && !VOLUME_UNITS.includes(a.unidad) ? "L" : a.unidad;
+        return { ...a, sourceSilo: silo, producto: nextProd, unidad: nextUnit };
+      }),
+    }));
+  };
+
   const updAdicion = (id, key, val) =>
     setF(p => ({ ...p, adiciones: p.adiciones.map(a => a.id === id ? { ...a, [key]: val } : a) }));
   const addAdicion = () =>
@@ -4101,34 +4158,73 @@ const FortForm = ({ initial, onSave, onClose, onDelete, siloStates = { totals: {
           <span style={{ ...lbl, marginBottom: 0 }}>Unidad</span>
           <span />
         </div>
-        {f.adiciones.map((a, idx) => (
-          <div key={a.id} style={{ display: "grid", gridTemplateColumns: "1fr 80px 64px 28px", gap: 5, alignItems: "center", marginBottom: 7 }}>
-            <input
-              style={inp}
-              value={a.producto}
-              onChange={e => updAdicion(a.id, "producto", e.target.value)}
-              placeholder="Producto..."
-            />
-            <input
-              style={{ ...inp, textAlign: "right" }}
-              type="number" inputMode="decimal"
-              value={a.cantidad}
-              onChange={e => updAdicion(a.id, "cantidad", e.target.value)}
-              placeholder="0"
-            />
-            <select
-              style={{ ...inp, WebkitAppearance: "none", padding: "11px 4px", textAlign: "center" }}
-              value={a.unidad}
-              onChange={e => updAdicion(a.id, "unidad", e.target.value)}
-            >
-              {UNIDADES_FORT.map(u => <option key={u} value={u}>{u}</option>)}
-            </select>
-            {idx >= 3
-              ? <button type="button" onClick={() => delAdicion(a.id)} style={{ background: "none", border: `1px solid ${C.danger}55`, borderRadius: 6, color: C.danger, cursor: "pointer", height: 42, width: 28, fontSize: 18, padding: 0, lineHeight: 1 }}>×</button>
-              : <div />
-            }
-          </div>
-        ))}
+        {f.adiciones.map((a, idx) => {
+          const hasSource = !!a.sourceSilo;
+          const srcKey = hasSource ? (SILO_STOCK_KEY[a.sourceSilo] || a.sourceSilo) : null;
+          const srcProd = srcKey ? (siloStates.productos[srcKey] || "") : "";
+          const srcDisp = srcKey ? Math.max(0, (siloStates.totals[srcKey] || 0) - (siloStates.reservados[srcKey] || 0)) : 0;
+          const srcSF = srcKey && shouldShowSF(srcProd) ? calcSF(siloStates.fechas[srcKey], date) : null;
+          const srcVacio = hasSource && srcDisp <= 0;
+          const unitOptions = hasSource ? VOLUME_UNITS : UNIDADES_FORT;
+          return (
+            <div key={a.id} style={{
+              marginBottom: 8,
+              ...(hasSource ? {
+                padding: "8px 10px", borderRadius: 8,
+                background: srcVacio ? C.danger.replace(/\)$/, " / 0.08)") : C.surface,
+                border: `1px solid ${srcVacio ? C.danger.replace(/\)$/, " / 0.4)") : C.border}`,
+              } : {}),
+            }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 80px 64px 28px", gap: 5, alignItems: "center" }}>
+                <input
+                  style={inp}
+                  value={a.producto}
+                  onChange={e => updAdicion(a.id, "producto", e.target.value)}
+                  placeholder="Producto..."
+                />
+                <input
+                  style={{ ...inp, textAlign: "right" }}
+                  type="number" inputMode="decimal"
+                  value={a.cantidad}
+                  onChange={e => updAdicion(a.id, "cantidad", e.target.value)}
+                  placeholder="0"
+                />
+                <select
+                  style={{ ...inp, WebkitAppearance: "none", padding: "11px 4px", textAlign: "center" }}
+                  value={a.unidad}
+                  onChange={e => updAdicion(a.id, "unidad", e.target.value)}
+                >
+                  {unitOptions.map(u => <option key={u} value={u}>{u}</option>)}
+                </select>
+                {idx >= 3
+                  ? <button type="button" onClick={() => delAdicion(a.id)} style={{ background: "none", border: `1px solid ${C.danger}55`, borderRadius: 6, color: C.danger, cursor: "pointer", height: 42, width: 28, fontSize: 18, padding: 0, lineHeight: 1 }}>×</button>
+                  : <div />
+                }
+              </div>
+              <div style={{ marginTop: 6 }}>
+                <select
+                  value={a.sourceSilo || ""}
+                  onChange={e => pickAdicionSource(a.id, e.target.value)}
+                  style={{ ...inp, fontSize: 12, padding: "8px 10px" }}
+                >
+                  <option value="">Desde silo / tanque (opcional)</option>
+                  {SILOS_TODOS.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+                {hasSource && (
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginTop: 4, fontSize: 11, fontFamily: FONT_MONO, gap: 8 }}>
+                    <span style={{ color: srcVacio ? C.danger : C.sub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {srcVacio ? "Sin stock" : (srcProd || "Producto sin identificar")}
+                      {srcSF && !srcVacio ? ` · ${srcSF}` : ""}
+                    </span>
+                    <span style={{ color: srcVacio ? C.danger : C.text, fontWeight: 700, flexShrink: 0 }}>
+                      Disp.: {srcDisp.toLocaleString("es-AR")} L
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
         <button type="button" onClick={addAdicion} style={{ ...btnSecondary, marginTop: 6, borderStyle: "dashed", color: C.accent, borderColor: C.accentDark, fontSize: 13, padding: "9px 12px" }}>
           + Agregar producto
         </button>
@@ -4200,12 +4296,24 @@ const SecFortificados = ({ date, syncKey = 0, dayClosed = false, perfil = null }
   };
   const onSave = async item => {
     const existing = list.find(i => i.id === item.id);
-    const exclude = existing ? () => parseFloat(existing.litrosBase) || 0 : null;
-    const check = await checkSiloBalance(date, item.siloOrigen, item.litrosBase, exclude);
-    if (!check.ok) {
+    // Total que el lote consume por silo (siloOrigen + adiciones con sourceSilo).
+    // Al editar, re-sumamos el impacto previo del lote en cada silo para que el check
+    // no dé falso positivo sobre saldo que era propio del lote.
+    const newDraws = fortSourceDraws(item);
+    const prevDraws = existing ? fortSourceDraws(existing) : {};
+    const negativos = [];
+    for (const [silo, L] of Object.entries(newDraws)) {
+      const exclude = () => prevDraws[silo] || 0;
+      const check = await checkSiloBalance(date, silo, L, exclude);
+      if (!check.ok) negativos.push({ silo: check.silo, current: check.current, used: L, next: check.next });
+    }
+    if (negativos.length > 0) {
+      const detalle = negativos.map(n =>
+        `• ${n.silo}: disp. ${n.current.toFixed(0)} L · se usan ${n.used.toFixed(0)} L · queda ${n.next.toFixed(0)} L`
+      ).join("\n");
       const ok = await askConfirm({
         title: "Saldo insuficiente",
-        message: `Este fortificado dejaría el silo origen ${check.silo} con saldo negativo.\n\nDisponible: ${check.current.toFixed(0)} L\nSe usan: ${parseFloat(item.litrosBase).toFixed(0)} L\nResultado: ${check.next.toFixed(0)} L\n\n¿Guardar de todas formas?`,
+        message: `Este fortificado dejaría con saldo negativo:\n\n${detalle}\n\n¿Guardar de todas formas?`,
         danger: true,
         confirmLabel: "Guardar igual",
       });
