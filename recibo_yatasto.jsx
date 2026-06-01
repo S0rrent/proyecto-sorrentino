@@ -2236,7 +2236,7 @@ const SecCIP = ({ date, syncKey = 0, readOnly = false }) => {
 };
 
 // ─── CARGA DE CAMIONES ────────────────────────────────────────
-const emptyCarga = () => ({ id: crypto.randomUUID(), label: "CARGA 1", destino: "", transportista: "", producto: "", siloProveniente: "", limpCisterna: "", litros: "", T: "", gC: "", pH: "", A: "", gD: "", hora: getNow(), responsable: "", obs: "" });
+const emptyCarga = () => ({ id: crypto.randomUUID(), label: "CARGA 1", destino: "", transportista: "", producto: "", siloProveniente: "", limpCisterna: "", litros: "", T: "", pH: "", A: "", hora: getNow(), responsable: "", obs: "" });
 const CargaForm = ({ initial, onSave, onClose, onDelete }) => {
   const [f, setF] = useState(initial || emptyCarga());
   const [fieldError, setFieldError] = useState("");
@@ -2323,8 +2323,8 @@ const CargaForm = ({ initial, onSave, onClose, onDelete }) => {
       <F label="Litros"><Inp type="number" value={f.litros} onChange={set("litros")} placeholder="0" /></F>
       <div style={panel}>
         <div style={secTitle}>Parámetros</div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 6 }}>
-          {[["T", "T"], ["°C", "gC"], ["pH", "pH"], ["A", "A"], ["°D", "gD"]].map(([l, k]) => (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 6 }}>
+          {[["T", "T"], ["pH", "pH"], ["A", "A"]].map(([l, k]) => (
             <F key={k} label={l}><Inp type="number" value={f[k]} onChange={set(k)} step="0.01" /></F>
           ))}
         </div>
@@ -2345,7 +2345,7 @@ const CargaForm = ({ initial, onSave, onClose, onDelete }) => {
           if (savingRef.current) return; savingRef.current = true; setTimeout(() => { savingRef.current = false; }, 500);
           const req = [["destino", "Destino"], ["siloProveniente", "Silo Proveniente"], ["limpCisterna", "Limpieza Cisterna"],
           ["litros", "Litros"], ["hora", "Hora"], ["responsable", "Responsable"],
-          ["T", "T"], ["gC", "°C"], ["pH", "pH"], ["A", "A"], ["gD", "°D"]];
+          ["T", "T"], ["pH", "pH"], ["A", "A"]];
           const miss = req.filter(([k]) => !String(f[k] || "").trim()).map(([, v]) => v);
           if (miss.length) { setFieldError("Faltan completar:\n• " + miss.join("\n• ")); track("save_fail", miss[0], "carga"); return; }
           setFieldError("");
