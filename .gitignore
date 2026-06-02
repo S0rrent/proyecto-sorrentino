@@ -1,6 +1,7 @@
 node_modules
 dist
-.env
+# .env se versiona a propósito (solo contiene la anon key pública de Supabase).
+# NUNCA agregar aquí la service_role key.
 .env.local
 .env.*.local
 
