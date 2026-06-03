@@ -255,7 +255,7 @@ const inp = {
   background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8,
   color: C.text,
   padding: UX_V2 ? "14px 14px" : "11px 12px",
-  minHeight: UX_V2 ? 48 : undefined,
+  minHeight: 48,
   fontSize: 16, width: "100%",
   outline: "none", fontFamily: FONT_MONO, boxSizing: "border-box",
 };
@@ -264,14 +264,14 @@ const secTitle = { fontSize: 12, fontWeight: 700, color: C.accent, textTransform
 const btnPrimary = {
   background: C.accent, color: "#000", border: "none", borderRadius: 10,
   padding: UX_V2 ? "15px 22px" : "13px 20px",
-  minHeight: UX_V2 ? 48 : undefined,
+  minHeight: 48,
   fontSize: 15, fontWeight: 700, cursor: "pointer", width: "100%",
   touchAction: "manipulation", WebkitTapHighlightColor: "transparent",
 };
 const btnSecondary = {
   background: C.card, color: C.text, border: `1px solid ${C.border}`, borderRadius: 10,
   padding: UX_V2 ? "15px 22px" : "13px 20px",
-  minHeight: UX_V2 ? 48 : undefined,
+  minHeight: 48,
   fontSize: 15, fontWeight: 600, cursor: "pointer", width: "100%",
   touchAction: "manipulation", WebkitTapHighlightColor: "transparent",
 };
@@ -1332,8 +1332,8 @@ function useConfirm() {
         {state.message}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-        <button type="button" style={btnSecondary} onClick={() => { state.resolve(false); setState(null); }}>Cancelar</button>
-        <button type="button" autoFocus
+        <button type="button" autoFocus={state.danger} style={btnSecondary} onClick={() => { state.resolve(false); setState(null); }}>Cancelar</button>
+        <button type="button" autoFocus={!state.danger}
           style={{ ...btnPrimary, ...(state.danger ? { background: C.danger, color: "#fff" } : {}) }}
           onClick={() => { state.resolve(true); setState(null); }}>
           {state.confirmLabel}
@@ -1725,6 +1725,24 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo,
       }
       return;
     }
+    if (isConcentrado) {
+      const litrosFcaN = parseFloat(f.litrosFca);
+      if (isNaN(litrosFcaN) || litrosFcaN <= 0) {
+        setFieldError("Litros debe ser mayor a 0.");
+        track("save_fail", "litrosFca", "ingreso");
+        return;
+      }
+    } else {
+      const litrosFcaN = parseFloat(f.litrosFca);
+      const litrosTboN = parseFloat(f.litrosTbo);
+      const fcaOk = !isNaN(litrosFcaN) && litrosFcaN > 0;
+      const tboOk = !isNaN(litrosTboN) && litrosTboN > 0;
+      if (!fcaOk && !tboOk) {
+        setFieldError("Litros (Fábrica o Tambo) debe ser mayor a 0.");
+        track("save_fail", "litrosFca", "ingreso");
+        return;
+      }
+    }
     if (siloSucioLevel === "bloqueado") {
       if (!canForce) {
         setFieldError("El silo " + f.destino + " está pendiente de CIP. Solo el supervisor puede autorizar este ingreso.");
@@ -1855,7 +1873,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo,
           <button type="button" style={btnPrimary} onClick={() => { if (savingRef.current) return; savingRef.current = true; setTimeout(() => { savingRef.current = false; }, 500); onClickGuardar(); }}>Guardar</button>
         </div>
       </div>
-      {onDelete && <button type="button" style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar este ingreso</button>}
+      {onDelete && (perfil === "supervisor" || perfil === "jefe") && <button type="button" style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar este ingreso</button>}
 
       {/* Modal de override CIP — solo supervisor/jefe */}
       {cipForzado && (
@@ -1897,7 +1915,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo,
             Solo continuar si el desvío fue verificado y autorizado. El registro quedará en el historial.
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-            <button type="button" style={btnSecondary} onClick={() => setAguadoAlerta(false)}>Corregir valores</button>
+            <button type="button" autoFocus style={btnSecondary} onClick={() => setAguadoAlerta(false)}>Corregir valores</button>
             <button type="button" style={{ ...btnPrimary, background: C.danger, borderColor: C.danger }} onClick={() => { if (overrideSavingRef.current) return; overrideSavingRef.current = true; setAguadoAlerta(false); track("save_ok", "forzado_aguado", "ingreso"); onSave(f); }}>
               Guardar de todas formas
             </button>
@@ -2249,7 +2267,7 @@ const SecCIP = ({ date, syncKey = 0, readOnly = false }) => {
 
 // ─── CARGA DE CAMIONES ────────────────────────────────────────
 const emptyCarga = () => ({ id: crypto.randomUUID(), label: "CARGA 1", destino: "", transportista: "", producto: "", siloProveniente: "", limpCisterna: "", litros: "", T: "", pH: "", A: "", hora: getNow(), responsable: "", obs: "" });
-const CargaForm = ({ initial, onSave, onClose, onDelete }) => {
+const CargaForm = ({ initial, onSave, onClose, onDelete, perfil = null }) => {
   const [f, setF] = useState(initial || emptyCarga());
   const [fieldError, setFieldError] = useState("");
   const savingRef = useRef(false);
@@ -2360,12 +2378,14 @@ const CargaForm = ({ initial, onSave, onClose, onDelete }) => {
           ["T", "T"], ["pH", "pH"], ["A", "A"]];
           const miss = req.filter(([k]) => !String(f[k] || "").trim()).map(([, v]) => v);
           if (miss.length) { setFieldError("Faltan completar:\n• " + miss.join("\n• ")); track("save_fail", miss[0], "carga"); return; }
+          const litrosN = parseFloat(f.litros);
+          if (isNaN(litrosN) || litrosN <= 0) { setFieldError("Litros debe ser mayor a 0."); track("save_fail", "litros", "carga"); return; }
           setFieldError("");
           track("save_ok", null, "carga");
           onSave(f);
         }}>Guardar</button>
       </div>
-      {onDelete && <button type="button" style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar</button>}
+      {onDelete && (perfil === "supervisor" || perfil === "jefe") && <button type="button" style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar</button>}
 
       {transModal && (
         <Modal title="Agregar Transportista" onClose={() => setTransModal(false)}>
@@ -2467,7 +2487,7 @@ const SecCarga = ({ date, syncKey = 0, dayClosed = false, perfil = null }) => {
       {!dayClosed && <FAB onClick={() => setModal("new")} />}
       {modal && (
         <Modal title={modal === "new" ? "Nueva Carga" : "Editar Carga"} onClose={() => setModal(null)}>
-          <CargaForm initial={modal === "new" ? null : modal} onSave={onSave} onClose={() => setModal(null)} onDelete={modal !== "new" ? () => onDelete(modal.id) : null} />
+          <CargaForm initial={modal === "new" ? null : modal} onSave={onSave} onClose={() => setModal(null)} onDelete={modal !== "new" ? () => onDelete(modal.id) : null} perfil={perfil} />
         </Modal>
       )}
       {confirmUI}
@@ -2479,7 +2499,7 @@ const SecCarga = ({ date, syncKey = 0, dayClosed = false, perfil = null }) => {
 const emptyMov = () => ({ id: crypto.randomUUID(), hora: getNow(), desde: "", hasta: "", litros: "", perdidaLitros: "", producto: "", motivo: "", resp: "" });
 const emptyCtrl = () => ({ id: crypto.randomUUID(), hora: getNow(), silo: "", ph: "", gD: "", gC: "", alc: "", mg: "", sng: "", dens: "", fp: "", prot: "", resp: "" });
 
-const MovForm = ({ initial, onSave, onClose, onDelete, date }) => {
+const MovForm = ({ initial, onSave, onClose, onDelete, date, perfil = null }) => {
   const [f, setF] = useState(initial || emptyMov());
   const [fieldError, setFieldError] = useState("");
   const [stocks, setStocks] = useState({ totals: {}, reservados: {} });
@@ -2578,16 +2598,25 @@ const MovForm = ({ initial, onSave, onClose, onDelete, date }) => {
           const req = [["litros", "Litros"], ["desde", "Desde"], ["hasta", "Hasta"], ["motivo", "Motivo"], ["resp", "Responsable"]];
           const miss = req.filter(([k]) => !String(f[k] || "").trim()).map(([, v]) => v);
           if (miss.length) { setFieldError("Faltan completar:\n• " + miss.join("\n• ")); track("save_fail", miss[0], "movimientos"); return; }
+          if (f.desde === f.hasta) {
+            setFieldError("El silo origen y destino no pueden ser iguales.");
+            track("save_fail", "hasta", "movimientos");
+            return;
+          }
+          const litrosN = parseFloat(f.litros);
+          if (isNaN(litrosN) || litrosN <= 0) { setFieldError("Litros debe ser mayor a 0."); track("save_fail", "litros", "movimientos"); return; }
+          const perdidaN = parseFloat(f.perdidaLitros ?? 0);
+          if (!isNaN(perdidaN) && perdidaN < 0) { setFieldError("La pérdida no puede ser negativa."); track("save_fail", "perdidaLitros", "movimientos"); return; }
           setFieldError("");
           track("save_ok", null, "movimientos");
           onSave(f);
         }}>Guardar</button>
       </div>
-      {onDelete && <button type="button" style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar</button>}
+      {onDelete && (perfil === "supervisor" || perfil === "jefe") && <button type="button" style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar</button>}
     </div>
   );
 };
-const CtrlForm = ({ initial, onSave, onClose, onDelete }) => {
+const CtrlForm = ({ initial, onSave, onClose, onDelete, perfil = null }) => {
   const [f, setF] = useState(initial || emptyCtrl());
   const [fieldError, setFieldError] = useState("");
   const savingRef = useRef(false);
@@ -2622,7 +2651,7 @@ const CtrlForm = ({ initial, onSave, onClose, onDelete }) => {
           onSave(f);
         }}>Guardar</button>
       </div>
-      {onDelete && <button type="button" style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar</button>}
+      {onDelete && (perfil === "supervisor" || perfil === "jefe") && <button type="button" style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar</button>}
     </div>
   );
 };
@@ -2651,7 +2680,7 @@ const SecMovimientos = ({ date, syncKey = 0, dayClosed = false, perfil = null })
     if (!check.ok) {
       const ok = await askConfirm({
         title: "Saldo insuficiente",
-        message: `Este movimiento dejaría el silo ${check.silo} con saldo negativo.\n\nDisponible: ${check.current.toFixed(0)} L\nSe mueven: ${parseFloat(item.litros).toFixed(0)} L\nResultado: ${check.next.toFixed(0)} L\n\n¿Guardar de todas formas?`,
+        message: `Este movimiento dejaría el silo ${check.silo} con saldo negativo.\n\nDisponible: ${check.current.toFixed(0)} L\nSe descuentan del origen: ${impactoOrigen.toFixed(0)} L (incluye pérdida)\nResultado: ${check.next.toFixed(0)} L\n\n¿Guardar de todas formas?`,
         danger: true,
         confirmLabel: "Guardar igual",
       });
@@ -2771,8 +2800,8 @@ const SecMovimientos = ({ date, syncKey = 0, dayClosed = false, perfil = null })
           onClose={() => setModal(null)}
         >
           {modal.type === "mov"
-            ? <MovForm initial={modal.item} onSave={saveMov} onClose={() => setModal(null)} onDelete={modal.item ? () => delMov(modal.item.id) : null} date={date} />
-            : <CtrlForm initial={modal.item} onSave={saveCtrl} onClose={() => setModal(null)} onDelete={modal.item ? () => delCtrl(modal.item.id) : null} />
+            ? <MovForm initial={modal.item} onSave={saveMov} onClose={() => setModal(null)} onDelete={modal.item ? () => delMov(modal.item.id) : null} date={date} perfil={perfil} />
+            : <CtrlForm initial={modal.item} onSave={saveCtrl} onClose={() => setModal(null)} onDelete={modal.item ? () => delCtrl(modal.item.id) : null} perfil={perfil} />
           }
         </Modal>
       )}
@@ -4036,7 +4065,7 @@ const emptyFort = () => ({
   obs: "",
 });
 
-const FortForm = ({ initial, onSave, onClose, onDelete, siloStates = { totals: {}, productos: {}, reservados: {}, fechas: {} }, date = null }) => {
+const FortForm = ({ initial, onSave, onClose, onDelete, siloStates = { totals: {}, productos: {}, reservados: {}, fechas: {} }, date = null, perfil = null }) => {
   const [f, setF] = useState(() => initial ? { ...emptyFort(), ...initial } : emptyFort());
   const [fieldError, setFieldError] = useState("");
   const savingRef = useRef(false);
@@ -4160,7 +4189,7 @@ const FortForm = ({ initial, onSave, onClose, onDelete, siloStates = { totals: {
               type="button"
               onClick={() => setF(p => ({ ...p, [key]: !(p[key] ?? false) }))}
               style={{
-                padding: "12px 8px", borderRadius: 8, border: `1.5px solid ${active ? C.accent : C.border}`,
+                padding: "12px 8px", borderRadius: 8, border: `1.5px solid ${active ? C.accent : C.border}`, minHeight: 48,
                 background: active ? C.accent.replace(/\)$/, " / 0.12)") : C.card,
                 color: active ? C.accent : C.sub,
                 fontWeight: 700, fontSize: 13, letterSpacing: "0.04em",
@@ -4220,7 +4249,7 @@ const FortForm = ({ initial, onSave, onClose, onDelete, siloStates = { totals: {
                   {unitOptions.map(u => <option key={u} value={u}>{u}</option>)}
                 </select>
                 {idx >= 3
-                  ? <button type="button" onClick={() => delAdicion(a.id)} style={{ background: "none", border: `1px solid ${C.danger}55`, borderRadius: 6, color: C.danger, cursor: "pointer", height: 42, width: 28, fontSize: 18, padding: 0, lineHeight: 1 }}>×</button>
+                  ? <button type="button" onClick={() => delAdicion(a.id)} style={{ background: "none", border: `1px solid ${C.danger}55`, borderRadius: 6, color: C.danger, cursor: "pointer", minHeight: 48, width: 28, fontSize: 18, padding: 0, lineHeight: 1 }}>×</button>
                   : <div />
                 }
               </div>
@@ -4280,12 +4309,21 @@ const FortForm = ({ initial, onSave, onClose, onDelete, siloStates = { totals: {
           const sinCant = f.adiciones.filter(a => !String(a.cantidad || "").trim()).map(a => a.producto || "Adición");
           const all = [...miss, ...sinCant.map(p => `Cantidad de ${p}`)];
           if (all.length) { setFieldError("Faltan completar:\n• " + all.join("\n• ")); track("save_fail", all[0], "fortificados"); return; }
+          const litrosBaseN = parseFloat(f.litrosBase);
+          if (isNaN(litrosBaseN) || litrosBaseN <= 0) { setFieldError("Litros base debe ser mayor a 0."); track("save_fail", "litrosBase", "fortificados"); return; }
+          const adInvalida = f.adiciones.find(a => {
+            const c = String(a.cantidad || "").trim();
+            if (!c) return false;
+            const n = parseFloat(c);
+            return isNaN(n) || n <= 0;
+          });
+          if (adInvalida) { setFieldError(`Cantidad de ${adInvalida.producto || "Adición"} debe ser mayor a 0.`); track("save_fail", "adicion", "fortificados"); return; }
           setFieldError("");
           track("save_ok", null, "fortificados");
           onSave(f);
         }}>Guardar</button>
       </div>
-      {onDelete && <button type="button" style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar</button>}
+      {onDelete && (perfil === "supervisor" || perfil === "jefe") && <button type="button" style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar</button>}
     </div>
   );
 };
@@ -4495,7 +4533,7 @@ const SecFortificados = ({ date, syncKey = 0, dayClosed = false, perfil = null }
             initial={modal === "new" ? null : modal}
             onSave={onSave} onClose={() => setModal(null)}
             onDelete={modal !== "new" ? () => onDelete(modal.id) : null}
-            siloStates={siloStates} date={date}
+            siloStates={siloStates} date={date} perfil={perfil}
           />
         </Modal>
       )}
@@ -9421,7 +9459,7 @@ export default function App() {
                 background: active && UX_V2 ? `${C.accent}1a` : "none",
                 border: "none", cursor: "pointer",
                 padding: UX_V2 ? "10px 0 12px" : "10px 0 13px",
-                minHeight: UX_V2 ? 64 : undefined,
+                minHeight: 64,
                 display: "flex", flexDirection: "column", alignItems: "center",
                 gap: UX_V2 ? 4 : 2,
                 borderTop: active ? `2.5px solid ${C.accent}` : "2.5px solid transparent",
