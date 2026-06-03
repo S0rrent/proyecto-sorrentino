@@ -2680,7 +2680,7 @@ const SecMovimientos = ({ date, syncKey = 0, dayClosed = false, perfil = null })
     if (!check.ok) {
       const ok = await askConfirm({
         title: "Saldo insuficiente",
-        message: `Este movimiento dejaría el silo ${check.silo} con saldo negativo.\n\nDisponible: ${check.current.toFixed(0)} L\nSe mueven: ${parseFloat(item.litros).toFixed(0)} L\nResultado: ${check.next.toFixed(0)} L\n\n¿Guardar de todas formas?`,
+        message: `Este movimiento dejaría el silo ${check.silo} con saldo negativo.\n\nDisponible: ${check.current.toFixed(0)} L\nSe descuentan del origen: ${impactoOrigen.toFixed(0)} L (incluye pérdida)\nResultado: ${check.next.toFixed(0)} L\n\n¿Guardar de todas formas?`,
         danger: true,
         confirmLabel: "Guardar igual",
       });
