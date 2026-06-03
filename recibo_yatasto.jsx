@@ -1332,8 +1332,8 @@ function useConfirm() {
         {state.message}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-        <button type="button" style={btnSecondary} onClick={() => { state.resolve(false); setState(null); }}>Cancelar</button>
-        <button type="button" autoFocus
+        <button type="button" autoFocus={state.danger} style={btnSecondary} onClick={() => { state.resolve(false); setState(null); }}>Cancelar</button>
+        <button type="button" autoFocus={!state.danger}
           style={{ ...btnPrimary, ...(state.danger ? { background: C.danger, color: "#fff" } : {}) }}
           onClick={() => { state.resolve(true); setState(null); }}>
           {state.confirmLabel}
@@ -1915,7 +1915,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo,
             Solo continuar si el desvío fue verificado y autorizado. El registro quedará en el historial.
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-            <button type="button" style={btnSecondary} onClick={() => setAguadoAlerta(false)}>Corregir valores</button>
+            <button type="button" autoFocus style={btnSecondary} onClick={() => setAguadoAlerta(false)}>Corregir valores</button>
             <button type="button" style={{ ...btnPrimary, background: C.danger, borderColor: C.danger }} onClick={() => { if (overrideSavingRef.current) return; overrideSavingRef.current = true; setAguadoAlerta(false); track("save_ok", "forzado_aguado", "ingreso"); onSave(f); }}>
               Guardar de todas formas
             </button>
