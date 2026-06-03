@@ -1873,7 +1873,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo,
           <button type="button" style={btnPrimary} onClick={() => { if (savingRef.current) return; savingRef.current = true; setTimeout(() => { savingRef.current = false; }, 500); onClickGuardar(); }}>Guardar</button>
         </div>
       </div>
-      {onDelete && <button type="button" style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar este ingreso</button>}
+      {onDelete && (perfil === "supervisor" || perfil === "jefe") && <button type="button" style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar este ingreso</button>}
 
       {/* Modal de override CIP — solo supervisor/jefe */}
       {cipForzado && (
@@ -2267,7 +2267,7 @@ const SecCIP = ({ date, syncKey = 0, readOnly = false }) => {
 
 // ─── CARGA DE CAMIONES ────────────────────────────────────────
 const emptyCarga = () => ({ id: crypto.randomUUID(), label: "CARGA 1", destino: "", transportista: "", producto: "", siloProveniente: "", limpCisterna: "", litros: "", T: "", pH: "", A: "", hora: getNow(), responsable: "", obs: "" });
-const CargaForm = ({ initial, onSave, onClose, onDelete }) => {
+const CargaForm = ({ initial, onSave, onClose, onDelete, perfil = null }) => {
   const [f, setF] = useState(initial || emptyCarga());
   const [fieldError, setFieldError] = useState("");
   const savingRef = useRef(false);
@@ -2385,7 +2385,7 @@ const CargaForm = ({ initial, onSave, onClose, onDelete }) => {
           onSave(f);
         }}>Guardar</button>
       </div>
-      {onDelete && <button type="button" style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar</button>}
+      {onDelete && (perfil === "supervisor" || perfil === "jefe") && <button type="button" style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar</button>}
 
       {transModal && (
         <Modal title="Agregar Transportista" onClose={() => setTransModal(false)}>
@@ -2487,7 +2487,7 @@ const SecCarga = ({ date, syncKey = 0, dayClosed = false, perfil = null }) => {
       {!dayClosed && <FAB onClick={() => setModal("new")} />}
       {modal && (
         <Modal title={modal === "new" ? "Nueva Carga" : "Editar Carga"} onClose={() => setModal(null)}>
-          <CargaForm initial={modal === "new" ? null : modal} onSave={onSave} onClose={() => setModal(null)} onDelete={modal !== "new" ? () => onDelete(modal.id) : null} />
+          <CargaForm initial={modal === "new" ? null : modal} onSave={onSave} onClose={() => setModal(null)} onDelete={modal !== "new" ? () => onDelete(modal.id) : null} perfil={perfil} />
         </Modal>
       )}
       {confirmUI}
@@ -2499,7 +2499,7 @@ const SecCarga = ({ date, syncKey = 0, dayClosed = false, perfil = null }) => {
 const emptyMov = () => ({ id: crypto.randomUUID(), hora: getNow(), desde: "", hasta: "", litros: "", perdidaLitros: "", producto: "", motivo: "", resp: "" });
 const emptyCtrl = () => ({ id: crypto.randomUUID(), hora: getNow(), silo: "", ph: "", gD: "", gC: "", alc: "", mg: "", sng: "", dens: "", fp: "", prot: "", resp: "" });
 
-const MovForm = ({ initial, onSave, onClose, onDelete, date }) => {
+const MovForm = ({ initial, onSave, onClose, onDelete, date, perfil = null }) => {
   const [f, setF] = useState(initial || emptyMov());
   const [fieldError, setFieldError] = useState("");
   const [stocks, setStocks] = useState({ totals: {}, reservados: {} });
@@ -2612,11 +2612,11 @@ const MovForm = ({ initial, onSave, onClose, onDelete, date }) => {
           onSave(f);
         }}>Guardar</button>
       </div>
-      {onDelete && <button type="button" style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar</button>}
+      {onDelete && (perfil === "supervisor" || perfil === "jefe") && <button type="button" style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar</button>}
     </div>
   );
 };
-const CtrlForm = ({ initial, onSave, onClose, onDelete }) => {
+const CtrlForm = ({ initial, onSave, onClose, onDelete, perfil = null }) => {
   const [f, setF] = useState(initial || emptyCtrl());
   const [fieldError, setFieldError] = useState("");
   const savingRef = useRef(false);
@@ -2651,7 +2651,7 @@ const CtrlForm = ({ initial, onSave, onClose, onDelete }) => {
           onSave(f);
         }}>Guardar</button>
       </div>
-      {onDelete && <button type="button" style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar</button>}
+      {onDelete && (perfil === "supervisor" || perfil === "jefe") && <button type="button" style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar</button>}
     </div>
   );
 };
@@ -2800,8 +2800,8 @@ const SecMovimientos = ({ date, syncKey = 0, dayClosed = false, perfil = null })
           onClose={() => setModal(null)}
         >
           {modal.type === "mov"
-            ? <MovForm initial={modal.item} onSave={saveMov} onClose={() => setModal(null)} onDelete={modal.item ? () => delMov(modal.item.id) : null} date={date} />
-            : <CtrlForm initial={modal.item} onSave={saveCtrl} onClose={() => setModal(null)} onDelete={modal.item ? () => delCtrl(modal.item.id) : null} />
+            ? <MovForm initial={modal.item} onSave={saveMov} onClose={() => setModal(null)} onDelete={modal.item ? () => delMov(modal.item.id) : null} date={date} perfil={perfil} />
+            : <CtrlForm initial={modal.item} onSave={saveCtrl} onClose={() => setModal(null)} onDelete={modal.item ? () => delCtrl(modal.item.id) : null} perfil={perfil} />
           }
         </Modal>
       )}
@@ -4065,7 +4065,7 @@ const emptyFort = () => ({
   obs: "",
 });
 
-const FortForm = ({ initial, onSave, onClose, onDelete, siloStates = { totals: {}, productos: {}, reservados: {}, fechas: {} }, date = null }) => {
+const FortForm = ({ initial, onSave, onClose, onDelete, siloStates = { totals: {}, productos: {}, reservados: {}, fechas: {} }, date = null, perfil = null }) => {
   const [f, setF] = useState(() => initial ? { ...emptyFort(), ...initial } : emptyFort());
   const [fieldError, setFieldError] = useState("");
   const savingRef = useRef(false);
@@ -4323,7 +4323,7 @@ const FortForm = ({ initial, onSave, onClose, onDelete, siloStates = { totals: {
           onSave(f);
         }}>Guardar</button>
       </div>
-      {onDelete && <button type="button" style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar</button>}
+      {onDelete && (perfil === "supervisor" || perfil === "jefe") && <button type="button" style={{ ...btnSecondary, color: C.danger, borderColor: C.danger, marginTop: 8 }} onClick={onDelete}>Eliminar</button>}
     </div>
   );
 };
@@ -4533,7 +4533,7 @@ const SecFortificados = ({ date, syncKey = 0, dayClosed = false, perfil = null }
             initial={modal === "new" ? null : modal}
             onSave={onSave} onClose={() => setModal(null)}
             onDelete={modal !== "new" ? () => onDelete(modal.id) : null}
-            siloStates={siloStates} date={date}
+            siloStates={siloStates} date={date} perfil={perfil}
           />
         </Modal>
       )}
