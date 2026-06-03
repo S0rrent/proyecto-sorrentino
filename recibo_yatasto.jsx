@@ -1725,6 +1725,24 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo,
       }
       return;
     }
+    if (isConcentrado) {
+      const litrosFcaN = parseFloat(f.litrosFca);
+      if (isNaN(litrosFcaN) || litrosFcaN <= 0) {
+        setFieldError("Litros debe ser mayor a 0.");
+        track("save_fail", "litrosFca", "ingreso");
+        return;
+      }
+    } else {
+      const litrosFcaN = parseFloat(f.litrosFca);
+      const litrosTboN = parseFloat(f.litrosTbo);
+      const fcaOk = !isNaN(litrosFcaN) && litrosFcaN > 0;
+      const tboOk = !isNaN(litrosTboN) && litrosTboN > 0;
+      if (!fcaOk && !tboOk) {
+        setFieldError("Litros (Fábrica o Tambo) debe ser mayor a 0.");
+        track("save_fail", "litrosFca", "ingreso");
+        return;
+      }
+    }
     if (siloSucioLevel === "bloqueado") {
       if (!canForce) {
         setFieldError("El silo " + f.destino + " está pendiente de CIP. Solo el supervisor puede autorizar este ingreso.");
@@ -2360,6 +2378,8 @@ const CargaForm = ({ initial, onSave, onClose, onDelete }) => {
           ["T", "T"], ["pH", "pH"], ["A", "A"]];
           const miss = req.filter(([k]) => !String(f[k] || "").trim()).map(([, v]) => v);
           if (miss.length) { setFieldError("Faltan completar:\n• " + miss.join("\n• ")); track("save_fail", miss[0], "carga"); return; }
+          const litrosN = parseFloat(f.litros);
+          if (isNaN(litrosN) || litrosN <= 0) { setFieldError("Litros debe ser mayor a 0."); track("save_fail", "litros", "carga"); return; }
           setFieldError("");
           track("save_ok", null, "carga");
           onSave(f);
@@ -2578,6 +2598,10 @@ const MovForm = ({ initial, onSave, onClose, onDelete, date }) => {
           const req = [["litros", "Litros"], ["desde", "Desde"], ["hasta", "Hasta"], ["motivo", "Motivo"], ["resp", "Responsable"]];
           const miss = req.filter(([k]) => !String(f[k] || "").trim()).map(([, v]) => v);
           if (miss.length) { setFieldError("Faltan completar:\n• " + miss.join("\n• ")); track("save_fail", miss[0], "movimientos"); return; }
+          const litrosN = parseFloat(f.litros);
+          if (isNaN(litrosN) || litrosN <= 0) { setFieldError("Litros debe ser mayor a 0."); track("save_fail", "litros", "movimientos"); return; }
+          const perdidaN = parseFloat(f.perdidaLitros ?? 0);
+          if (!isNaN(perdidaN) && perdidaN < 0) { setFieldError("La pérdida no puede ser negativa."); track("save_fail", "perdidaLitros", "movimientos"); return; }
           setFieldError("");
           track("save_ok", null, "movimientos");
           onSave(f);
@@ -4280,6 +4304,15 @@ const FortForm = ({ initial, onSave, onClose, onDelete, siloStates = { totals: {
           const sinCant = f.adiciones.filter(a => !String(a.cantidad || "").trim()).map(a => a.producto || "Adición");
           const all = [...miss, ...sinCant.map(p => `Cantidad de ${p}`)];
           if (all.length) { setFieldError("Faltan completar:\n• " + all.join("\n• ")); track("save_fail", all[0], "fortificados"); return; }
+          const litrosBaseN = parseFloat(f.litrosBase);
+          if (isNaN(litrosBaseN) || litrosBaseN <= 0) { setFieldError("Litros base debe ser mayor a 0."); track("save_fail", "litrosBase", "fortificados"); return; }
+          const adInvalida = f.adiciones.find(a => {
+            const c = String(a.cantidad || "").trim();
+            if (!c) return false;
+            const n = parseFloat(c);
+            return isNaN(n) || n <= 0;
+          });
+          if (adInvalida) { setFieldError(`Cantidad de ${adInvalida.producto || "Adición"} debe ser mayor a 0.`); track("save_fail", "adicion", "fortificados"); return; }
           setFieldError("");
           track("save_ok", null, "fortificados");
           onSave(f);
