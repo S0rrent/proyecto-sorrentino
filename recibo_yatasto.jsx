@@ -2598,6 +2598,11 @@ const MovForm = ({ initial, onSave, onClose, onDelete, date }) => {
           const req = [["litros", "Litros"], ["desde", "Desde"], ["hasta", "Hasta"], ["motivo", "Motivo"], ["resp", "Responsable"]];
           const miss = req.filter(([k]) => !String(f[k] || "").trim()).map(([, v]) => v);
           if (miss.length) { setFieldError("Faltan completar:\n• " + miss.join("\n• ")); track("save_fail", miss[0], "movimientos"); return; }
+          if (f.desde === f.hasta) {
+            setFieldError("El silo origen y destino no pueden ser iguales.");
+            track("save_fail", "hasta", "movimientos");
+            return;
+          }
           const litrosN = parseFloat(f.litros);
           if (isNaN(litrosN) || litrosN <= 0) { setFieldError("Litros debe ser mayor a 0."); track("save_fail", "litros", "movimientos"); return; }
           const perdidaN = parseFloat(f.perdidaLitros ?? 0);
