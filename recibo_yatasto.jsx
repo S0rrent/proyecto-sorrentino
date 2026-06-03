@@ -255,7 +255,7 @@ const inp = {
   background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8,
   color: C.text,
   padding: UX_V2 ? "14px 14px" : "11px 12px",
-  minHeight: UX_V2 ? 48 : undefined,
+  minHeight: 48,
   fontSize: 16, width: "100%",
   outline: "none", fontFamily: FONT_MONO, boxSizing: "border-box",
 };
@@ -264,14 +264,14 @@ const secTitle = { fontSize: 12, fontWeight: 700, color: C.accent, textTransform
 const btnPrimary = {
   background: C.accent, color: "#000", border: "none", borderRadius: 10,
   padding: UX_V2 ? "15px 22px" : "13px 20px",
-  minHeight: UX_V2 ? 48 : undefined,
+  minHeight: 48,
   fontSize: 15, fontWeight: 700, cursor: "pointer", width: "100%",
   touchAction: "manipulation", WebkitTapHighlightColor: "transparent",
 };
 const btnSecondary = {
   background: C.card, color: C.text, border: `1px solid ${C.border}`, borderRadius: 10,
   padding: UX_V2 ? "15px 22px" : "13px 20px",
-  minHeight: UX_V2 ? 48 : undefined,
+  minHeight: 48,
   fontSize: 15, fontWeight: 600, cursor: "pointer", width: "100%",
   touchAction: "manipulation", WebkitTapHighlightColor: "transparent",
 };
@@ -4189,7 +4189,7 @@ const FortForm = ({ initial, onSave, onClose, onDelete, siloStates = { totals: {
               type="button"
               onClick={() => setF(p => ({ ...p, [key]: !(p[key] ?? false) }))}
               style={{
-                padding: "12px 8px", borderRadius: 8, border: `1.5px solid ${active ? C.accent : C.border}`,
+                padding: "12px 8px", borderRadius: 8, border: `1.5px solid ${active ? C.accent : C.border}`, minHeight: 48,
                 background: active ? C.accent.replace(/\)$/, " / 0.12)") : C.card,
                 color: active ? C.accent : C.sub,
                 fontWeight: 700, fontSize: 13, letterSpacing: "0.04em",
@@ -4249,7 +4249,7 @@ const FortForm = ({ initial, onSave, onClose, onDelete, siloStates = { totals: {
                   {unitOptions.map(u => <option key={u} value={u}>{u}</option>)}
                 </select>
                 {idx >= 3
-                  ? <button type="button" onClick={() => delAdicion(a.id)} style={{ background: "none", border: `1px solid ${C.danger}55`, borderRadius: 6, color: C.danger, cursor: "pointer", height: 42, width: 28, fontSize: 18, padding: 0, lineHeight: 1 }}>×</button>
+                  ? <button type="button" onClick={() => delAdicion(a.id)} style={{ background: "none", border: `1px solid ${C.danger}55`, borderRadius: 6, color: C.danger, cursor: "pointer", minHeight: 48, width: 28, fontSize: 18, padding: 0, lineHeight: 1 }}>×</button>
                   : <div />
                 }
               </div>
@@ -9459,7 +9459,7 @@ export default function App() {
                 background: active && UX_V2 ? `${C.accent}1a` : "none",
                 border: "none", cursor: "pointer",
                 padding: UX_V2 ? "10px 0 12px" : "10px 0 13px",
-                minHeight: UX_V2 ? 64 : undefined,
+                minHeight: 64,
                 display: "flex", flexDirection: "column", alignItems: "center",
                 gap: UX_V2 ? 4 : 2,
                 borderTop: active ? `2.5px solid ${C.accent}` : "2.5px solid transparent",
