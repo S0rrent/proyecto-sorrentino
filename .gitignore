@@ -8,3 +8,6 @@ dist
 # LLM Council artifacts en raíz (decisiones importantes van a docs/council/)
 council-report-*.html
 council-transcript-*.md
+
+# PDFs generados de la documentación (regenerables desde los .html / .md)
+docs/sistema/*.pdf
