@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="es-AR"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sistema ReciboApp / Yatasto — Estado actual</title><style>
+  @page { size: A4 portrait; margin: 18mm 16mm; }
+  * { box-sizing: border-box; }
+  body { font-family: "Segoe UI", Calibri, Arial, sans-serif; color:#1a1f29; line-height:1.55;
+         font-size: 15px; max-width: 900px; margin: 0 auto; padding: 28px 28px 60px; }
+  h1 { font-size: 26px; color:#0f2741; border-bottom:3px solid #1d4ed8; padding-bottom:8px; margin:0 0 6px; }
+  h1 + p, h1 + blockquote { margin-top: 8px; }
+  h2 { font-size: 20px; color:#0f2741; margin:28px 0 8px; padding-bottom:5px; border-bottom:1px solid #d9dee6; }
+  h3 { font-size: 16.5px; color:#1d3a5f; margin:20px 0 6px; }
+  p, li { font-size: 15px; }
+  table { border-collapse: collapse; width:100%; margin:12px 0; font-size:13.5px; }
+  th, td { border:1px solid #cfd6df; padding:7px 9px; text-align:left; vertical-align:top; }
+  th { background:#eef2f7; font-weight:700; }
+  tr:nth-child(even) td { background:#f7f9fb; }
+  code { background:#eef1f5; padding:1px 5px; border-radius:4px; font-size:13px; }
+  hr { border:0; border-top:1px solid #d9dee6; margin:26px 0; }
+  blockquote { margin:12px 0; padding:12px 16px; background:#fbfbfc; border-left:4px solid #94a3b8;
+               border-radius:0 8px 8px 0; color:#334155; font-size:14px; }
+  /* placeholders de imagen (empiezan con la camara) */
+  blockquote:has(strong) { }
+  blockquote p:first-child { margin-top:0; }
+  blockquote:first-line { }
+  strong { font-weight:700; }
+  @media print { body { max-width:none; padding:0; } a { color:#1d4ed8; text-decoration:none; } }
+</style></head>
+<body><h1>Sistema ReciboApp / Yatasto — Estado actual</h1>
+<p><strong>Lácteos Yatasto SA — Sistema de registro operativo de planta</strong>
+Documento técnico integral · Versión 1.1 · 2026-06-04
+Estado del software: rama <code>main</code> (producción), con la Tanda A de guardrails (parcial) ya mergeada.</p>
+<blockquote>
+<p>Documento de referencia del sistema: qué es, cómo funciona, cómo se opera, qué riesgos tiene, qué protecciones existen hoy y en qué etapa está el proyecto. Describe el comportamiento <strong>real y actual</strong> de la aplicación, no el deseado. Cuando una protección no existe, se indica explícitamente.</p>
+</blockquote>
+<hr>
+<h2>Índice</h2>
+<ol>
+<li>Resumen ejecutivo</li>
+<li>Qué es el sistema y qué problemas resuelve</li>
+<li>Arquitectura funcional</li>
+<li>Módulos y pantallas</li>
+<li>Roles y perfiles</li>
+<li>Matriz de permisos</li>
+<li>Operación diaria</li>
+<li>Producción</li>
+<li>Stock</li>
+<li>Cierres, reapertura y saldo</li>
+<li>Auditoría y trazabilidad</li>
+<li>Riesgos / hazards detectados</li>
+<li>Guardrails implementados (estado actual)</li>
+<li>Documentación creada</li>
+<li>Capacitación</li>
+<li>Validación operativa</li>
+<li>Estado actual del proyecto</li>
+<li>Próximos pasos</li>
+</ol>
+<hr>
+<h2>1. Resumen ejecutivo</h2>
+<p>ReciboApp (&quot;Yatasto&quot;) es la aplicación de registro operativo diario de la planta de Lácteos Yatasto SA. Reemplaza las planillas de papel: captura ingresos de leche cruda con parámetros de calidad, movimientos entre silos, cargas despachadas, lotes fortificados, registros de limpieza CIP, producción/envasado y stock por turno, sosteniendo un cálculo encadenado de saldo de silos día a día.</p>
+<p>El sistema está <strong>funcional y en uso</strong>, con backend en la nube (Supabase) y operación offline-first (la planta tiene señal débil). La lógica de cálculo de litros y saldo es sólida y está documentada como zona protegida.</p>
+<p>El proyecto completó una <strong>auditoría de riesgos</strong> (técnica y de uso humano) que catalogó 30 riesgos con identificador estable. La conclusión central: el motor calcula bien, pero <strong>la interfaz no impedía la mayoría de los errores de carga humana</strong>, y varios de esos errores corrompen datos de forma <strong>silenciosa</strong> (sin aviso). Sobre la hoja de ruta de mitigaciones conservadoras (guardrails) ya se incorporó una <strong>primera tanda</strong> (Tanda A, parcial) que cerró seis de esos riesgos; varios siguen abiertos. En paralelo se produjo documentación operativa, de capacitación y de validación.</p>
+<p>El proyecto cruzó de la etapa de <strong>prototipo</strong> a la de <strong>operación real</strong>: las features grandes quedan congeladas y el foco pasa a observar el uso real en planta durante varios días antes de definir la próxima tanda de mejoras.</p>
+<hr>
+<h2>2. Qué es el sistema y qué problemas resuelve</h2>
+<p><strong>Problema que resuelve.</strong> Antes, el registro de la operación (ingresos, movimientos, cargas, limpiezas, stock) se hacía en planillas de papel, con los problemas conocidos: pérdida de hojas, datos ilegibles, sin trazabilidad, sin consolidación, sin saldo de silos confiable, y sin control cruzado de calidad e inocuidad.</p>
+<p><strong>Qué hace.</strong> Un único sistema de registro operativo diario que:</p>
+<ul>
+<li>Captura <strong>ingresos de leche cruda</strong> con parámetros de calidad (pH, acidez, grasa butirosa/GB, SNG, densidad, proteína, temperatura, aguado) y silo destino.</li>
+<li>Registra <strong>movimientos</strong> de leche entre silos (con pérdida), <strong>cargas</strong> de despacho, <strong>lotes fortificados</strong> y registros <strong>CIP</strong> de limpieza (silos y camiones).</li>
+<li>Mantiene el <strong>stock por turno</strong> y un <strong>saldo de silos encadenado</strong> día a día desde un saldo base.</li>
+<li>Gestiona la <strong>producción/envasado</strong> (lotes en proceso y finalizados).</li>
+<li>Provee <strong>dashboard/KPIs</strong>, <strong>exportación</strong> (CSV/Excel), <strong>auditoría</strong> y <strong>backup</strong>.</li>
+</ul>
+<p><strong>Objetivo de diseño.</strong> Que cualquier operario, en piso de planta y con baja luz, pueda registrar una operación en menos de 30 segundos, sin error y sin entrenamiento previo. Es un objetivo todavía no alcanzado en varias pantallas (ver §12).</p>
+<p><strong>Contexto de uso.</strong> Operarios de turno, supervisores y jefe de planta. Uso mixto: celular/tablet en piso (registro) y escritorio en oficina (revisión, exportación, supervisión). Entorno industrial: manos húmedas, luz amarilla pobre, ruido, presión de tiempo, experiencia digital variable, señal inestable.</p>
+<hr>
+<h2>3. Arquitectura funcional</h2>
+<p><strong>Tipo de aplicación.</strong> Aplicación web React de archivo único (<code>recibo_yatasto.jsx</code>), instalable como PWA (modo standalone, portrait, español, offline-capable mediante service worker). Interfaz mobile-first, tema oscuro (paleta OKLCH), pensada para lectura a distancia con luz pobre.</p>
+<p><strong>Persistencia.</strong> Backend Supabase, tabla clave-valor <code>yatasto_storage (key, value, updated_at)</code>. Todo pasa por un adaptador (<code>db.get/set/list/remove</code>). Las claves siguen el patrón <code>yatasto:YYYY-MM-DD:seccion</code> (fecha ISO, ordenable). El valor es siempre JSON.</p>
+<p><strong>Offline-first.</strong> Cuando una escritura falla por red, se encola localmente y se reintenta con backoff; la cola sobrevive recargas. El indicador de conexión muestra &quot;Sincronizado&quot; o la cantidad de cambios pendientes. El cierre del día se bloquea si hay cola pendiente, para proteger el saldo.</p>
+<p><strong>Motor de cálculo (zona protegida).</strong> Un conjunto de funciones sostiene el saldo de silos:</p>
+<ul>
+<li><code>calcAutoLitros(date)</code>: calcula los litros netos por silo para una fecha, aplicando en orden ingresos (+), movimientos (origen −, destino +), cargas (−), fortificados (origen −, destino +) y producción finalizada (−).</li>
+<li><code>SALDO_BASE_KEY</code>: ancla manual del saldo, cargada por supervisor/jefe; es la única fuente de verdad manual y nunca la sobrescribe el sistema.</li>
+<li><code>SALDO_KEY</code>: saldo encadenado hasta ayer; es un cache derivado y reconstruible.</li>
+<li><code>buildChainedSaldo</code> / <code>rebuildSaldoChain</code>: reconstruyen el saldo día a día desde el ancla.</li>
+<li><code>runConsistencyChecks(date)</code>: red de seguridad que detecta inconsistencias (stock negativo, reservados que exceden el silo, rendimiento imposible, movimientos automáticos huérfanos, cadena truncada).</li>
+</ul>
+<p>Estas funciones, la persistencia base y la cola offline son <strong>zona protegida</strong>: no se modifican sin pre-mortem y test de regresión de la cadena de saldo.</p>
+<p><strong>Convención de fecha y turnos.</strong> Fechas persistidas en ISO <code>YYYY-MM-DD</code>; se muestran en formato <code>dd/mm/yyyy</code>. Tres turnos: 07:00 (Mañana), 14:00 (Tarde), 21:00 (Noche). Limitación conocida: la fecha &quot;hoy&quot; se deriva hoy en UTC y rota a las 21:00 hora Argentina (riesgo T2, ver §12).</p>
+<hr>
+<h2>4. Módulos y pantallas</h2>
+<table>
+<thead>
+<tr>
+<th>Módulo / Pantalla</th>
+<th>Función</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Ingresos</strong></td>
+<td>Alta de ingresos de leche cruda por camión: litros (Fábrica/Tambo) y parámetros de calidad; silo destino. Pantalla más usada.</td>
+</tr>
+<tr>
+<td><strong>Movimientos</strong></td>
+<td>Transferencias de leche silo a silo (Desde/Hasta, litros, pérdida) y controles de calidad por silo.</td>
+</tr>
+<tr>
+<td><strong>Carga</strong></td>
+<td>Despachos de salida (CARGA 1/2/3): silo proveniente, litros, destino, producto.</td>
+</tr>
+<tr>
+<td><strong>Fortificados</strong></td>
+<td>Lotes fortificados: silo origen/destino, litros base y adiciones (producto + cantidad + unidad).</td>
+</tr>
+<tr>
+<td><strong>CIP</strong></td>
+<td>Registros de limpieza (Clean In Place) de silos y camiones: parámetros de lavado (alcalino, enjuague, ácido, temperatura), hora y responsable. Registro de inocuidad.</td>
+</tr>
+<tr>
+<td><strong>Stock</strong></td>
+<td>Niveles por silo y por turno (Mañana/Tarde/Noche); litros auto-calculados + producto inferido.</td>
+</tr>
+<tr>
+<td><strong>Producción</strong></td>
+<td>Lotes de envasado: en proceso (&quot;envasando&quot;) e historial (finalizados). Reserva y descuenta litros del silo.</td>
+</tr>
+<tr>
+<td><strong>Dashboard / KPIs</strong></td>
+<td>Analítica de la jornada y exportación (CSV/Excel). Accesible a supervisor y jefe.</td>
+</tr>
+<tr>
+<td><strong>Administración / Panel técnico</strong></td>
+<td>Inconsistencias, reconstrucción de cadena de saldo, backup completo, auditoría detallada. <strong>Solo jefe.</strong></td>
+</tr>
+<tr>
+<td><strong>Shell (marco)</strong></td>
+<td>Barra de navegación inferior (6 pestañas), selector de fecha, modal de identificación de responsable, cierre/reapertura de día, descarga de backup, indicador de conexión.</td>
+</tr>
+</tbody></table>
+<blockquote>
+<p>Nota sobre navegación: la barra inferior expone 6 pestañas (Ingresos · Movimientos · Carga · Fortificados · CIP · Stock). Producción, Dashboard y Administración se alcanzan fuera de esas 6. El rediseño de navegación (4 pestañas, home, login por PIN) está <strong>planificado</strong> pero <strong>no implementado</strong>.</p>
+</blockquote>
+<hr>
+<h2>5. Roles y perfiles</h2>
+<p>El sistema define <strong>tres perfiles reales</strong> en código, resueltos desde la sesión de Supabase Auth (no desde el dispositivo, para evitar escalado de privilegios):</p>
+<table>
+<thead>
+<tr>
+<th>Rol operativo</th>
+<th>Perfil en sistema</th>
+<th>Dispositivo</th>
+<th>Resumen</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Operario</strong></td>
+<td><code>operador</code></td>
+<td>Mobile (piso)</td>
+<td>Registra la operación física del turno. No cierra día, no elimina, no entra a Producción/Dashboard/Admin.</td>
+</tr>
+<tr>
+<td><strong>Supervisor</strong></td>
+<td><code>supervisor</code></td>
+<td>Mobile / tablet</td>
+<td>Controla la jornada: corrige, elimina, autoriza desvíos, gestiona Producción, cierra el día, exporta.</td>
+</tr>
+<tr>
+<td><strong>Jefe</strong></td>
+<td><code>jefe</code></td>
+<td>Desktop + mobile</td>
+<td>Todo lo del supervisor + reabrir día, saldo base, panel técnico, backup completo, auditoría detallada.</td>
+</tr>
+<tr>
+<td><strong>Oficina</strong></td>
+<td><em>(no es un perfil propio)</em></td>
+<td>Desktop</td>
+<td>Administración / control de calidad: usa credenciales de supervisor o jefe en escritorio para revisar, exportar y verificar backups.</td>
+</tr>
+</tbody></table>
+<blockquote>
+<p><strong>Importante:</strong> &quot;Operario&quot; y &quot;Oficina&quot; como roles diferenciados, junto con login por PIN y atribución individual por persona, están <strong>planificados</strong> (rediseño de perfiles) pero <strong>no existen</strong> en la versión actual. Hoy el rol del piso usa el perfil <code>operador</code>, y &quot;Oficina&quot; se cubre con un perfil existente desde escritorio.</p>
+</blockquote>
+<hr>
+<h2>6. Matriz de permisos</h2>
+<p>Permisos efectivos verificados en código (<code>✓</code> permitido · <code>✗</code> no permitido):</p>
+<table>
+<thead>
+<tr>
+<th>Acción</th>
+<th align="center"><code>operador</code></th>
+<th align="center"><code>supervisor</code></th>
+<th align="center"><code>jefe</code></th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Cargar/editar Ingresos · Movimientos · Carga · Fortificados</td>
+<td align="center">✓</td>
+<td align="center">✓</td>
+<td align="center">✓</td>
+</tr>
+<tr>
+<td>Cargar Stock por turno · Registrar CIP · Identificarse</td>
+<td align="center">✓</td>
+<td align="center">✓</td>
+<td align="center">✓</td>
+</tr>
+<tr>
+<td>Eliminar registro (Ingreso/Movimiento/Carga/Fortificado)</td>
+<td align="center">✗ (oculto)</td>
+<td align="center">✓</td>
+<td align="center">✓</td>
+</tr>
+<tr>
+<td>Forzar ingreso con <strong>aguado</strong></td>
+<td align="center">✓ (sin permiso) — no auditado</td>
+<td align="center">✓ — no auditado</td>
+<td align="center">✓ — no auditado</td>
+</tr>
+<tr>
+<td>Forzar ingreso a silo <strong>sucio / CIP pendiente</strong></td>
+<td align="center">✗</td>
+<td align="center">✓ — auditado</td>
+<td align="center">✓ — auditado</td>
+</tr>
+<tr>
+<td>Producción: envasar / finalizar / eliminar lote</td>
+<td align="center">✗</td>
+<td align="center">✓</td>
+<td align="center">✓</td>
+</tr>
+<tr>
+<td>Dashboard / KPIs · Exportar CSV/Excel</td>
+<td align="center">✗</td>
+<td align="center">✓</td>
+<td align="center">✓</td>
+</tr>
+<tr>
+<td>Cerrar día · Descargar backup sugerido</td>
+<td align="center">✗</td>
+<td align="center">✓</td>
+<td align="center">✓</td>
+</tr>
+<tr>
+<td>Cambiar Saldo Base Oficial</td>
+<td align="center">✗</td>
+<td align="center">✓</td>
+<td align="center">✓</td>
+</tr>
+<tr>
+<td>Reabrir día</td>
+<td align="center">✗</td>
+<td align="center">✗</td>
+<td align="center">✓</td>
+</tr>
+<tr>
+<td>Inconsistencias · Auditoría detallada · Panel técnico · Backup completo</td>
+<td align="center">✗</td>
+<td align="center">✗</td>
+<td align="center">✓</td>
+</tr>
+</tbody></table>
+<blockquote>
+<p>Los permisos se aplican <strong>solo del lado del cliente</strong> (ocultando o cortando botones). No son una barrera a nivel servidor (riesgo T6): un usuario autenticado podría, desde la consola del navegador, saltar la interfaz. El control efectivo hoy es el <strong>acceso físico al dispositivo</strong> y las credenciales.</p>
+</blockquote>
+<hr>
+<h2>7. Operación diaria</h2>
+<p><strong>Apertura.</strong> Al abrir, el sistema resuelve el perfil desde la sesión, reconstruye el saldo encadenado hasta ayer y, si el turno actual no tiene responsable cargado, muestra el modal de identificación (que puede postergarse).</p>
+<p><strong>Durante el día.</strong> Cada acción de una sección <strong>guarda de inmediato</strong> (no hay botón de guardar a nivel sección ni debounce); con señal débil esto genera ráfagas de escritura que se encolan. Un sincronizador periódico (cada 10 s) refresca las secciones, actualiza el turno según la hora y detecta el cruce de día.</p>
+<p><strong>Flujo típico del operario (por turno).</strong> Identificarse como responsable → registrar cada camión en Ingresos → mover leche entre silos en Movimientos → despachar en Carga → cargar lotes en Fortificados → registrar limpiezas en CIP → al cierre de su turno, cargar el Stock de sus silos.</p>
+<p><strong>Flujo típico del supervisor.</strong> Revisar lo cargado → corregir/eliminar errores → autorizar desvíos (CIP pendiente, aguado) → gestionar Producción → esperar &quot;Sincronizado&quot; → cerrar el día → descargar y verificar el backup.</p>
+<p><strong>Modo histórico.</strong> Cuando la fecha seleccionada no es hoy, la aplicación entra en modo histórico (hoy señalizado de forma poco evidente — riesgo H7). Por el cálculo de fecha en UTC, durante el turno noche la app puede entrar en modo histórico aunque sea el turno en curso (riesgo T2).</p>
+<hr>
+<h2>8. Producción</h2>
+<p>El módulo de Producción gestiona lotes de envasado. Cada lote tiene estado (enviado / envasando / finalizado / cancelado), silos de origen, litros usados, destino del sobrante y cajas. Los lotes <strong>en proceso</strong> generan litros reservados sobre el silo; los lotes <strong>finalizados</strong> descuentan litros reales del silo.</p>
+<p>La pantalla de <strong>finalización</strong> valida en línea: exige número de lote, al menos un silo origen con litros, litros usados no vacíos, no negativos y que no superen los enviados, y destino del sobrante si lo hay. Producción es el <strong>único módulo que registra en auditoría las altas y ediciones</strong> (no solo los borrados). Es el único lugar donde hoy se puede reconstruir de forma confiable quién creó o editó un registro.</p>
+<p>Eliminar un lote <strong>finalizado</strong> restituye litros al silo (acción irreversible, exclusiva de la gestión, registrada en auditoría).</p>
+<hr>
+<h2>9. Stock</h2>
+<p>El módulo de Stock muestra el nivel de cada silo por turno (Mañana/Tarde/Noche). Los litros se auto-calculan a partir del saldo encadenado y de la operación del día; el producto de cada silo se infiere del último ingreso. Cada turno guarda su responsable (<code>resp</code>), que hoy es el único dato de atribución por persona.</p>
+<p>Limitaciones conocidas en esta pantalla (ver §12): el guardado usa el turno del estado en memoria (que puede venir de una sesión previa) y el auto-relleno puede pisar el producto cargado a mano (riesgo TH6); un silo por encima de su capacidad se muestra al 100 % sin alerta de peligro (riesgo H9).</p>
+<hr>
+<h2>10. Cierres, reapertura y saldo</h2>
+<p><strong>Cierre del día (supervisor/jefe).</strong> El cierre se <strong>bloquea si hay escrituras pendientes</strong> en la cola offline (hay que esperar &quot;Sincronizado&quot;), valida el perfil en el propio manejador, marca el día como cerrado, toma un <strong>snapshot del saldo</strong> y lo registra en auditoría. Si cierra hoy o ayer, ese saldo pasa a ser la base para mañana; un cierre retroactivo dispara la reconstrucción de la cadena. Tras cerrar, sugiere descargar el backup.</p>
+<p><strong>Día cerrado.</strong> Sobre un día cerrado, una capa visual (&quot;Día cerrado&quot;) cubre el contenido y el guardado rechaza toda escritura a esa fecha. Limitación: la señal de solo-lectura no llega a los formularios internos de CIP ni de Movimientos (riesgo TH4), por lo que la protección efectiva depende de esa capa visual, no de los formularios.</p>
+<p><strong>Reapertura (solo jefe).</strong> Reabrir registra en auditoría. Limitación crítica (riesgo T7): reabrir un día de <strong>hoy o ayer no recalcula el saldo</strong>; si se edita tras reabrir, el saldo de mañana puede no reflejar el cambio hasta un nuevo cierre. Mitigación operativa: volver a cerrar el día.</p>
+<p><strong>Saldo Base.</strong> Es el ancla manual del saldo. Cambiarlo recalcula toda la cadena hasta hoy. Debe modificarse solo con un conteo físico verificado y en un día tranquilo. Hoy este cambio <strong>no queda registrado en auditoría</strong>.</p>
+<hr>
+<h2>11. Auditoría y trazabilidad</h2>
+<p><strong>Qué se registra hoy.</strong> Auditoría por día con cada entrada <code>{ ts, acción, tipo, resumen, autor }</code>. Se auditan: cierre y reapertura de día, todos los borrados, el forzado de ingreso a silo con CIP pendiente, y <strong>toda la actividad de Producción</strong> (altas y ediciones). Existe además un log global de borrados (últimos 500).</p>
+<p><strong>Qué NO se registra (huecos).</strong></p>
+<ul>
+<li>Altas y ediciones normales de Ingresos, Movimientos, Carga, Stock y Fortificados <strong>no</strong> generan auditoría. &quot;Quién cargó o editó&quot; no es reconstruible para la operación normal (salvo Producción).</li>
+<li>El <strong>forzado de un ingreso con aguado no queda auditado</strong> (a diferencia del forzado por CIP), pese a que el aviso promete lo contrario (riesgo TH10).</li>
+<li>El <strong>cambio de Saldo Base</strong> no queda auditado.</li>
+<li>Atribución por persona individual: hoy solo existe el responsable del turno (<code>resp</code>); en dispositivo compartido la atribución es ambigua (riesgo H6).</li>
+</ul>
+<p><strong>Límites de integridad.</strong> La auditoría se escribe leyendo-modificando-reescribiendo un blob; dos dispositivos escribiendo casi a la vez pueden pisarse y perder entradas (riesgo T5). Como los roles son client-side (riesgo T6), el registro no es a prueba de manipulación mientras la autorización no esté en el servidor.</p>
+<hr>
+<h2>12. Riesgos / hazards detectados</h2>
+<p>La auditoría catalogó <strong>30 riesgos</strong> con identificador estable, en tres familias. (Detalle completo en <code>docs/riesgos/registro-hazards.md</code>.)</p>
+<ul>
+<li><strong>T — Riesgos técnicos (7):</strong> el sistema corrompe o falla por sí mismo. Casi todos en zona protegida.</li>
+<li><strong>H — Riesgos humano-operativos (13):</strong> el código funciona, pero el diseño induce al error.</li>
+<li><strong>T+H — Zona gris (10):</strong> carencias técnicas que se vuelven peligrosas por una acción humana razonable.</li>
+</ul>
+<p><strong>Riesgos abiertos más urgentes por daño silencioso a datos productivos o inocuidad</strong> (no mitigados por la Tanda A):</p>
+<table>
+<thead>
+<tr>
+<th>ID</th>
+<th>Riesgo</th>
+<th>Pantalla</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>TH3</td>
+<td>Silo BIN seleccionable en Carga que el motor no contabiliza (despacho sin descuento)</td>
+<td>Carga</td>
+</tr>
+<tr>
+<td>TH8</td>
+<td>Unidad equivocada en Fortificados (kg se computa 1:1 como litros)</td>
+<td>Fortificados</td>
+</tr>
+<tr>
+<td>H1</td>
+<td>El punto verde de CIP indica &quot;limpio&quot; con solo hora o responsable, sin parámetros</td>
+<td>CIP</td>
+</tr>
+<tr>
+<td>T2</td>
+<td>La fecha se calcula en UTC y rota a las 21:00 hora Argentina (turno noche mal fechado)</td>
+<td>Shell</td>
+</tr>
+<tr>
+<td>TH4</td>
+<td>El bloqueo de día cerrado no llega a los formularios de CIP ni Movimientos</td>
+<td>CIP, Movimientos</td>
+</tr>
+<tr>
+<td>TH5</td>
+<td>CIP se guarda por tecla y el sync periódico pisa o revierte lo tipeado</td>
+<td>CIP</td>
+</tr>
+<tr>
+<td>TH6</td>
+<td>El auto-relleno de Stock pisa el producto manual y escribe en el turno equivocado</td>
+<td>Stock</td>
+</tr>
+<tr>
+<td>TH10</td>
+<td>Forzar un ingreso con aguado no queda auditado</td>
+<td>Ingresos</td>
+</tr>
+<tr>
+<td>T1 / T4</td>
+<td>La cola offline puede pisar la última carga y desactiva la guarda anti-conflicto</td>
+<td>Transversal</td>
+</tr>
+<tr>
+<td>T3</td>
+<td>El backup se trunca en silencio a 1000 registros y se marca como completo</td>
+<td>Backup</td>
+</tr>
+<tr>
+<td>T7</td>
+<td>Reabrir un día de hoy/ayer no recalcula el saldo</td>
+<td>Shell</td>
+</tr>
+</tbody></table>
+<p><strong>Mitigados por la Tanda A (ya en <code>main</code>):</strong> TH1 (ahora se exige litros &gt; 0), TH2 (se bloquea origen = destino), TH9 (el confirm de movimiento muestra el descuento total real), H8 (el botón Eliminar se oculta al operario), H3 (foco por defecto en &quot;Cancelar&quot; en confirmaciones destructivas), H4 (altura táctil mínima 48 px).</p>
+<p><strong>Otros relevantes abiertos:</strong> H2 (campo Litros sepultado entre 20+ campos), H5 (densidad/pH reinterpretados solos), H9 (silo sobrellenado sin alerta), H11 (destino de carga de texto libre / camiones duplicados), H12 (recarga por nueva versión borra el borrador), H13 (adiciones de Fortificados no borrables), T5/T6 (auditoría no atómica / roles client-side).</p>
+<hr>
+<h2>13. Guardrails implementados (estado actual)</h2>
+<p>Protecciones que <strong>ya existen</strong> en la versión de producción (<code>main</code>). No corresponden a la Tanda A propuesta (que aún no está mergeada); son las que están vivas hoy:</p>
+<ol>
+<li><strong>Cierre bloqueado si hay cola pendiente</strong> (espera &quot;Sincronizado&quot;) — protege el saldo del cierre.</li>
+<li><strong>Validación de perfil dentro de los manejadores críticos</strong> (cerrar, reabrir, eliminar, saldo base) — no confía en el botón oculto.</li>
+<li><strong>Capa &quot;Día cerrado&quot;</strong> + rechazo de escritura a fecha cerrada en el guardado.</li>
+<li><strong>Validación en línea al finalizar un lote</strong> de Producción (litros usados no vacíos/negativos/mayores a enviados, destino de sobrante).</li>
+<li><strong>Modales bloqueantes de aguado y de CIP pendiente</strong> (obligan una decisión consciente; el forzado de CIP queda auditado).</li>
+<li><strong>Auditoría</strong> de borrados, cierre/reapertura, forzado de CIP y toda Producción.</li>
+<li><strong>Confirmaciones</strong> con estilo de peligro en acciones destructivas.</li>
+<li><strong>Anti-pisado del sync:</strong> Ingresos no recarga mientras hay un formulario abierto; Stock tiene una guarda de edición en curso.</li>
+<li><strong>Ayudas de cálculo en Movimientos:</strong> &quot;Total descontado del origen&quot; y disponible por silo.</li>
+<li><strong>Tope de fecha = hoy</strong> en el selector de Saldo Base y en el visor; <strong>perfil derivado de Supabase Auth</strong> (no de almacenamiento local).</li>
+<li><strong>Detector de inconsistencias</strong> (<code>runConsistencyChecks</code>) como red de seguridad (disponible para el jefe).</li>
+</ol>
+<p><strong>Guardrails de la Tanda A (incorporados recientemente en <code>main</code>):</strong></p>
+<ol start="12">
+<li><strong>Validación de litros &gt; 0</strong> antes de guardar en Ingresos, Movimientos, Carga y Fortificados (cierra TH1).</li>
+<li><strong>Bloqueo de origen = destino</strong> en Movimientos (cierra TH2).</li>
+<li><strong>Confirmación de movimiento con el descuento total real</strong> (litros + pérdida) (cierra TH9).</li>
+<li><strong>Botón Eliminar oculto para el operario</strong> (cierra H8).</li>
+<li><strong>Foco por defecto en &quot;Cancelar&quot;</strong> en las confirmaciones destructivas (cierra H3).</li>
+<li><strong>Altura táctil mínima de 48 px</strong> en inputs, botones y pestañas (cierra H4).</li>
+</ol>
+<blockquote>
+<p><strong>Brecha conocida:</strong> la Tanda A entró <strong>parcial</strong>. Siguen sin guardrail varios riesgos del §12 — entre ellos BIN en Carga (TH3), el punto verde de CIP (H1), el forzado de aguado sin auditar (TH10), el bloqueo de día cerrado en CIP/Movimientos (TH4), la unidad en Fortificados (TH8) y el tope de fecha en el selector principal (TH7) — además de los riesgos técnicos de zona protegida (T1–T7).</p>
+</blockquote>
+<hr>
+<h2>14. Documentación creada</h2>
+<p>El proyecto cuenta con documentación versionada en el repositorio:</p>
+<table>
+<thead>
+<tr>
+<th>Área</th>
+<th>Documentos</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Arquitectura</strong></td>
+<td><code>docs/arquitectura/</code>: modelo de datos, invariantes del motor de saldo (zona protegida), comportamiento offline.</td>
+</tr>
+<tr>
+<td><strong>Operación</strong></td>
+<td><code>docs/operacion/</code>: runbook (ciclo real), guía del operario, procedimientos de supervisor/jefe, <strong>matriz de tareas por rol</strong> (<code>task-matrix-roles.md</code>).</td>
+</tr>
+<tr>
+<td><strong>Riesgos</strong></td>
+<td><code>docs/riesgos/</code>: registro de hazards (fuente única, IDs T/H/TH), riesgos por pantalla, hoja de ruta de guardrails.</td>
+</tr>
+<tr>
+<td><strong>Auditabilidad</strong></td>
+<td><code>docs/auditabilidad/</code>: qué se registra y qué no, y qué se puede reconstruir.</td>
+</tr>
+<tr>
+<td><strong>Capacitación</strong></td>
+<td><code>docs/capacitacion/</code>: fichas por rol (primer día, checklist diario, top 10 errores) y tarjetas operativas imprimibles (A4) por rol.</td>
+</tr>
+<tr>
+<td><strong>Validación</strong></td>
+<td><code>docs/validacion/</code>: checklist de validación operativa (escenarios) y plan de prueba operativa en planta.</td>
+</tr>
+<tr>
+<td><strong>Sistema</strong></td>
+<td><code>docs/sistema/</code>: este documento y la guía visual de uso.</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>15. Capacitación</h2>
+<p>El material de capacitación está orientado a uso real en planta (no manual corporativo): lenguaje directo, foco en gente cansada/apurada/con poca experiencia digital. Por cada rol (Operario, Supervisor, Oficina, Jefe) hay tres artefactos —<strong>Primer día</strong>, <strong>Checklist diario</strong> y <strong>Top 10 errores</strong>— y una <strong>tarjeta operativa</strong> de una hoja (A4 / WhatsApp / imprimible) para tener junto a la tablet.</p>
+<p>El criterio transversal del material: <strong>la app todavía no corrige varios errores de carga</strong> (la Tanda A entró parcial; siguen abiertos BIN, punto verde de CIP, unidad en Fortificados, aguado, fecha en turno noche, entre otros), así que la capacitación insiste en los <strong>chequeos manuales</strong> antes de guardar y de cerrar.</p>
+<hr>
+<h2>16. Validación operativa</h2>
+<p>Antes de definir la próxima tanda de mejoras, el plan es <strong>usar la app 3 a 7 días en operación real</strong> y observar cómo trabaja la gente: fricciones, errores humanos, pasos confusos, qué se ignora, qué nunca se lee y qué &quot;trucos&quot; arma la gente para sobrevivir. No es QA técnico ni testing de oficina, sino <strong>observación humana en planta</strong>.</p>
+<p>El plan (<code>docs/validacion/plan-prueba-operativa.md</code>) define: protocolo simple (3 turnos, observador que no rescata, foco en turno noche y mala señal), checklist de observación por pantalla, red flags, formato corto de registro de incidentes (1 línea, gravedad 🔴/🟡/🟢) y una matriz de priorización (Frecuencia × Daño, con regla de oro: el error silencioso va primero). Existe además un checklist de escenarios guionados para probar puntos concretos a propósito.</p>
+<hr>
+<h2>17. Estado actual del proyecto</h2>
+<ul>
+<li><strong>Software:</strong> en producción (<code>main</code>), funcional, con backend y offline operativos. El motor de saldo es sólido y está protegido.</li>
+<li><strong>Riesgos:</strong> catalogados (30 IDs). La <strong>Tanda A de guardrails entró parcial en <code>main</code></strong>, mitigando seis riesgos (TH1, TH2, TH9, H8, H3, H4); el resto de los riesgos humanos y de zona gris siguen <strong>abiertos</strong>.</li>
+<li><strong>Documentación:</strong> completa para esta etapa (arquitectura, operación, riesgos, auditabilidad, capacitación, validación, sistema).</li>
+<li><strong>Etapa:</strong> el proyecto cruzó de <strong>prototipo</strong> a <strong>operación real</strong>. Las features grandes quedan <strong>congeladas</strong>; el foco pasa a la validación operativa en planta.</li>
+</ul>
+<hr>
+<h2>18. Próximos pasos</h2>
+<ol>
+<li><strong>Correr la validación operativa</strong> en planta (3–7 días) con el plan de observación. Juntar incidentes reales.</li>
+<li><strong>Priorizar</strong> con datos reales: agrupar lo observado por pantalla y por ID de riesgo; lo que no esté en el registro es un riesgo nuevo a analizar.</li>
+<li><strong>Definir la próxima tanda</strong> sobre evidencia, en este orden de criterio: primero completar lo que falta de la Tanda A y lo que corrompe datos en silencio (BIN/TH3, punto verde de CIP/H1, aguado/TH10, día cerrado/TH4, unidad/TH8, fecha futura/TH7), después la Tanda B y la fricción alta.</li>
+<li><strong>Mitigaciones de fondo (zona protegida, con pre-mortem):</strong> fecha local (T2), cola offline que no pise la última carga (T1/T4), backup paginado/avisado (T3), recálculo de saldo al reabrir (T7), auditoría atómica (T5) y <strong>autorización por rol en el servidor</strong> (T6).</li>
+<li><strong>Luego de estabilizar:</strong> rediseño de UX/navegación, perfil operario individual y login por PIN, SOP/manual formal, onboarding y permisos más finos.</li>
+</ol>
+<blockquote>
+<p>El criterio rector se mantiene: priorizar siempre operatividad y simplicidad para planta antes que sofisticación técnica. No se agregan features nuevas hasta tener datos reales de la operación.</p>
+</blockquote>
+<hr>
+<p><em>Documento generado a partir de la documentación técnica y operativa del repositorio (arquitectura, riesgos, auditabilidad, operación, capacitación y validación). Describe el estado real de la aplicación al 2026-06-04. No introduce funcionalidades nuevas.</em></p>
+</body></html>

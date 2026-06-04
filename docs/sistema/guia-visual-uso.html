@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="es-AR"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ReciboApp / Yatasto — Guía visual de uso</title><style>
+  @page { size: A4 portrait; margin: 18mm 16mm; }
+  * { box-sizing: border-box; }
+  body { font-family: "Segoe UI", Calibri, Arial, sans-serif; color:#1a1f29; line-height:1.55;
+         font-size: 15px; max-width: 900px; margin: 0 auto; padding: 28px 28px 60px; }
+  h1 { font-size: 26px; color:#0f2741; border-bottom:3px solid #1d4ed8; padding-bottom:8px; margin:0 0 6px; }
+  h1 + p, h1 + blockquote { margin-top: 8px; }
+  h2 { font-size: 20px; color:#0f2741; margin:28px 0 8px; padding-bottom:5px; border-bottom:1px solid #d9dee6; }
+  h3 { font-size: 16.5px; color:#1d3a5f; margin:20px 0 6px; }
+  p, li { font-size: 15px; }
+  table { border-collapse: collapse; width:100%; margin:12px 0; font-size:13.5px; }
+  th, td { border:1px solid #cfd6df; padding:7px 9px; text-align:left; vertical-align:top; }
+  th { background:#eef2f7; font-weight:700; }
+  tr:nth-child(even) td { background:#f7f9fb; }
+  code { background:#eef1f5; padding:1px 5px; border-radius:4px; font-size:13px; }
+  hr { border:0; border-top:1px solid #d9dee6; margin:26px 0; }
+  blockquote { margin:12px 0; padding:12px 16px; background:#fbfbfc; border-left:4px solid #94a3b8;
+               border-radius:0 8px 8px 0; color:#334155; font-size:14px; }
+  /* placeholders de imagen (empiezan con la camara) */
+  blockquote:has(strong) { }
+  blockquote p:first-child { margin-top:0; }
+  blockquote:first-line { }
+  strong { font-weight:700; }
+  @media print { body { max-width:none; padding:0; } a { color:#1d4ed8; text-decoration:none; } }
+</style></head>
+<body><h1>ReciboApp / Yatasto — Guía visual de uso</h1>
+<p><strong>Lácteos Yatasto SA — Cómo usar la app, pantalla por pantalla</strong>
+Guía visual · Versión 1.0 (plantilla para completar con screenshots reales) · 2026-06-04</p>
+<blockquote>
+<p>Guía pensada para explicar la app <strong>en persona o compartida</strong> (operarios, supervisores, oficina, jefe). Lenguaje simple, paso a paso, con foco en <strong>qué hace cada pantalla, qué NO tocar y los errores comunes</strong>. Describe la app <strong>tal cual está hoy</strong>. Una primera tanda de guardrails ya valida algunas cosas (litros &gt; 0, origen ≠ destino, foco en &quot;Cancelar&quot;, Eliminar oculto al operario), pero <strong>no todas</strong>: por eso la guía sigue marcando los chequeos manuales.</p>
+</blockquote>
+<hr>
+<h2>Cómo usar esta guía (y cómo completar las imágenes)</h2>
+<p>Esta guía es una <strong>plantilla editable</strong>. Cada pantalla tiene un <strong>espacio de imagen</strong> marcado con 📷 y una instrucción exacta de <strong>qué capturar y qué anotar</strong> (recuadros y flechas). Las screenshots reales deben sacarse del <strong>dispositivo real en uso, con datos reales de planta</strong> (la app necesita login y datos para verse representativa).</p>
+<p><strong>Para completar cada imagen:</strong></p>
+<ol>
+<li>Sacá la captura desde el celular/tablet o la PC, en la pantalla indicada.</li>
+<li>Marcá sobre la imagen lo que dice el bloque 📷 (recuadro rojo = mirar esto; flecha = acá va tal cosa).</li>
+<li>Reemplazá el bloque 📷 por la imagen ya anotada.</li>
+</ol>
+<blockquote>
+<p>Las marcas (recuadros/flechas) se pueden hacer con cualquier editor simple (la herramienta de recortes de Windows, o marcar sobre la foto en el celular). Mantené el mismo criterio de color: <strong>rojo = atención / no equivocarse</strong>, <strong>verde = correcto</strong>, <strong>flecha = &quot;acá va esto&quot;</strong>.</p>
+</blockquote>
+<hr>
+<h2>La app de un vistazo</h2>
+<blockquote>
+<p>📷 <strong>IMAGEN 1 — Pantalla de inicio / barra de navegación</strong>
+<em>Capturar:</em> la app abierta con la barra inferior visible.
+<em>Recuadrar (rojo):</em> la <strong>fecha</strong> arriba y el <strong>indicador de conexión</strong> (&quot;Sincronizado&quot;).
+<em>Flecha →</em> a la <strong>barra inferior</strong> con la nota: &quot;Acá elegís la pantalla&quot;.
+<em>Nota:</em> &quot;Siempre mirá la fecha y que diga Sincronizado.&quot;</p>
+</blockquote>
+<p>La app se maneja desde la <strong>barra inferior</strong>, con 6 pantallas: <strong>Ingresos · Movimientos · Carga · Fortificados · CIP · Stock</strong>. Arriba están siempre visibles la <strong>fecha</strong> y el <strong>estado de conexión</strong>. El supervisor y el jefe tienen además acceso a Producción, Dashboard/Exportar y (el jefe) al panel de Administración.</p>
+<p><strong>Tres cosas que valen para toda la app:</strong></p>
+<ul>
+<li>La <strong>fecha de arriba</strong> manda: si no dice HOY, estás cargando en otro día.</li>
+<li><strong>Sincronizado</strong> = lo que cargaste llegó al servidor. Si hay señal mala, esperá.</li>
+<li>La app <strong>guarda sola</strong> apenas cargás; no hay un botón único de &quot;guardar todo&quot;.</li>
+</ul>
+<hr>
+<h1>PARTE 1 — OPERARIO (piso)</h1>
+<blockquote>
+<p>Recorrido del operario: identificarse → Ingresos → Movimientos → Carga → Fortificados → CIP → Stock al cierre del turno.</p>
+</blockquote>
+<h2>1.1 Identificarse en el turno</h2>
+<blockquote>
+<p>📷 <strong>IMAGEN 2 — Modal de identificación de responsable</strong>
+<em>Capturar:</em> el aviso/modal donde se carga el responsable del turno.
+<em>Recuadrar (rojo):</em> el campo del nombre.
+<em>Nota:</em> &quot;Poné tu nombre al empezar el turno. Es la única forma de saber quién cargó.&quot;</p>
+</blockquote>
+<p><strong>Qué hace:</strong> registra quién es el responsable del turno. <strong>Paso a paso:</strong> al abrir, si el turno no tiene responsable, aparece el aviso → escribí tu nombre → confirmá.
+<strong>Qué NO tocar:</strong> no saltees este paso si podés evitarlo.
+<strong>Error común:</strong> en una tablet compartida queda el nombre del turno anterior → cargás vos y figura otro.</p>
+<h2>1.2 Ingresos (la pantalla más usada)</h2>
+<blockquote>
+<p>📷 <strong>IMAGEN 3 — Formulario de nuevo ingreso</strong>
+<em>Capturar:</em> el formulario de alta de un ingreso abierto.
+<em>Recuadrar (rojo):</em> el campo <strong>&quot;Litros Fábrica&quot;</strong>.
+<em>Flecha →</em> a &quot;Litros Fábrica&quot; con la nota: &quot;Acá va el número principal de litros (NO en Tambo)&quot;.
+<em>Recuadrar (amarillo):</em> los campos densidad y pH, con la nota: &quot;Mirá el número que queda; la app lo cambia solo (28 → 1.028)&quot;.</p>
+</blockquote>
+<p><strong>Qué hace:</strong> registra el ingreso de un camión: litros y parámetros de calidad, y el silo destino.
+<strong>Paso a paso:</strong> abrir Ingresos → &quot;+&quot; nuevo → elegir tambo → cargar <strong>Litros Fábrica</strong> → cargar calidad (pH, acidez, GB, etc.) → elegir silo destino → Guardar.
+<strong>Qué NO tocar / cuidar:</strong> no cargues el número principal en &quot;Litros Tambo&quot; (el total queda en 0). Si salta el aviso de <strong>aguado</strong> y lo forzás, hoy <strong>no queda registrado</strong> quién lo autorizó: avisá en persona.
+<strong>Errores comunes:</strong> un cero de más (1.200 vs 12.000) entra igual; densidad/pH reinterpretados sin que lo notes.
+<strong>Ejemplo real:</strong> llegó el camión de &quot;La Esperanza&quot; (n.° 14) con 12.000 L → cargar 12000 en <strong>Litros Fábrica</strong>, calidad, silo 80, Guardar.</p>
+<h2>1.3 Movimientos (silo a silo)</h2>
+<blockquote>
+<p>📷 <strong>IMAGEN 4 — Formulario de movimiento</strong>
+<em>Capturar:</em> el formulario de movimiento con los dos desplegables.
+<em>Recuadrar (rojo):</em> los desplegables <strong>DESDE</strong> y <strong>HASTA</strong>.
+<em>Flecha:</em> sobre DESDE → &quot;de dónde SALE&quot;; sobre HASTA → &quot;a dónde ENTRA&quot;.
+<em>Recuadrar (verde):</em> la tarjeta &quot;Total descontado del origen&quot;, con la nota: &quot;Revisá que descuente del silo correcto&quot;.</p>
+</blockquote>
+<p><strong>Qué hace:</strong> transfiere leche de un silo a otro (con pérdida opcional).
+<strong>Paso a paso:</strong> Movimientos → &quot;+&quot; → <strong>DESDE</strong> (sale) → <strong>HASTA</strong> (entra) → litros → (pérdida si hay) → motivo → Guardar.
+<strong>Qué NO tocar / cuidar:</strong> la app ahora te frena si ponés el <strong>mismo silo</strong> en Desde y Hasta, o si cargás <strong>0 o menos</strong>. Pero <strong>NO</strong> se da cuenta si invertís hacia <strong>otro</strong> silo: revisá la dirección.
+<strong>Errores comunes:</strong> invertir Desde/Hasta hacia otro silo y descontar del que tenía que recibir (la app no lo detecta).
+<strong>Ejemplo real:</strong> pasar 5.000 L del silo 80 al 60 → DESDE 80, HASTA 60, 5000, motivo &quot;trasvase&quot;, Guardar.</p>
+<h2>1.4 Carga (despacho)</h2>
+<blockquote>
+<p>📷 <strong>IMAGEN 5 — Formulario de carga / despacho</strong>
+<em>Capturar:</em> el formulario de carga con el desplegable de silo proveniente.
+<em>Recuadrar (rojo):</em> la opción <strong>BIN</strong> en el desplegable.
+<em>Flecha →</em> a BIN con la nota: &quot;NUNCA elijas BIN: el despacho no descuenta ningún silo&quot;.</p>
+</blockquote>
+<p><strong>Qué hace:</strong> registra una carga de salida (despacho).
+<strong>Paso a paso:</strong> Carga → elegir CARGA 1/2/3 → <strong>silo proveniente</strong> (el real) → litros → destino → Guardar.
+<strong>Qué NO tocar / cuidar:</strong> <strong>no elijas BIN</strong> como origen (se guarda pero no baja stock). Escribí el destino siempre igual para el mismo cliente.
+<strong>Errores comunes:</strong> despachar desde BIN; escribir el mismo cliente de tres formas distintas.
+<strong>Ejemplo real:</strong> despacho de 20.000 L desde el silo 100 N → elegir 100 N (no BIN), 20000, destino, Guardar.</p>
+<h2>1.5 Fortificados</h2>
+<blockquote>
+<p>📷 <strong>IMAGEN 6 — Formulario de lote fortificado</strong>
+<em>Capturar:</em> el formulario con la lista de adiciones y el selector de unidad.
+<em>Recuadrar (rojo):</em> el <strong>selector de unidad</strong> (kg / g / mL…).
+<em>Nota:</em> &quot;Mirá bien la unidad: kg ≠ g. Una unidad mal infla el silo con litros que no existen.&quot;
+<em>Recuadrar (amarillo):</em> las 3 filas que vienen cargadas, con la nota: &quot;Estas 3 no se pueden borrar; si no las usás, avisá (no inventes 0)&quot;.</p>
+</blockquote>
+<p><strong>Qué hace:</strong> registra un lote fortificado (silo origen/destino + adiciones).
+<strong>Paso a paso:</strong> Fortificados → &quot;+&quot; → silo origen/destino → litros base → agregar adiciones (producto + cantidad + <strong>unidad</strong>) → Guardar.
+<strong>Qué NO tocar / cuidar:</strong> la unidad de cada adición. Las tres filas precargadas no se pueden borrar.
+<strong>Error común:</strong> cargar kilos donde iban gramos → el silo se infla miles de litros sin aviso.</p>
+<h2>1.6 CIP (limpieza)</h2>
+<blockquote>
+<p>📷 <strong>IMAGEN 7 — Registro CIP de un silo</strong>
+<em>Capturar:</em> una fila de CIP abierta con sus parámetros.
+<em>Recuadrar (rojo):</em> los campos alcalino / enjuague / ácido / temperatura.
+<em>Recuadrar (verde):</em> el <strong>punto verde</strong> de la fila, con la nota: &quot;El punto verde NO garantiza que esté completo; tenés que cargar TODOS los parámetros&quot;.</p>
+</blockquote>
+<p><strong>Qué hace:</strong> registra la limpieza (CIP) de silos y camiones. Es <strong>registro de inocuidad</strong>.
+<strong>Paso a paso:</strong> CIP → elegir silo/camión → cargar alcalino, enjuague, ácido, temperatura, hora y responsable → cerrar la fila.
+<strong>Qué NO tocar / cuidar:</strong> no dejes la fila con solo el nombre: el punto verde se prende igual y queda como &quot;limpio&quot; sin estarlo. Con señal mala, verificá que el dato quedó (se puede revertir).
+<strong>Error común:</strong> CIP en verde pero con campos vacíos → registro de inocuidad falso.</p>
+<h2>1.7 Stock (cierre del turno)</h2>
+<blockquote>
+<p>📷 <strong>IMAGEN 8 — Pantalla de Stock por turno</strong>
+<em>Capturar:</em> la vista de stock con el selector de turno y las tarjetas de silos.
+<em>Recuadrar (rojo):</em> el <strong>selector de turno</strong> (Mañana / Tarde / Noche).
+<em>Nota:</em> &quot;Confirmá el turno ANTES de cargar; puede haber quedado de antes.&quot;</p>
+</blockquote>
+<p><strong>Qué hace:</strong> registra el stock de los silos por turno.
+<strong>Paso a paso:</strong> Stock → confirmar el <strong>turno correcto</strong> → revisar/cargar los silos → revisar que ninguno esté lleno o raro.
+<strong>Qué NO tocar / cuidar:</strong> no edites un día cerrado ni un día histórico. Si el auto-relleno te pisa el producto que pusiste a mano, volvé a ponerlo.
+<strong>Error común:</strong> cargar en el turno equivocado porque el selector quedó en Mañana.</p>
+<hr>
+<h1>PARTE 2 — SUPERVISOR</h1>
+<blockquote>
+<p>El supervisor opera como el operario cuando hace falta, pero su trabajo es <strong>controlar y cerrar el día</strong>.</p>
+</blockquote>
+<h2>2.1 Producción (envasar / finalizar)</h2>
+<blockquote>
+<p>📷 <strong>IMAGEN 9 — Pantalla de Producción (finalizar lote)</strong>
+<em>Capturar:</em> el formulario de finalización de un lote.
+<em>Recuadrar (rojo):</em> el campo &quot;litros usados&quot;.
+<em>Nota:</em> &quot;La app no te deja poner usados mayores a enviados (te frena ahí). Revisá cajas y litros.&quot;</p>
+</blockquote>
+<p><strong>Qué hace:</strong> gestiona lotes de envasado (en proceso y finalizados). Reserva y descuenta litros del silo.
+<strong>Paso a paso:</strong> Producción → envasar desde Stock o finalizar un lote → cargar litros usados, cajas y destino del sobrante → confirmar.
+<strong>Qué NO tocar / cuidar:</strong> eliminar un lote <strong>finalizado</strong> devuelve litros al silo (irreversible). Leé qué borrás.</p>
+<h2>2.2 Cerrar el día</h2>
+<blockquote>
+<p>📷 <strong>IMAGEN 10 — Cierre del día / indicador de conexión</strong>
+<em>Capturar:</em> el botón/acción de cerrar el día y el indicador de conexión.
+<em>Recuadrar (rojo):</em> el indicador <strong>&quot;Sincronizado&quot;</strong>.
+<em>Flecha →</em> al cierre con la nota: &quot;Cerrá SOLO con Sincronizado. Si hay cola, esperá.&quot;</p>
+</blockquote>
+<p><strong>Qué hace:</strong> congela el día y toma el saldo de cierre.
+<strong>Paso a paso:</strong> revisar la jornada → esperar <strong>&quot;Sincronizado&quot;</strong> → cerrar → descargar el backup que sugiere.
+<strong>Qué NO tocar / cuidar:</strong> no busques cerrar con cola pendiente (la app lo frena). Si algo cuadra raro, pedile al <strong>jefe</strong> que corra inconsistencias <strong>antes</strong> de cerrar (el supervisor no tiene ese panel).
+<strong>Errores comunes:</strong> cerrar sin revisar; confiar en un CIP verde vacío o en un backup cortado.</p>
+<h2>2.3 Exportar (Dashboard)</h2>
+<blockquote>
+<p>📷 <strong>IMAGEN 11 — Tab Exportar del Dashboard</strong>
+<em>Capturar:</em> la pantalla de exportación con el selector de rango de fechas.
+<em>Recuadrar (rojo):</em> el selector de fechas.
+<em>Nota:</em> &quot;Revisá la fecha/rango antes de exportar.&quot;</p>
+</blockquote>
+<p><strong>Qué hace:</strong> exporta los datos a CSV/Excel. <strong>Paso a paso:</strong> Dashboard → Exportar → elegir rango → Exportar CSV o Excel.
+<strong>Cuidar:</strong> la columna &quot;Responsable&quot; del Excel es un nombre cargado a mano, <strong>no</strong> una auditoría de autor.</p>
+<hr>
+<h1>PARTE 3 — OFICINA (escritorio)</h1>
+<blockquote>
+<p>&quot;Oficina&quot; no es un usuario propio: se entra con clave de <strong>supervisor o jefe</strong> desde la PC. Se <strong>lee y exporta</strong>, no se carga.</p>
+</blockquote>
+<h2>3.1 Revisión y verificación de backup</h2>
+<blockquote>
+<p>📷 <strong>IMAGEN 12 — Dashboard en escritorio + verificación de backup</strong>
+<em>Capturar:</em> el Dashboard en pantalla grande (PC).
+<em>Recuadrar (rojo):</em> el dato de cantidad de registros del backup (al abrir el archivo) o el KPI principal.
+<em>Nota:</em> &quot;Verificá total_registros del backup: si llega a 1.000, está cortado (no sirve).&quot;</p>
+</blockquote>
+<p><strong>Qué hace:</strong> revisión histórica, KPIs, exportación y verificación de respaldos.
+<strong>Paso a paso:</strong> entrar como supervisor (o jefe si se necesita backup completo/auditoría) → revisar por fecha → exportar → abrir el backup y verificar la cantidad de registros.
+<strong>Qué NO tocar / cuidar:</strong> si entrás como <strong>jefe</strong> &quot;para mirar&quot;, no reabras días, no toques Saldo Base, no elimines. Para backup completo/auditoría/reabrir hay que entrar como <strong>JEFE</strong>.
+<strong>Errores comunes:</strong> creer que el backup bajó completo; exportar un día de turno noche mal fechado.</p>
+<hr>
+<h1>PARTE 4 — JEFE</h1>
+<blockquote>
+<p>El jefe mueve las palancas que <strong>recalculan toda la historia</strong>. Varias de estas acciones la app no las avisa: el control es la persona.</p>
+</blockquote>
+<h2>4.1 Panel técnico (inconsistencias y saldo)</h2>
+<blockquote>
+<p>📷 <strong>IMAGEN 13 — Panel de Administración / inconsistencias</strong>
+<em>Capturar:</em> el panel técnico con el detector de inconsistencias.
+<em>Recuadrar (rojo):</em> el resultado de inconsistencias (o el botón para correrlas).
+<em>Nota:</em> &quot;Corré inconsistencias antes de cerrar. Sos el único que puede.&quot;</p>
+</blockquote>
+<p><strong>Qué hace:</strong> detecta inconsistencias (stock negativo, reservados que exceden el silo, rendimiento imposible) y permite reconstruir la cadena de saldo. <strong>Solo jefe.</strong>
+<strong>Paso a paso:</strong> Administración → correr inconsistencias → resolver lo que aparezca antes de cerrar.</p>
+<h2>4.2 Reabrir un día (regla de oro)</h2>
+<blockquote>
+<p>📷 <strong>IMAGEN 14 — Candado de reapertura en el header</strong>
+<em>Capturar:</em> el candado/acción de reabrir día en el header.
+<em>Recuadrar (rojo):</em> el candado.
+<em>Nota grande:</em> &quot;REGLA DE ORO: reabrir → editar → VOLVER A CERRAR. Si no recerrás, el saldo de mañana queda viejo (y la app no avisa).&quot;</p>
+</blockquote>
+<p><strong>Qué hace:</strong> reabre un día cerrado para corregir.
+<strong>Paso a paso:</strong> header → candado → reabrir → editar → <strong>volver a cerrar</strong>.
+<strong>Qué NO tocar / cuidar:</strong> reabrir hoy/ayer <strong>no recalcula</strong> el saldo; por eso siempre hay que <strong>recerrar</strong>.</p>
+<h2>4.3 Saldo Base Oficial</h2>
+<blockquote>
+<p>📷 <strong>IMAGEN 15 — Panel de Saldo Base</strong>
+<em>Capturar:</em> el panel de carga del saldo base con su aviso.
+<em>Recuadrar (rojo):</em> el aviso de &quot;recalcula toda la cadena&quot;.
+<em>Nota:</em> &quot;Solo con conteo físico verificado y en día tranquilo. No queda auditado.&quot;</p>
+</blockquote>
+<p><strong>Qué hace:</strong> es el ancla del stock. Cambiarlo recalcula toda la cadena hasta hoy.
+<strong>Qué NO tocar / cuidar:</strong> no lo cambies en plena operación ni para &quot;emparchar&quot;.</p>
+<hr>
+<h2>Resumen visual — qué NO tocar (por rol)</h2>
+<blockquote>
+<p>📷 <strong>IMAGEN 16 — Tarjeta resumen &quot;qué NO tocar&quot;</strong> <em>(opcional)</em>
+<em>Sugerencia:</em> armar una imagen simple con 4 columnas (Operario / Supervisor / Oficina / Jefe) y debajo lo que NO debe tocar cada uno (ver tabla).</p>
+</blockquote>
+<table>
+<thead>
+<tr>
+<th>Rol</th>
+<th>Qué NO debe tocar</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Operario</strong></td>
+<td>Fecha del header · botón &quot;Actualizar&quot; mientras carga · forzar aguado sin avisar. (El botón &quot;Eliminar&quot; ya no aparece para el operario.)</td>
+</tr>
+<tr>
+<td><strong>Supervisor</strong></td>
+<td>Saldo Base (salvo conteo físico y día tranquilo) · cerrar con cola pendiente · forzar aguado sin autorización.</td>
+</tr>
+<tr>
+<td><strong>Oficina</strong></td>
+<td>Con clave de jefe: no reabrir, no Saldo Base, no eliminar (solo leer/exportar).</td>
+</tr>
+<tr>
+<td><strong>Jefe</strong></td>
+<td>Saldo Base en plena operación · reabrir sin recerrar · la consola del navegador (saltea la auditoría).</td>
+</tr>
+</tbody></table>
+<hr>
+<p><em>Plantilla de guía visual. Las imágenes (📷) se completan con screenshots reales del dispositivo en uso, anotadas según las instrucciones de cada bloque. El contenido describe el estado real de la app al 2026-06-04 y no introduce funcionalidades nuevas. Material de apoyo: tarjetas operativas en <code>docs/capacitacion/</code> y matriz de tareas en <code>docs/operacion/task-matrix-roles.md</code>.</em></p>
+</body></html>
