@@ -96,7 +96,10 @@ function _is401(error) {
 // Errores 4xx permanentes (validación, constraint, payload inválido, etc.) NO se
 // recuperan reintentando. Excluye 401 (refresh token), 408 (timeout, transitorio)
 // y 429 (rate limit, transitorio) — esos sí ameritan retry.
-function _isPermanent4xx(error) {
+// Exportado para testabilidad — la decisión retry vs descarte es crítica para
+// la integridad de la cola offline; cualquier cambio aquí afecta la pérdida
+// de datos en planta y debe estar cubierto por tests.
+export function _isPermanent4xx(error) {
   const s = error?.status;
   if (typeof s !== "number") return false;
   return s >= 400 && s < 500 && s !== 401 && s !== 408 && s !== 429;
