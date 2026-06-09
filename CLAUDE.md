@@ -31,7 +31,7 @@ npm run build         # build to dist/
 npm run preview       # preview built dist/
 ```
 
-`index.html` loads `/main.jsx` directly. Vite bundles `main.jsx` → `recibo_yatasto.jsx`. Two deployment configs coexist: `netlify.toml` (Netlify) and `vercel.json` (Vercel) — both run `npm run build` and serve `dist/`. Keep them in sync when changing build settings.
+`index.html` loads `/main.jsx` directly. Vite bundles `main.jsx` → `recibo_yatasto.jsx`. Deployment is via Vercel (`vercel.json`) — `npm run build` and serve `dist/`. Vercel headers enforce CSP, set `Cache-Control: no-cache` on the service worker and manifest, and HTML is served with `NetworkFirst` so the SW never pins stale asset hashes.
 
 **PWA / service worker:** `vite-plugin-pwa` is wired in `vite.config.js` with `registerType: "autoUpdate"` + `skipWaiting`. Workbox precaches built assets and adds runtime caching for Google Fonts (CacheFirst, 1y) and Supabase (`*.supabase.co`, NetworkFirst with 10s timeout, 24h). Manifest is `standalone`, portrait, `es-AR`, theme `#f59e0b`. Service worker only registers on the built site — `npm run dev` does not run it.
 
@@ -63,11 +63,11 @@ npm run preview       # preview built dist/
 
 **State pattern:** Each section loads in `useEffect` on date change. Every user action calls `persist()` which updates React state and calls `db.set()` immediately — no debounce, no submit button for section-level saves.
 
-**Validation pattern:** Required fields are checked on the "Guardar" button click using an inline array of `[key, label]` pairs; missing fields are collected and shown via `alert()`.
+**Validation pattern:** Required fields are checked on the "Guardar" button click using an inline array of `[key, label]` pairs; missing fields are collected and shown as an inline `Banner` (no `alert()`). Confirmations use the `useConfirm()` hook (modal with Promise API) — never `window.confirm()`.
 
-**Item IDs:** All list items use `id: Date.now()` as a unique key.
+**Item IDs:** All list items use `id: crypto.randomUUID()` as a unique key.
 
-**Authentication:** `PERFILES` defines two roles — `supervisor` and `jefe` — each mapped to an internal email (`supervisor@yatasto.internal`, `jefe@yatasto.internal`). Login validates the username/password client-side against hardcoded credentials, then calls `db.auth.signIn(email, password)` to establish a Supabase session. Role determines which actions are available (e.g. delete button, `SecDashboard` access).
+**Authentication:** `PERFILES` defines three roles — `supervisor`, `jefe`, and `operador` — each mapped to an internal email (`supervisor@yatasto.internal`, `jefe@yatasto.internal`, `operador@yatasto.app`). The login form only resolves the username to an internal email client-side; the password is validated **server-side by Supabase Auth** (`db.auth.signIn(email, password)`). RLS on `yatasto_storage` restricts reads/writes to authenticated sessions. Role determines which UI actions are exposed (delete buttons, `SecDashboard` access, etc.).
 
 ## Cross-Section Computation
 

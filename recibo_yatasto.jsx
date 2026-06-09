@@ -5,6 +5,13 @@ import { useViewport } from "./hooks.js";
 import { db, onWriteQueueChange, onSessionExpired, clearSessionExpired } from "./db-adapter.js";
 import { track, initTelemetry } from "./telemetry.js";
 import {
+  buildFortLabel,
+  diffDays,
+  calcSF,
+  isSueroLike,
+  shouldShowSF,
+} from "./lib/helpers.js";
+import {
   Ingresos as IcoIngresos, Movimientos as IcoMovimientos, Carga as IcoCarga,
   Fortificados as IcoFortificados, CIP as IcoCIP, Stock as IcoStock, Produccion as IcoProduccion,
   Supervisor as IcoSupervisor, Jefe as IcoJefe, Operador as IcoOperador, Admin as IcoAdmin,
@@ -82,36 +89,7 @@ const PRODS_STOCK = [
   "Crema", "Yogurt", "Postre", "Sucio (vacío)", "Limpio",
 ];
 
-// Deriva el label canónico de un lote fort según sus flags de proceso.
-// Pura — sin side effects. Siempre usa ?? false para compat con datos viejos.
-const buildFortLabel = (fort) => {
-  const p = fort?.pasteurizado ?? false;
-  const h = fort?.homogeneizado ?? false;
-  if (p && h) return "Leche PyH";
-  if (p)      return "Leche Pasteurizada";
-  if (h)      return "Leche Homogeneizada";
-  return "Leche Fortificada";
-};
-
-// Diferencia en días entre dos fechas ISO "YYYY-MM-DD". Resultado positivo = to es posterior.
-const diffDays = (from, to) => {
-  const [fy, fm, fd] = from.split("-").map(Number);
-  const [ty, tm, td] = to.split("-").map(Number);
-  return Math.round((Date.UTC(ty, tm - 1, td) - Date.UTC(fy, fm - 1, fd)) / 86400000);
-};
-
-// Badge SF+N: null si no hay fecha o inconsistencia.
-const calcSF = (fechaSilo, today) => {
-  if (!fechaSilo || !today) return null;
-  const d = diffDays(fechaSilo, today);
-  if (d < 0 || d > 999) return null;
-  return d === 0 ? "SF" : `SF+${d}`;
-};
-
-// Familia "Suero-like": suero y sus permeados comparten parámetros, color base, SF, form simplificado y disponibilidad en carga.
-const isSueroLike = (p) => p === "Suero" || p === "Permeado" || p === "Permeado de Suero" || p === "Permeado de Lactosa";
-// SF solo aplica a productos sin procesar. Productos industrializados no muestran antigüedad de materia prima.
-const shouldShowSF = (producto) => producto === "Leche Cruda" || isSueroLike(producto);
+// buildFortLabel, diffDays, calcSF, isSueroLike, shouldShowSF → importados de ./lib/helpers.js
 const NAV = [
   { id: "ingresos",    label: "Ingr.",  Icon: IcoIngresos },
   { id: "movimientos", label: "Movim.", Icon: IcoMovimientos },
