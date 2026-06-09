@@ -9,6 +9,10 @@ import { useStepUpPin } from "./components/StepUpPin.jsx";
 import { loadOperarios, operariosActivos } from "./lib/operarios.js";
 import { stampOperario } from "./lib/audit.js";
 import { ACCIONES, tienePermiso } from "./lib/permisos.js";
+import {
+  getToday, getPreviousDate, addDay, getLastNDays, getDaysInRange,
+  fmtDate, getNow,
+} from "./lib/dates.js";
 import { db, onWriteQueueChange, onSessionExpired, clearSessionExpired, onDiscarded, listDiscarded, clearDiscarded } from "./db-adapter.js";
 import { useToast } from "./components/Toast.jsx";
 import { track, initTelemetry } from "./telemetry.js";
@@ -213,15 +217,10 @@ const PRODS_PRODUCCION_LIST = [
 const PRODS_CONCENTRADOS = ["Lactosa", "Suero", "Permeado", "Permeado de Suero", "Permeado de Lactosa", "Concentrado"];
 
 // ─── UTILS ────────────────────────────────────────────────────
-const getToday = () => new Date().toISOString().split("T")[0];
-const getPreviousDate = (dateStr) => { const d = new Date(dateStr + "T00:00:00"); d.setDate(d.getDate() - 1); return d.toISOString().split("T")[0]; };
-const addDay = (dateStr) => { const d = new Date(dateStr + "T00:00:00"); d.setDate(d.getDate() + 1); return d.toISOString().split("T")[0]; };
-const getLastNDays = (n) => { const days = []; for (let i = n - 1; i >= 0; i--) { const d = new Date(); d.setDate(d.getDate() - i); days.push(d.toISOString().split("T")[0]); } return days; };
-const getDaysInRange = (from, to) => { const days = []; const cur = new Date(from + "T00:00:00"); const end = new Date(to + "T00:00:00"); while (cur <= end && days.length < 90) { days.push(cur.toISOString().slice(0, 10)); cur.setDate(cur.getDate() + 1); } return days; };
+// getToday/getPreviousDate/addDay/getLastNDays/getDaysInRange/fmtDate/getNow
+// importados de ./lib/dates.js (extraídos para tener tests propios).
 const DIAS_ES = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
-const getNow = () => { const d = new Date(); return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
 const getCurrentTurno = () => { const h = new Date().getHours(); return h >= 7 && h < 14 ? "07:00" : h >= 14 && h < 21 ? "14:00" : "21:00"; };
-const fmtDate = (iso) => { const [y, m, d] = iso.split("-"); return `${d}/${m}/${y}`; };
 const sKey = (date, sec) => `yatasto:${date}:${sec}`;
 const CFG_KEY = "yatasto:config";
 
