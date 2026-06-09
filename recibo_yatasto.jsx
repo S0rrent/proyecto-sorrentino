@@ -5,8 +5,10 @@ import { useViewport, useOperarioActivo, usePerfil, useInactivityLock, useShiftC
 import { PerfilProvider } from "./components/PerfilProvider.jsx";
 import { OperarioLogin } from "./components/OperarioLogin.jsx";
 import { SecUsuarios } from "./components/SecUsuarios.jsx";
+import { useStepUpPin } from "./components/StepUpPin.jsx";
 import { loadOperarios, operariosActivos } from "./lib/operarios.js";
 import { stampOperario } from "./lib/audit.js";
+import { ACCIONES, tienePermiso } from "./lib/permisos.js";
 import { db, onWriteQueueChange, onSessionExpired, clearSessionExpired, onDiscarded, listDiscarded, clearDiscarded } from "./db-adapter.js";
 import { useToast } from "./components/Toast.jsx";
 import { track, initTelemetry } from "./telemetry.js";
@@ -1971,8 +1973,9 @@ const SecIngresos = ({ date, syncKey = 0, dayClosed = false, perfil = null }) =>
     if (ok !== false) setModal(null);
   };
   const onDelete = async id => {
-    // Guard de perfil — solo supervisor/jefe pueden eliminar ingresos
-    if (perfil !== "supervisor" && perfil !== "jefe") {
+    // Guard de perfil — matriz centralizada en lib/permisos.js (segunda línea
+    // de defensa; la principal es RLS en Supabase).
+    if (!tienePermiso(perfil, ACCIONES.INGRESOS_ELIMINAR)) {
       console.warn("[onDelete ingreso] perfil sin permiso:", perfil);
       return;
     }
@@ -2458,8 +2461,8 @@ const SecCarga = ({ date, syncKey = 0, dayClosed = false, perfil = null }) => {
     if (ok !== false) setModal(null);
   };
   const onDelete = async id => {
-    // Guard de perfil — solo supervisor/jefe pueden eliminar cargas
-    if (perfil !== "supervisor" && perfil !== "jefe") {
+    // Guard de perfil — matriz en lib/permisos.js.
+    if (!tienePermiso(perfil, ACCIONES.CARGA_ELIMINAR)) {
       console.warn("[onDelete carga] perfil sin permiso:", perfil);
       return;
     }
@@ -2711,8 +2714,8 @@ const SecMovimientos = ({ date, syncKey = 0, dayClosed = false, perfil = null })
     if (ok !== false) setModal(null);
   };
   const delMov = async id => {
-    // Guard de perfil — solo supervisor/jefe pueden eliminar movimientos
-    if (perfil !== "supervisor" && perfil !== "jefe") {
+    // Guard de perfil — matriz en lib/permisos.js.
+    if (!tienePermiso(perfil, ACCIONES.MOVIMIENTOS_ELIMINAR)) {
       console.warn("[delMov] perfil sin permiso:", perfil);
       return;
     }
@@ -2725,8 +2728,8 @@ const SecMovimientos = ({ date, syncKey = 0, dayClosed = false, perfil = null })
     setModal(null);
   };
   const delCtrl = async id => {
-    // Guard de perfil — solo supervisor/jefe pueden eliminar controles de calidad
-    if (perfil !== "supervisor" && perfil !== "jefe") {
+    // Guard de perfil — los controles comparten permiso con movimientos.
+    if (!tienePermiso(perfil, ACCIONES.MOVIMIENTOS_ELIMINAR)) {
       console.warn("[delCtrl] perfil sin permiso:", perfil);
       return;
     }
@@ -3533,6 +3536,8 @@ const SecProduccion = ({ date, syncKey = 0, dayClosed = false, perfil = null }) 
   const onDelete = async item => {
     // VALIDACIÓN INTERNA: el botón se renderiza solo con perfil supervisor/jefe,
     // pero el handler también valida por seguridad (evita escalación via devtools).
+    // PENDIENTE: distinguir lote finalizado vs no — matriz dice sólo jefe puede
+    // eliminar finalizado; supervisor con step-up sería la UX correcta.
     if (perfil !== "supervisor" && perfil !== "jefe") {
       console.warn("[onDelete produccion] perfil sin permiso:", perfil);
       return;
@@ -4441,8 +4446,8 @@ const SecFortificados = ({ date, syncKey = 0, dayClosed = false, perfil = null }
     if (ok !== false) setModal(null);
   };
   const onDelete = async id => {
-    // Guard de perfil — solo supervisor/jefe pueden eliminar fortificados
-    if (perfil !== "supervisor" && perfil !== "jefe") {
+    // Guard de perfil — matriz en lib/permisos.js.
+    if (!tienePermiso(perfil, ACCIONES.FORTIFICADOS_ELIMINAR)) {
       console.warn("[onDelete fortificado] perfil sin permiso:", perfil);
       return;
     }
@@ -8639,6 +8644,7 @@ export default function App() {
   });
   const [discardedModal, setDiscardedModal] = useState(false);
   const [confirmUI, askConfirm] = useConfirm();
+  const [stepUpUI, askStepUp] = useStepUpPin();
   const toast = useToast();
   const [turnoActual, setTurnoActual] = useState(getCurrentTurno());
   const isToday = date === getToday();
@@ -8913,8 +8919,8 @@ export default function App() {
       confirmLabel: "Cerrar día",
     });
     if (!ok) return;
-    // VALIDACIÓN INTERNA DE PERFIL — no confiar en que el botón esté oculto
-    if (perfil !== "supervisor" && perfil !== "jefe") {
+    // VALIDACIÓN INTERNA DE PERFIL — matriz en lib/permisos.js.
+    if (!tienePermiso(perfil, ACCIONES.DIA_CERRAR)) {
       console.warn("[handleCerrarDia] perfil sin permiso:", perfil);
       return;
     }
@@ -8950,8 +8956,26 @@ export default function App() {
       confirmLabel: "Reabrir",
     });
     if (!ok) return;
+
+    // UX-V2 §2.3: si el día tiene >7 días, requerir step-up de otro
+    // supervisor/jefe. Evita reaperturas accidentales sobre saldos viejos.
+    const ageDays = diffDays(date, getToday());
+    let stepUpAuth = null;
+    if (ageDays > 7) {
+      stepUpAuth = await askStepUp({
+        accion: "Reabrir día de hace más de 7 días",
+        descripcion: `${fmtDate(date)} (hace ${ageDays} días). Esto puede afectar saldos encadenados de días posteriores.`,
+        tokens: { accent: C.accent, surface: C.surface || C.card, card: C.card, text: C.text, sub: C.sub, border: C.border },
+      });
+      if (!stepUpAuth) return;
+      track("stepup_reabrir_dia", String(ageDays));
+    }
+
     await saveEstado(date, { closed: false });
-    await logAudit(date, "reopen_day", "dia", `Día ${date} reabierto por ${PERFILES[perfil]?.label || "Jefe"}`, PERFILES[perfil]?.label || "Jefe");
+    const respStr = stepUpAuth
+      ? `${PERFILES[perfil]?.label || "Jefe"} (autorizado por ${stepUpAuth.operarioNombre})`
+      : (PERFILES[perfil]?.label || "Jefe");
+    await logAudit(date, "reopen_day", "dia", `Día ${date} reabierto por ${respStr}`, respStr);
     setDayClosed(false);
     setDayClosedBy(null);
     // Reabrir un día puede llevar a edits retroactivos — pre-invalidar la cadena
@@ -9730,6 +9754,7 @@ export default function App() {
         })}
       </div>}
       {confirmUI}
+      {stepUpUI}
 
       {/* Modal: detalle de descartes auditables (4xx permanente) */}
       {discardedModal && (
