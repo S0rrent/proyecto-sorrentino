@@ -2196,13 +2196,18 @@ const CIPRow = ({ nombre, tipo, data, onChange }) => {
   );
 };
 
-const SecCIP = ({ date, syncKey = 0, readOnly = false }) => {
+const SecCIP = ({ date, syncKey = 0, readOnly = false, perfil = null }) => {
   const [data, setData] = useState({});
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("silos");
   const [camiones, setCamiones] = useState(CAMIONES_BASE);
   const [camionModal, setCamionModal] = useState(false);
   const [newCamion, setNewCamion] = useState("");
+  const { operario } = usePerfil();
+  // CIP stampa cada entrada de silo/camión individualmente — son mini-registros
+  // semi-independientes (resp, hora, soda, ácido…). Esto permite auditar quién
+  // hizo cada limpieza aunque el bundle se guarde junto.
+  const stampCIPEntry = (entry) => stampOperario(entry || {}, { operario, perfil, perfilLabel: PERFILES[perfil]?.label });
 
   useEffect(() => {
     load(date, "cip", {}).then(d => { setData(d); setLoading(false); });
@@ -2211,12 +2216,14 @@ const SecCIP = ({ date, syncKey = 0, readOnly = false }) => {
 
   const updateSilo = async (s, v) => {
     if (readOnly) return;
-    const prev = data; const u = { ...data, silos: { ...(data.silos || {}), [s]: v } };
+    const stamped = stampCIPEntry(v);
+    const prev = data; const u = { ...data, silos: { ...(data.silos || {}), [s]: stamped } };
     setData(u); if (await save(date, "cip", u) === false) setData(prev);
   };
   const updateCamion = async (c, v) => {
     if (readOnly) return;
-    const prev = data; const u = { ...data, camiones: { ...(data.camiones || {}), [c]: v } };
+    const stamped = stampCIPEntry(v);
+    const prev = data; const u = { ...data, camiones: { ...(data.camiones || {}), [c]: stamped } };
     setData(u); if (await save(date, "cip", u) === false) setData(prev);
   };
   const setFiltro = async (k, v) => {
@@ -9694,7 +9701,7 @@ export default function App() {
         <div style={{ maxWidth: isDesktop ? 960 : "100%", margin: isDesktop ? "0 auto" : undefined }}>
         {/* Gate: ninguna sección renderiza sin sesión válida — el login modal queda forzado en primer plano */}
         {perfil && section === "ingresos" && <SecIngresos date={date} syncKey={syncKey} dayClosed={dayClosed} perfil={perfil} />}
-        {perfil && section === "cip" && <SecCIP date={date} syncKey={syncKey} />}
+        {perfil && section === "cip" && <SecCIP date={date} syncKey={syncKey} perfil={perfil} />}
         {perfil && section === "carga" && <SecCarga date={date} syncKey={syncKey} dayClosed={dayClosed} perfil={perfil} />}
         {perfil && section === "movimientos" && <SecMovimientos date={date} syncKey={syncKey} dayClosed={dayClosed} perfil={perfil} />}
         {perfil && section === "stock" && <SecStock date={date} syncKey={syncKey} perfil={perfil} />}
