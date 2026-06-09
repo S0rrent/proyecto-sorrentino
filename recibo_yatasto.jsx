@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, Fragment } from "react";
 import { useRegisterSW } from "virtual:pwa-register/react";
 import { DARK, LIGHT, FONT_SANS, FONT_MONO, EASE_OUT, DUR } from "./tokens.js";
-import { useViewport } from "./hooks.js";
+import { useViewport, useOperarioActivo } from "./hooks.js";
+import { PerfilProvider } from "./components/PerfilProvider.jsx";
 import { db, onWriteQueueChange, onSessionExpired, clearSessionExpired, onDiscarded, listDiscarded, clearDiscarded } from "./db-adapter.js";
 import { useToast } from "./components/Toast.jsx";
 import { track, initTelemetry } from "./telemetry.js";
@@ -8559,6 +8560,7 @@ export default function App() {
   const [dayClosedBy, setDayClosedBy] = useState(null);
   const [dayClosedBlocked, setDayClosedBlocked] = useState(false);
   const [saveConflict, setSaveConflict] = useState(null); // C5: { sec, date }
+  const [operarioActivo, setOperarioActivo] = useOperarioActivo();
   const [discardedItems, setDiscardedItems] = useState([]);
   const [discardedSeenCount, setDiscardedSeenCount] = useState(() => {
     try { return Number(localStorage.getItem("__yatasto_discarded_seen__")) || 0; } catch { return 0; }
@@ -8901,6 +8903,7 @@ export default function App() {
   }, [perfilLoading, perfil]);
 
   return (
+    <PerfilProvider perfil={perfil} operario={operarioActivo} permisosExtra={null}>
     <div style={{
       background: C.bg, minHeight: "100vh", color: C.text, fontFamily: FONT_SANS,
       paddingBottom: isDesktop ? 0 : (UX_V2 ? "calc(env(safe-area-inset-bottom, 0px) + 76px)" : 72),
@@ -9597,5 +9600,6 @@ export default function App() {
         </div>
       )}
     </div>
+    </PerfilProvider>
   );
 }
