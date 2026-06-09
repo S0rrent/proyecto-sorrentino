@@ -8267,6 +8267,7 @@ ${cargas.map(r=>`<tr><td>${r._date}</td><td>${r.hora||""}</td><td>${escapeHtml(r
 // ─── SALDO INICIAL ────────────────────────────────────────────
 const SaldoInicialPanel = ({ perfil }) => {
   const [confirmUI, askConfirm] = useConfirm();
+  const [stepUpUI, askStepUp] = useStepUpPin();
   const [baseSaldo, setBaseSaldo] = useState(null);
   const [editSilos, setEditSilos] = useState(() =>
     Object.fromEntries(STOCK_SILOS.map(s => [s, { litros: "", producto: "" }]))
@@ -8278,6 +8279,7 @@ const SaldoInicialPanel = ({ perfil }) => {
   const [viewResult, setViewResult] = useState(null);
   const [loadingView, setLoadingView] = useState(false);
   const [status, setStatus] = useState(null); // null | "saving" | "chaining" | "saved" | "saving-date"
+  const { operario } = usePerfil();
 
   const canEdit = perfil === "supervisor" || perfil === "jefe";
 
@@ -8314,6 +8316,18 @@ const SaldoInicialPanel = ({ perfil }) => {
     });
     if (!ok) return;
 
+    // UX-V2 §2.3: si lo intenta un supervisor (matriz canónica dice "sólo jefe"),
+    // requerir PIN extra de otro supervisor/jefe. Jefe pasa directo.
+    let stepUpAuth = null;
+    if (perfil === "supervisor") {
+      stepUpAuth = await askStepUp({
+        accion: "Cambiar saldo base oficial",
+        descripcion: `Recalcula la cadena histórica desde ${baseDateLabel}. Acción de alta consecuencia — el saldo base es el anclaje de todo el inventario.`,
+      });
+      if (!stepUpAuth) return;
+      track("stepup_saldo_base");
+    }
+
     setStatus("saving");
     const data = Object.fromEntries(
       STOCK_SILOS.map(s => [s, parseFloat(editSilos[s]?.litros) || 0])
@@ -8339,6 +8353,14 @@ const SaldoInicialPanel = ({ perfil }) => {
     setBaseSaldo({ data, fromDate: baseDate, productos });
     setEditing(false);
     setStatus("saved");
+
+    // Audit con doble autoría si hubo step-up.
+    const respStr = stepUpAuth
+      ? `${operario?.nombre || PERFILES[perfil]?.label || perfil || ""} (autorizado por ${stepUpAuth.operarioNombre})`
+      : (operario?.nombre || PERFILES[perfil]?.label || perfil || "");
+    await logAudit(baseDate, "saldo_base_modificado", "saldo",
+      `Saldo base modificado para ${baseDateLabel}${stepUpAuth ? " — requirió step-up" : ""}`,
+      respStr);
     setTimeout(() => setStatus(null), 5000);
   };
 
@@ -8414,6 +8436,7 @@ const SaldoInicialPanel = ({ perfil }) => {
   return (
     <div>
       {confirmUI}
+      {stepUpUI}
 
       {/* ── ZONA 1: Saldo Base Oficial ── */}
       <div style={{ ...card, marginBottom: 16, borderColor: `${C.accent}50` }}>
