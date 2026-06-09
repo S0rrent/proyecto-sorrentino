@@ -6,6 +6,7 @@ import {
   isSueroLike,
   shouldShowSF,
   adicionLitros,
+  fortSourceDraws,
 } from "../lib/helpers.js";
 
 describe("buildFortLabel", () => {
@@ -176,5 +177,88 @@ describe("adicionLitros", () => {
 
   it("string numérico se parsea correctamente", () => {
     expect(adicionLitros("L", "12.5")).toBe(12.5);
+  });
+});
+
+describe("fortSourceDraws", () => {
+  const MAP = {
+    "100 NUEVO": "100 N",
+    "100 VIEJO": "100 V",
+    "TQ6": "TQ6",
+  };
+
+  it("registra litrosBase contra el silo origen mapeado", () => {
+    const fort = { siloOrigen: "100 NUEVO", litrosBase: 5000, adiciones: [] };
+    expect(fortSourceDraws(fort, MAP)).toEqual({ "100 N": 5000 });
+  });
+
+  it("usa el nombre tal cual si no está en el map", () => {
+    const fort = { siloOrigen: "TQ_OTRO", litrosBase: 100, adiciones: [] };
+    expect(fortSourceDraws(fort, MAP)).toEqual({ "TQ_OTRO": 100 });
+  });
+
+  it("acumula adiciones con sourceSilo sobre el mismo silo origen", () => {
+    const fort = {
+      siloOrigen: "100 NUEVO", litrosBase: 5000,
+      adiciones: [
+        { unidad: "L", cantidad: 500, sourceSilo: "100 NUEVO" },
+      ],
+    };
+    expect(fortSourceDraws(fort, MAP)).toEqual({ "100 N": 5500 });
+  });
+
+  it("registra adiciones desde otros silos como entradas separadas", () => {
+    const fort = {
+      siloOrigen: "100 NUEVO", litrosBase: 5000,
+      adiciones: [
+        { unidad: "kg", cantidad: 100, sourceSilo: "TQ6" },
+        { unidad: "L", cantidad: 200, sourceSilo: "100 VIEJO" },
+      ],
+    };
+    expect(fortSourceDraws(fort, MAP)).toEqual({
+      "100 N": 5000,
+      "100 V": 200,
+      "TQ6": 100,
+    });
+  });
+
+  it("ignora adiciones sin sourceSilo", () => {
+    const fort = {
+      siloOrigen: "100 NUEVO", litrosBase: 5000,
+      adiciones: [
+        { unidad: "kg", cantidad: 100 }, // sin sourceSilo
+        { unidad: "L", cantidad: 200, sourceSilo: "TQ6" },
+      ],
+    };
+    expect(fortSourceDraws(fort, MAP)).toEqual({
+      "100 N": 5000,
+      "TQ6": 200,
+    });
+  });
+
+  it("ignora adiciones con cantidad inválida", () => {
+    const fort = {
+      adiciones: [
+        { unidad: "L", cantidad: 0, sourceSilo: "TQ6" },
+        { unidad: "L", cantidad: -10, sourceSilo: "TQ6" },
+        { unidad: "L", cantidad: "abc", sourceSilo: "TQ6" },
+      ],
+    };
+    expect(fortSourceDraws(fort, MAP)).toEqual({});
+  });
+
+  it("ignora litrosBase 0 o ausente", () => {
+    expect(fortSourceDraws({ siloOrigen: "100 NUEVO", litrosBase: 0 }, MAP)).toEqual({});
+    expect(fortSourceDraws({ siloOrigen: "100 NUEVO" }, MAP)).toEqual({});
+  });
+
+  it("fort null/undefined retorna {}", () => {
+    expect(fortSourceDraws(null, MAP)).toEqual({});
+    expect(fortSourceDraws(undefined, MAP)).toEqual({});
+  });
+
+  it("siloKeyMap omitido se trata como mapa vacío (sin transform)", () => {
+    const fort = { siloOrigen: "X", litrosBase: 100, adiciones: [] };
+    expect(fortSourceDraws(fort)).toEqual({ "X": 100 });
   });
 });

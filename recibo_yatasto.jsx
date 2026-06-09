@@ -28,6 +28,7 @@ import {
   isSueroLike,
   shouldShowSF,
   adicionLitros,
+  fortSourceDraws as _fortSourceDrawsLib,
 } from "./lib/helpers.js";
 import {
   Ingresos as IcoIngresos, Movimientos as IcoMovimientos, Carga as IcoCarga,
@@ -530,25 +531,9 @@ function invalidateAutoLitrosFrom(fromDate) {
 
 // adicionLitros importado de ./lib/helpers.js
 
-// Suma por silo (clave normalizada) los litros que un fort descuenta:
-// siloOrigen (litrosBase) + cada adición con sourceSilo (litros equivalentes).
-// Reusado por calcAutoLitros y checkSiloBalance — única fuente de verdad.
-const fortSourceDraws = (fort) => {
-  const draws = {};
-  const baseL = parseFloat(fort?.litrosBase) || 0;
-  if (fort?.siloOrigen && baseL > 0) {
-    const k = SILO_STOCK_KEY[fort.siloOrigen] || fort.siloOrigen;
-    draws[k] = (draws[k] || 0) + baseL;
-  }
-  (fort?.adiciones || []).forEach(a => {
-    if (!a?.sourceSilo) return;
-    const L = adicionLitros(a.unidad, a.cantidad);
-    if (L <= 0) return;
-    const k = SILO_STOCK_KEY[a.sourceSilo] || a.sourceSilo;
-    draws[k] = (draws[k] || 0) + L;
-  });
-  return draws;
-};
+// Wrapper que cierra sobre SILO_STOCK_KEY (la única dependencia mutable del
+// helper puro). La función pura vive en lib/helpers.js y es testeable.
+const fortSourceDraws = (fort) => _fortSourceDrawsLib(fort, SILO_STOCK_KEY);
 
 // calcAutoLitros puede llamarse en dos modos:
 // - modo normal (sin args extra): lee el saldo desde DB
