@@ -268,7 +268,11 @@ async function load(date, sec, def) {
   catch { return def; }
 }
 async function save(date, sec, data) {
-  if (_closedDates.has(date)) { _onSaveBlocked?.(); return false; }
+  if (_closedDates.has(date)) {
+    track("save_blocked_closed", sec);
+    _onSaveBlocked?.();
+    return false;
+  }
   _autoLitrosCache.delete(date);
   const key = sKey(date, sec);
   // C5: detectar modificación concurrente antes de escribir
@@ -277,6 +281,7 @@ async function save(date, sec, data) {
     try {
       const remote = await db.getTimestamp(key);
       if (remote?.updatedAt && remote.updatedAt !== lastKnown) {
+        track("save_conflict", sec);
         _onSaveConflict?.({ sec, date });
         return false;
       }
@@ -286,14 +291,17 @@ async function save(date, sec, data) {
     const ts = await db.set(key, JSON.stringify(data));
     if (ts) {
       _loadedAt.set(key, ts);
+      track("save_ok", sec);
     } else {
       // ts === null: db.set encoló para reintentar (offline o fallo de red).
       // El operario debe enterarse — _onSaveQueued dispara un toast en la UI.
       _loadedAt.delete(key);
+      track("save_queued", sec);
       _onSaveQueued?.({ sec, date });
     }
   } catch (e) {
     console.error(`[save] fallo al persistir ${key}:`, e);
+    track("save_failed", sec);
     return false;
   }
   // Edición retroactiva: cualquier guardado en una fecha anterior o igual a ayer
@@ -8658,6 +8666,7 @@ export default function App() {
       setDiscardedItems(items);
       const newCount = items.length - discardedSeenCount;
       if (newCount > 0) {
+        track("discard_4xx", String(newCount));
         toast.error(
           `${newCount} ${newCount === 1 ? "registro fue rechazado" : "registros fueron rechazados"} por el servidor — revisar detalle.`,
           { timeout: 8000 }
