@@ -5,6 +5,7 @@ import {
   calcSF,
   isSueroLike,
   shouldShowSF,
+  adicionLitros,
 } from "../lib/helpers.js";
 
 describe("buildFortLabel", () => {
@@ -124,5 +125,56 @@ describe("shouldShowSF", () => {
     expect(shouldShowSF("Leche PyH")).toBe(false);
     expect(shouldShowSF("Yogurt")).toBe(false);
     expect(shouldShowSF("Crema")).toBe(false);
+  });
+});
+
+describe("adicionLitros", () => {
+  it("L: 1:1 con litros", () => {
+    expect(adicionLitros("L", 10)).toBe(10);
+    expect(adicionLitros("L", "10")).toBe(10);
+    expect(adicionLitros("L", 0.5)).toBe(0.5);
+  });
+
+  it("kg: 1:1 con litros (densidad ~1 g/mL)", () => {
+    expect(adicionLitros("kg", 5)).toBe(5);
+  });
+
+  it("mL y cc: ambas /1000", () => {
+    expect(adicionLitros("mL", 1000)).toBe(1);
+    expect(adicionLitros("cc", 1000)).toBe(1);
+    expect(adicionLitros("mL", 500)).toBe(0.5);
+  });
+
+  it("g: /1000", () => {
+    expect(adicionLitros("g", 250)).toBe(0.25);
+    expect(adicionLitros("g", 1)).toBe(0.001);
+  });
+
+  it("mg: /1_000_000", () => {
+    expect(adicionLitros("mg", 1000000)).toBe(1);
+    expect(adicionLitros("mg", 500)).toBe(0.0005);
+  });
+
+  it("unidad desconocida → 0 (no contribuye al balance)", () => {
+    expect(adicionLitros("XYZ", 10)).toBe(0);
+    expect(adicionLitros(undefined, 10)).toBe(0);
+    expect(adicionLitros(null, 10)).toBe(0);
+  });
+
+  it("cantidad <= 0 → 0", () => {
+    expect(adicionLitros("L", 0)).toBe(0);
+    expect(adicionLitros("L", -5)).toBe(0);
+    expect(adicionLitros("kg", -1)).toBe(0);
+  });
+
+  it("cantidad no-numérica → 0", () => {
+    expect(adicionLitros("L", "abc")).toBe(0);
+    expect(adicionLitros("L", null)).toBe(0);
+    expect(adicionLitros("L", undefined)).toBe(0);
+    expect(adicionLitros("L", "")).toBe(0);
+  });
+
+  it("string numérico se parsea correctamente", () => {
+    expect(adicionLitros("L", "12.5")).toBe(12.5);
   });
 });

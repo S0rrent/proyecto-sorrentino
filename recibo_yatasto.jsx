@@ -26,6 +26,7 @@ import {
   calcSF,
   isSueroLike,
   shouldShowSF,
+  adicionLitros,
 } from "./lib/helpers.js";
 import {
   Ingresos as IcoIngresos, Movimientos as IcoMovimientos, Carga as IcoCarga,
@@ -526,21 +527,7 @@ function invalidateAutoLitrosFrom(fromDate) {
   return count;
 }
 
-// Conversión de unidad de adición → litros equivalentes para el balance del silo destino
-// y para el descuento opcional del sourceSilo. 1 kg ≈ 1 L (densidad ~1 g/mL).
-const adicionLitros = (unidad, cantidad) => {
-  const qty = parseFloat(cantidad) || 0;
-  if (qty <= 0) return 0;
-  switch (unidad) {
-    case "L":  return qty;
-    case "mL": return qty / 1000;
-    case "cc": return qty / 1000;
-    case "kg": return qty;
-    case "g":  return qty / 1000;
-    case "mg": return qty / 1000000;
-    default:   return 0;
-  }
-};
+// adicionLitros importado de ./lib/helpers.js
 
 // Suma por silo (clave normalizada) los litros que un fort descuenta:
 // siloOrigen (litrosBase) + cada adición con sourceSilo (litros equivalentes).
