@@ -1121,8 +1121,13 @@ const SiloSVG = ({ siloKey, litros, producto }) => {
 };
 
 // ─── UI ATOMS ────────────────────────────────────────────────
+// F (Field): label envuelve a children para que el screen reader asocie el
+// label con el primer input/select interno (asociación implícita HTML5).
 const F = ({ label, children }) => (
-  <div style={{ marginBottom: 12 }}><label style={lbl}>{label}</label>{children}</div>
+  <label style={{ marginBottom: 12, display: "block" }}>
+    <span style={lbl}>{label}</span>
+    {children}
+  </label>
 );
 const Inp = ({ value, onChange, type = "text", placeholder, step, readOnly }) => (
   <input
