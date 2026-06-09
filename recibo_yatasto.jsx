@@ -18,6 +18,7 @@ import {
 } from "./lib/density.js";
 import { escapeHtml, escapeCsv } from "./lib/export-helpers.js";
 import { isLoteActivo, isLoteFinalizado, isLoteLegacyCancelado } from "./lib/produccion.js";
+import { buildResumen } from "./lib/resumen.js";
 import { db, onWriteQueueChange, onSessionExpired, clearSessionExpired, onDiscarded, listDiscarded, clearDiscarded } from "./db-adapter.js";
 import { useToast } from "./components/Toast.jsx";
 import { track, initTelemetry } from "./telemetry.js";
@@ -472,14 +473,7 @@ async function getActiveUsers() {
   } catch { return []; }
 }
 
-function buildResumen(tipo, item) {
-  if (tipo === "ingreso") return `[${item.num || "-"}] ${item.tambo || "—"} — ${item.litrosFca || 0} L → ${item.destino || "?"}`;
-  if (tipo === "carga") return `${item.label || ""} ${item.destino || "—"} — ${item.litros || 0} L desde ${item.siloProveniente || "?"}`;
-  if (tipo === "movimiento") return `${item.desde || "?"}→${item.hasta || "?"} — ${item.litros || 0} L${item.motivo ? " (" + item.motivo + ")" : ""}`;
-  if (tipo === "control") return `Silo ${item.silo || "?"} — pH ${item.ph || "?"} / ${item.hora || "?"}`;
-  if (tipo === "fortificado") return `${item.siloOrigen || "?"}→${item.siloDestino || "?"} — ${item.litrosBase || 0} L${item.paraQue ? " (" + item.paraQue + ")" : ""}`;
-  return String(item.id || "");
-}
+// buildResumen importado de ./lib/resumen.js
 async function logDelete(tipo, item, by) {
   const resumen = buildResumen(tipo, item);
   // Registro global (para dashboard de historial)
