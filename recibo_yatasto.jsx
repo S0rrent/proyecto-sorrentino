@@ -1,8 +1,12 @@
-import { useState, useEffect, useRef, Fragment } from "react";
+import { useState, useEffect, useRef, useCallback, Fragment } from "react";
 import { useRegisterSW } from "virtual:pwa-register/react";
 import { DARK, LIGHT, FONT_SANS, FONT_MONO, EASE_OUT, DUR } from "./tokens.js";
-import { useViewport, useOperarioActivo } from "./hooks.js";
+import { useViewport, useOperarioActivo, usePerfil, useInactivityLock, useShiftChange } from "./hooks.js";
 import { PerfilProvider } from "./components/PerfilProvider.jsx";
+import { OperarioLogin } from "./components/OperarioLogin.jsx";
+import { SecUsuarios } from "./components/SecUsuarios.jsx";
+import { loadOperarios, operariosActivos } from "./lib/operarios.js";
+import { stampOperario } from "./lib/audit.js";
 import { db, onWriteQueueChange, onSessionExpired, clearSessionExpired, onDiscarded, listDiscarded, clearDiscarded } from "./db-adapter.js";
 import { useToast } from "./components/Toast.jsx";
 import { track, initTelemetry } from "./telemetry.js";
@@ -1933,6 +1937,7 @@ const SecIngresos = ({ date, syncKey = 0, dayClosed = false, perfil = null }) =>
   const [filtro, setFiltro] = useState("");
   const [siloStates, setSiloStates] = useState({ totals: {}, productosBase: {} });
   const [confirmUI, askConfirm] = useConfirm();
+  const { operario } = usePerfil();
 
   useEffect(() => {
     if (modal) return; // no recargar mientras hay un form abierto — evita pisar edición en curso
@@ -1948,11 +1953,18 @@ const SecIngresos = ({ date, syncKey = 0, dayClosed = false, perfil = null }) =>
   };
   const onSave = async item => {
     const forzado = item._forzadoCIP;
-    const { _forzadoCIP, ...itemClean } = item;
+    const { _forzadoCIP, ...itemRaw } = item;
+    // Audit trail: estampa con operario activo si lo hay; si no, perfil base.
+    // Preserva creador original al editarse por otro operario.
+    const itemClean = stampOperario(itemRaw, {
+      operario,
+      perfil,
+      perfilLabel: PERFILES[perfil]?.label,
+    });
     if (forzado) {
       await logAudit(date, "forzar_ingreso_silo_sucio", "ingreso",
         `Ingreso forzado a silo ${item.destino || "?"} (estado Sucio) — ${item.litrosFca || 0} L de ${item.tambo || "?"}`,
-        PERFILES[perfil]?.label || perfil || "Supervisor");
+        operario?.nombre || PERFILES[perfil]?.label || perfil || "Supervisor");
     }
     const ex = list.find(i => i.id === itemClean.id);
     const ok = await persist(ex ? list.map(i => i.id === itemClean.id ? itemClean : i) : [...list, itemClean]);
@@ -2420,13 +2432,15 @@ const SecCarga = ({ date, syncKey = 0, dayClosed = false, perfil = null }) => {
   const [modal, setModal] = useState(null);
   const [loading, setLoading] = useState(true);
   const [confirmUI, askConfirm] = useConfirm();
+  const { operario } = usePerfil();
   useEffect(() => { if (modal) return; load(date, "carga", []).then(d => { setList(d); setLoading(false); }); }, [date, syncKey, modal]);
   const persist = async u => {
     const ok = await save(date, "carga", u);
     if (ok !== false) setList(u);
     return ok;
   };
-  const onSave = async item => {
+  const onSave = async itemRaw => {
+    const item = stampOperario(itemRaw, { operario, perfil, perfilLabel: PERFILES[perfil]?.label });
     const existing = list.find(i => i.id === item.id);
     const exclude = existing ? () => parseFloat(existing.litros) || 0 : null;
     const check = await checkSiloBalance(date, item.siloProveniente, item.litros, exclude);
@@ -2659,13 +2673,16 @@ const SecMovimientos = ({ date, syncKey = 0, dayClosed = false, perfil = null })
   const [tab, setTab] = useState("movs");
   const [loading, setLoading] = useState(true);
   const [confirmUI, askConfirm] = useConfirm();
+  const { operario } = usePerfil();
+  const stampCtx = { operario, perfil, perfilLabel: PERFILES[perfil]?.label };
   useEffect(() => { if (modal) return; load(date, "movimientos", { movs: [], ctrls: [] }).then(d => { setData(d); setLoading(false); }); }, [date, syncKey, modal]);
   const persist = async u => {
     const ok = await save(date, "movimientos", u);
     if (ok !== false) setData(u);
     return ok;
   };
-  const saveMov = async item => {
+  const saveMov = async itemRaw => {
+    const item = stampOperario(itemRaw, stampCtx);
     const existing = data.movs.find(i => i.id === item.id);
     // Para excluir el impacto del mov anterior al editar: total = litros + perdida ?? 0
     const exclude = existing
@@ -2687,7 +2704,8 @@ const SecMovimientos = ({ date, syncKey = 0, dayClosed = false, perfil = null })
     const ok = await persist({ ...data, movs: ex ? l.map(i => i.id === item.id ? item : i) : [...l, item] });
     if (ok !== false) setModal(null);
   };
-  const saveCtrl = async item => {
+  const saveCtrl = async itemRaw => {
+    const item = stampOperario(itemRaw, stampCtx);
     const l = data.ctrls; const ex = l.find(i => i.id === item.id);
     const ok = await persist({ ...data, ctrls: ex ? l.map(i => i.id === item.id ? item : i) : [...l, item] });
     if (ok !== false) setModal(null);
@@ -3395,6 +3413,7 @@ const SecProduccion = ({ date, syncKey = 0, dayClosed = false, perfil = null }) 
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null);
   const [confirmUI, askConfirm] = useConfirm();
+  const { operario } = usePerfil();
 
   useEffect(() => {
     if (modal) return; // no recargar mientras hay un form abierto
@@ -3466,7 +3485,8 @@ const SecProduccion = ({ date, syncKey = 0, dayClosed = false, perfil = null }) 
     }
   };
 
-  const onSave = async (item, oldItem) => {
+  const onSave = async (itemRaw, oldItem) => {
+    const item = stampOperario(itemRaw, { operario, perfil, perfilLabel: PERFILES[perfil]?.label });
     const isEditOp = list.some(x => x.id === item.id);
     const updated = isEditOp
       ? list.map(x => x.id === item.id ? item : x)
@@ -4331,6 +4351,7 @@ const SecFortificados = ({ date, syncKey = 0, dayClosed = false, perfil = null }
   const [loading, setLoading] = useState(true);
   const [siloStates, setSiloStates] = useState({ totals: {}, productos: {}, reservados: {}, fechas: {} });
   const [confirmUI, askConfirm] = useConfirm();
+  const { operario } = usePerfil();
 
   useEffect(() => {
     if (modal) return; // no recargar mientras hay un form abierto
@@ -4352,7 +4373,8 @@ const SecFortificados = ({ date, syncKey = 0, dayClosed = false, perfil = null }
     if (ok !== false) setList(u);
     return ok;
   };
-  const onSave = async item => {
+  const onSave = async itemRaw => {
+    const item = stampOperario(itemRaw, { operario, perfil, perfilLabel: PERFILES[perfil]?.label });
     const existing = list.find(i => i.id === item.id);
 
     // Edge case #1: sourceSilo == siloOrigen → doble consumo del mismo silo.
@@ -8607,6 +8629,10 @@ export default function App() {
   const [dayClosedBlocked, setDayClosedBlocked] = useState(false);
   const [saveConflict, setSaveConflict] = useState(null); // C5: { sec, date }
   const [operarioActivo, setOperarioActivo] = useOperarioActivo();
+  const [operariosLista, setOperariosLista] = useState([]);
+  const [operariosLoaded, setOperariosLoaded] = useState(false);
+  const [operarioLoginOpen, setOperarioLoginOpen] = useState(false);
+  const [shiftBannerDismissed, setShiftBannerDismissed] = useState(null); // ventana descartada
   const [discardedItems, setDiscardedItems] = useState([]);
   const [discardedSeenCount, setDiscardedSeenCount] = useState(() => {
     try { return Number(localStorage.getItem("__yatasto_discarded_seen__")) || 0; } catch { return 0; }
@@ -8712,6 +8738,56 @@ export default function App() {
       }
     });
   }, [toast, discardedSeenCount]);
+
+  // Carga la lista de operarios cuando hay perfil resuelto.
+  // Si hay operarios activos y no hay operarioActivo en sessionStorage,
+  // muestra el modal de login. Perfil supervisor/jefe puede saltearlo.
+  useEffect(() => {
+    if (!perfil || perfilLoading) return;
+    let cancelled = false;
+    loadOperarios().then((lista) => {
+      if (cancelled) return;
+      setOperariosLista(lista);
+      setOperariosLoaded(true);
+      const activos = operariosActivos(lista);
+      if (activos.length > 0 && !operarioActivo) {
+        setOperarioLoginOpen(true);
+      }
+    });
+    return () => { cancelled = true; };
+    // syncKey: re-carga cuando otros dispositivos puedan haber editado operarios
+  }, [perfil, perfilLoading, syncKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-lock por inactividad — sólo cuando hay operario activo (UX-V2 §5.3).
+  // 5 min sin tocar → warn toast; 10 min → desactiva operario y vuelve al selector.
+  // No desloguea la sesión base (supervisor/jefe sigue activo).
+  useInactivityLock({
+    enabled: !!operarioActivo,
+    warnMs: 5 * 60 * 1000,
+    logoutMs: 10 * 60 * 1000,
+    onWarn: useCallback(() => {
+      track("operario_inactivity_warn", operarioActivo?.id);
+      toast.warn("Sesión por inactividad — tocá para continuar.", { timeout: 10000 });
+    }, [operarioActivo, toast]),
+    onLogout: useCallback(() => {
+      if (!operarioActivo) return;
+      track("operario_inactivity_logout", operarioActivo.id);
+      const nombre = operarioActivo.nombre;
+      setOperarioActivo(null);
+      setOperarioLoginOpen(true);
+      toast.warn(`${nombre} desconectado por inactividad.`);
+    }, [operarioActivo, setOperarioActivo, toast]),
+  });
+
+  // Cambio de turno (UX-V2 §5.3): cuando estamos en la ventana ±30min de
+  // 07:00/14:00/21:00, mostramos banner sugerente. Operario decide.
+  const shiftWindow = useShiftChange({
+    enabled: !!perfil,
+    onShiftChange: useCallback((turno) => {
+      if (!operarioActivo) return; // sin operario no aplica
+      track("shift_window_entered", turno);
+    }, [operarioActivo]),
+  });
 
   // Sincronizar perfil con sesión de Supabase Auth.
   // El perfil "verdadero" se deriva exclusivamente de la sesión Supabase (email del usuario
@@ -8931,6 +9007,9 @@ export default function App() {
     // Borrar cola persistida — evita que el próximo usuario en el mismo device
     // herede escrituras del usuario que cierra sesión (auditoría cruzada).
     try { localStorage.removeItem("__yatasto_wq__"); } catch {}
+    // Limpiar operario activo (sessionStorage) para que el próximo login no
+    // arrastre identidad del usuario anterior.
+    setOperarioActivo(null);
     try { await db.auth.signOut(); } catch {}
     // Reload completo: la cola en memoria de db-adapter se vacía y todo state se reinicia.
     // Sin esto, _flushQueue podría re-persistir los items en memoria al siguiente reintento.
@@ -9109,6 +9188,37 @@ export default function App() {
         );
       })()}
 
+      {/* Banner cambio de turno — sugerencia no bloqueante (UX-V2 §5.3) */}
+      {shiftWindow && operarioActivo && shiftBannerDismissed !== shiftWindow && (
+        <div style={{
+          background: `${C.accent}15`, borderBottom: `2px solid ${C.accent}88`,
+          paddingTop: "calc(env(safe-area-inset-top, 0px) + 8px)", paddingBottom: "8px", paddingLeft: "16px", paddingRight: "16px",
+          display: "flex", alignItems: "center", gap: 10,
+          position: "sticky", top: 0, zIndex: 304,
+          marginLeft: isDesktop ? SIDEBAR_W : 0,
+        }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: C.accent }}>
+              ¿Cambio de turno? — Turno {shiftWindow}
+            </div>
+            <div style={{ fontSize: 11, color: C.sub, marginTop: 1 }}>
+              {`Operando: ${operarioActivo.nombre} · Tocá "Cambiar" si entra otro operario.`}
+            </div>
+          </div>
+          <button type="button"
+            onClick={() => setOperarioLoginOpen(true)}
+            style={{ background: `${C.accent}20`, border: `1px solid ${C.accent}55`, color: C.accent, borderRadius: 8, padding: "5px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
+            Cambiar
+          </button>
+          <button type="button"
+            onClick={() => setShiftBannerDismissed(shiftWindow)}
+            aria-label="Descartar aviso"
+            style={{ background: "transparent", border: "none", color: C.sub, cursor: "pointer", fontSize: 18, lineHeight: 1, padding: "0 4px" }}>
+            ×
+          </button>
+        </div>
+      )}
+
       {/* Banner descartes auditables — entradas rechazadas por el servidor (4xx permanente) */}
       {discardedItems.length > discardedSeenCount && (
         <div style={{
@@ -9245,6 +9355,38 @@ export default function App() {
                   ● SESIÓN ACTIVA
                 </div>
               </div>
+              {/* Acciones del jefe — gestión de operarios */}
+              {perfil === "jefe" && (
+                <button type="button"
+                  onClick={() => { setPerfilModal(false); setSection("usuarios"); }}
+                  style={{ ...btnSecondary, width: "100%", marginBottom: 10 }}>
+                  Gestionar operarios
+                </button>
+              )}
+
+              {/* Cambiar operario activo si hay uno y hay operarios cargados */}
+              {operarioActivo && (
+                <button type="button"
+                  onClick={() => { setPerfilModal(false); setOperarioLoginOpen(true); }}
+                  style={{ ...btnSecondary, width: "100%", marginBottom: 10 }}>
+                  Cambiar operario ({operarioActivo.nombre})
+                </button>
+              )}
+
+              {/* Salir del modo operario sin cerrar sesión base */}
+              {operarioActivo && (
+                <button type="button"
+                  onClick={() => {
+                    setOperarioActivo(null);
+                    setPerfilModal(false);
+                    track("operario_logout", operarioActivo.id);
+                    toast.ok("Operario desconectado");
+                  }}
+                  style={{ ...btnSecondary, width: "100%", marginBottom: 10, color: C.sub }}>
+                  Salir del modo operario
+                </button>
+              )}
+
               <button type="button" style={{ ...btnSecondary, color: C.danger, borderColor: C.danger + "55", width: "100%" }} onClick={handleLogout}>
                 Cerrar sesión
               </button>
@@ -9368,6 +9510,38 @@ export default function App() {
             display: "flex", alignItems: "center", justifyContent: "center",
             transition: "all 0.2s",
           }}>{_THEME === "dark" ? <ThemeLight size={16} strokeWidth={SW} /> : <ThemeDark size={16} strokeWidth={SW} />}</button>
+
+          {/* Chip operario activo — visible si hay operario logueado.
+              Click → reabre el selector para cambiar operario. */}
+          {operarioActivo && (
+            <button type="button"
+              onClick={() => setOperarioLoginOpen(true)}
+              title={`Operando: ${operarioActivo.nombre} — tocá para cambiar`}
+              aria-label={`Operario activo: ${operarioActivo.nombre}. Tocá para cambiar`}
+              style={{
+                background: C.card,
+                border: `1px solid ${C.border}`,
+                borderRadius: 9,
+                height: 34,
+                minWidth: 44,
+                padding: "0 8px",
+                cursor: "pointer",
+                display: "flex", alignItems: "center", gap: 6,
+                fontSize: 12, fontWeight: 700, color: C.text,
+              }}>
+              <span style={{
+                width: 22, height: 22, borderRadius: 11,
+                background: "#3b82f6", color: "#000",
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
+                fontSize: 10, fontWeight: 800,
+              }}>
+                {operarioActivo.nombre.split(/\s+/).map(p => p[0]).slice(0, 2).join("").toUpperCase()}
+              </span>
+              <span style={{ maxWidth: 80, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {operarioActivo.nombre.split(/\s+/)[0]}
+              </span>
+            </button>
+          )}
 
           {/* Botón perfil */}
           <button type="button" onClick={() => setPerfilModal(true)}
@@ -9499,6 +9673,18 @@ export default function App() {
         {perfil && section === "produccion" && (perfil === "supervisor" || perfil === "jefe") && <SecProduccion date={date} syncKey={syncKey} dayClosed={dayClosed} perfil={perfil} />}
         {perfil && section === "supervisor" && perfil === "supervisor" && <SecDashboard date={date} perfil={perfil} perfilLabel={PERFILES[perfil]?.label || ""} syncKey={syncKey} />}
         {perfil && section === "supervisor" && perfil === "jefe" && <SecJefeHub date={date} perfil={perfil} perfilLabel={PERFILES[perfil]?.label || ""} syncKey={syncKey} />}
+        {perfil === "jefe" && section === "usuarios" && (
+          <SecUsuarios
+            jefeId={`jefe@yatasto.internal`}
+            syncKey={syncKey}
+            tokens={{ accent: C.accent, bg: C.bg, surface: C.surface || C.card, card: C.card, text: C.text, sub: C.sub, border: C.border, success: C.success, danger: C.danger }}
+            onToast={(variant, msg) => {
+              if (variant === "ok") toast.ok(msg);
+              else if (variant === "warn") toast.warn(msg);
+              else toast.error(msg);
+            }}
+          />
+        )}
         </div>
       </div>
 
@@ -9645,6 +9831,25 @@ export default function App() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Modal de login de operario (selector + PIN) */}
+      {operarioLoginOpen && operariosLoaded && (
+        <OperarioLogin
+          operarios={operariosLista}
+          allowSkip={perfil === "supervisor" || perfil === "jefe"}
+          tokens={{ accent: C.accent, bg: C.bg, surface: C.surface || C.card, card: C.card, text: C.text, sub: C.sub, border: C.border, danger: "#ef4444" }}
+          onLogin={(op) => {
+            setOperarioActivo(op);
+            setOperarioLoginOpen(false);
+            track("operario_login", op.id);
+            toast.ok(`Bienvenido, ${op.nombre}`);
+          }}
+          onCancel={() => {
+            setOperarioLoginOpen(false);
+            track("operario_login_skipped");
+          }}
+        />
       )}
     </div>
     </PerfilProvider>
