@@ -88,7 +88,10 @@ let _sessionExpired = false;
 let _refreshing = false;          // lock: evita dos refreshes simultáneos
 const _sessionListeners = new Set();
 
-function _is401(error) {
+// Reconoce errores de autenticación (JWT expirado, código PostgREST, status 401).
+// Exportado para test directo — la decisión "refresh sesión vs descartar" es
+// crítica para no perder operaciones cuando expira el token.
+export function _is401(error) {
   return error?.status === 401 || error?.code === "PGRST301" ||
     (typeof error?.message === "string" && error.message.includes("JWT"));
 }
