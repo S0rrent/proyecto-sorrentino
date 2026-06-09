@@ -13,6 +13,9 @@ import {
   getToday, getPreviousDate, addDay, getLastNDays, getDaysInRange,
   fmtDate, getNow,
 } from "./lib/dates.js";
+import {
+  isEcomilkDensity, normalizeDensity, formatDensity, validateDensity,
+} from "./lib/density.js";
 import { db, onWriteQueueChange, onSessionExpired, clearSessionExpired, onDiscarded, listDiscarded, clearDiscarded } from "./db-adapter.js";
 import { useToast } from "./components/Toast.jsx";
 import { track, initTelemetry } from "./telemetry.js";
@@ -440,48 +443,8 @@ const QUALITY_REFS = {
 // Formato técnico:    1.028, 1.029, 1.030, 1.031, 1.034
 // Regla: entero sin punto decimal en rango [20, 40] → interpretar como Ecomilk.
 
-function isEcomilkDensity(v) {
-  const s = String(v == null ? "" : v).trim().replace(",", ".");
-  if (!s) return false;
-  const n = Number(s);
-  return Number.isFinite(n) && n >= 20 && n <= 40;
-}
-
-// Convierte cualquier formato válido al valor técnico con 3 decimales (4 si Ecomilk con decimal).
-function normalizeDensity(v) {
-  if (v === "" || v == null) return "";
-  const s = String(v).trim().replace(",", ".");
-  if (isEcomilkDensity(s)) {
-    const n = parseFloat(s);
-    return (1 + n / 1000).toFixed(Number.isInteger(n) ? 3 : 4);
-  }
-  const n = parseFloat(s);
-  return !isNaN(n) ? n.toFixed(3) : String(v);
-}
-
-// Para display en auditorías, reportes y exports.
-// Retro-compatible: si un registro viejo tuviera "28" guardado, lo convierte al mostrarlo.
-function formatDensity(v) {
-  if (v === "" || v == null) return "";
-  const s = String(v).trim().replace(",", ".");
-  if (isEcomilkDensity(s)) {
-    const n = parseFloat(s);
-    return (1 + n / 1000).toFixed(Number.isInteger(n) ? 3 : 4);
-  }
-  const n = parseFloat(s);
-  return !isNaN(n) ? n.toFixed(3) : String(v);
-}
-
-// Retorna null si el valor es válido; string de error si no.
-function validateDensity(raw) {
-  if (raw === "" || raw == null) return null;
-  const s = String(raw).trim().replace(",", ".");
-  if (isEcomilkDensity(s)) return null; // 20–40 Ecomilk → OK
-  const n = parseFloat(s);
-  if (isNaN(n)) return "Valor inválido";
-  if (n < 1.020 || n > 1.040) return `Fuera de rango (1.020–1.040 ó 20–40 Ecomilk)`;
-  return null;
-}
+// isEcomilkDensity / normalizeDensity / formatDensity / validateDensity
+// importados de ./lib/density.js
 
 // Campos a comparar Tambo vs Fábrica para detección de desvíos
 const DIFF_FIELDS = [
