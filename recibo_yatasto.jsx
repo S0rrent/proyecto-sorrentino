@@ -3428,6 +3428,7 @@ const SecProduccion = ({ date, syncKey = 0, dayClosed = false, perfil = null }) 
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null);
   const [confirmUI, askConfirm] = useConfirm();
+  const [stepUpUI, askStepUp] = useStepUpPin();
   const { operario } = usePerfil();
 
   useEffect(() => {
@@ -3548,8 +3549,6 @@ const SecProduccion = ({ date, syncKey = 0, dayClosed = false, perfil = null }) 
   const onDelete = async item => {
     // VALIDACIÓN INTERNA: el botón se renderiza solo con perfil supervisor/jefe,
     // pero el handler también valida por seguridad (evita escalación via devtools).
-    // PENDIENTE: distinguir lote finalizado vs no — matriz dice sólo jefe puede
-    // eliminar finalizado; supervisor con step-up sería la UX correcta.
     if (perfil !== "supervisor" && perfil !== "jefe") {
       console.warn("[onDelete produccion] perfil sin permiso:", perfil);
       return;
@@ -3564,18 +3563,36 @@ const SecProduccion = ({ date, syncKey = 0, dayClosed = false, perfil = null }) 
       confirmLabel: "Eliminar",
     });
     if (!confirmed) return;
+
+    // UX-V2 §2.3: eliminar lote FINALIZADO requiere autorización adicional
+    // si lo intenta un supervisor (revierte litros consumidos a su silo origen).
+    // Jefe no requiere step-up (matriz dice puede solo). Operario está bloqueado más arriba.
+    let stepUpAuth = null;
+    if (esFinal && perfil === "supervisor") {
+      stepUpAuth = await askStepUp({
+        accion: `Eliminar lote finalizado ${item.lote || item.producto || ""}`.trim(),
+        descripcion: `Restituye ${Math.round((item.litrosUsados || []).reduce((s, u) => s + (parseFloat(u.litros) || 0), 0)).toLocaleString("es-AR")} L al silo de origen. Acción irreversible.`,
+      });
+      if (!stepUpAuth) return;
+      track("stepup_eliminar_lote_finalizado", item.id);
+    }
+
     await persist(list.filter(x => x.id !== item.id));
     _autoLitrosCache.delete(date);
     // Eliminar movimientos automáticos huérfanos asociados al lote (si existían)
     if (esFinal) {
       await syncAutoMovSobrante({ ...item, destinoSobrante: null, sobranteL: 0 }, item);
     }
-    // Auditoría diferenciada por estado del lote eliminado
+    // Auditoría diferenciada por estado del lote eliminado.
+    // Si hubo step-up, el resp combina al ejecutor + al autorizante.
+    const respStr = stepUpAuth
+      ? `${operario?.nombre || PERFILES[perfil]?.label || perfil || ""} (autorizado por ${stepUpAuth.operarioNombre})`
+      : (operario?.nombre || PERFILES[perfil]?.label || perfil || "");
     await logAudit(date,
       esFinal ? "eliminar_produccion_finalizada" : "eliminar_produccion",
       "produccion",
       `${item.producto} — Lote ${item.lote || "—"} — estado ${item.estado || "envasando"}`,
-      perfil || "");
+      respStr);
     setModal(null);
   };
 
@@ -3675,6 +3692,7 @@ const SecProduccion = ({ date, syncKey = 0, dayClosed = false, perfil = null }) 
   return (
     <div>
       {confirmUI}
+      {stepUpUI}
       <div style={secTitle}>Producción — {fmtDate(date)}</div>
 
       {visibles.length === 0 ? (
