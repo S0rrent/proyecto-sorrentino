@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef, Fragment } from "react";
+import { useState, useEffect, useRef, useCallback, Fragment } from "react";
 import { useRegisterSW } from "virtual:pwa-register/react";
 import { DARK, LIGHT, FONT_SANS, FONT_MONO, EASE_OUT, DUR } from "./tokens.js";
-import { useViewport, useOperarioActivo, usePerfil } from "./hooks.js";
+import { useViewport, useOperarioActivo, usePerfil, useInactivityLock, useShiftChange } from "./hooks.js";
 import { PerfilProvider } from "./components/PerfilProvider.jsx";
 import { OperarioLogin } from "./components/OperarioLogin.jsx";
 import { SecUsuarios } from "./components/SecUsuarios.jsx";
@@ -8622,6 +8622,7 @@ export default function App() {
   const [operariosLista, setOperariosLista] = useState([]);
   const [operariosLoaded, setOperariosLoaded] = useState(false);
   const [operarioLoginOpen, setOperarioLoginOpen] = useState(false);
+  const [shiftBannerDismissed, setShiftBannerDismissed] = useState(null); // ventana descartada
   const [discardedItems, setDiscardedItems] = useState([]);
   const [discardedSeenCount, setDiscardedSeenCount] = useState(() => {
     try { return Number(localStorage.getItem("__yatasto_discarded_seen__")) || 0; } catch { return 0; }
@@ -8746,6 +8747,37 @@ export default function App() {
     return () => { cancelled = true; };
     // syncKey: re-carga cuando otros dispositivos puedan haber editado operarios
   }, [perfil, perfilLoading, syncKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-lock por inactividad — sólo cuando hay operario activo (UX-V2 §5.3).
+  // 5 min sin tocar → warn toast; 10 min → desactiva operario y vuelve al selector.
+  // No desloguea la sesión base (supervisor/jefe sigue activo).
+  useInactivityLock({
+    enabled: !!operarioActivo,
+    warnMs: 5 * 60 * 1000,
+    logoutMs: 10 * 60 * 1000,
+    onWarn: useCallback(() => {
+      track("operario_inactivity_warn", operarioActivo?.id);
+      toast.warn("Sesión por inactividad — tocá para continuar.", { timeout: 10000 });
+    }, [operarioActivo, toast]),
+    onLogout: useCallback(() => {
+      if (!operarioActivo) return;
+      track("operario_inactivity_logout", operarioActivo.id);
+      const nombre = operarioActivo.nombre;
+      setOperarioActivo(null);
+      setOperarioLoginOpen(true);
+      toast.warn(`${nombre} desconectado por inactividad.`);
+    }, [operarioActivo, setOperarioActivo, toast]),
+  });
+
+  // Cambio de turno (UX-V2 §5.3): cuando estamos en la ventana ±30min de
+  // 07:00/14:00/21:00, mostramos banner sugerente. Operario decide.
+  const shiftWindow = useShiftChange({
+    enabled: !!perfil,
+    onShiftChange: useCallback((turno) => {
+      if (!operarioActivo) return; // sin operario no aplica
+      track("shift_window_entered", turno);
+    }, [operarioActivo]),
+  });
 
   // Sincronizar perfil con sesión de Supabase Auth.
   // El perfil "verdadero" se deriva exclusivamente de la sesión Supabase (email del usuario
@@ -9145,6 +9177,37 @@ export default function App() {
           </div>
         );
       })()}
+
+      {/* Banner cambio de turno — sugerencia no bloqueante (UX-V2 §5.3) */}
+      {shiftWindow && operarioActivo && shiftBannerDismissed !== shiftWindow && (
+        <div style={{
+          background: `${C.accent}15`, borderBottom: `2px solid ${C.accent}88`,
+          paddingTop: "calc(env(safe-area-inset-top, 0px) + 8px)", paddingBottom: "8px", paddingLeft: "16px", paddingRight: "16px",
+          display: "flex", alignItems: "center", gap: 10,
+          position: "sticky", top: 0, zIndex: 304,
+          marginLeft: isDesktop ? SIDEBAR_W : 0,
+        }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: C.accent }}>
+              ¿Cambio de turno? — Turno {shiftWindow}
+            </div>
+            <div style={{ fontSize: 11, color: C.sub, marginTop: 1 }}>
+              {`Operando: ${operarioActivo.nombre} · Tocá "Cambiar" si entra otro operario.`}
+            </div>
+          </div>
+          <button type="button"
+            onClick={() => setOperarioLoginOpen(true)}
+            style={{ background: `${C.accent}20`, border: `1px solid ${C.accent}55`, color: C.accent, borderRadius: 8, padding: "5px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
+            Cambiar
+          </button>
+          <button type="button"
+            onClick={() => setShiftBannerDismissed(shiftWindow)}
+            aria-label="Descartar aviso"
+            style={{ background: "transparent", border: "none", color: C.sub, cursor: "pointer", fontSize: 18, lineHeight: 1, padding: "0 4px" }}>
+            ×
+          </button>
+        </div>
+      )}
 
       {/* Banner descartes auditables — entradas rechazadas por el servidor (4xx permanente) */}
       {discardedItems.length > discardedSeenCount && (

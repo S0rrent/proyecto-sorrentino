@@ -109,3 +109,103 @@ export function usePerfil() {
   );
   return { ...ctx, tienePermiso: tiene };
 }
+
+// ─── Auto-lock por inactividad ───────────────────────────────────────────────
+// UX-V2 §5.3: a los 5 min sin tocar mostramos banner, a los 10 min retornamos
+// al selector de operario (sin desloguear la sesión base supervisor/jefe).
+//
+// Eventos que reinician el timer: mousedown, keydown, touchstart, pointerdown,
+// scroll (throttled). Visibilitychange a "visible" también cuenta.
+//
+// El hook NO actúa sobre estado externo: emite onWarn / onLogout para que
+// App decida (banner, modal, etc.). Si enabled=false, todo no-op.
+
+const ACTIVITY_EVENTS = ["mousedown", "keydown", "touchstart", "pointerdown"];
+
+export function useInactivityLock({ enabled = true, warnMs = 5 * 60 * 1000, logoutMs = 10 * 60 * 1000, onWarn, onLogout } = {}) {
+  const [lastActivity, setLastActivity] = useState(() => Date.now());
+  const [warned, setWarned] = useState(false);
+
+  // Reset on any user input.
+  useEffect(() => {
+    if (!enabled) return;
+    const bump = () => {
+      setLastActivity(Date.now());
+      setWarned(false);
+    };
+    for (const ev of ACTIVITY_EVENTS) {
+      window.addEventListener(ev, bump, { passive: true });
+    }
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") bump();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      for (const ev of ACTIVITY_EVENTS) window.removeEventListener(ev, bump);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [enabled]);
+
+  // Timer que dispara warn → logout. Reinicia cuando lastActivity cambia.
+  useEffect(() => {
+    if (!enabled) return;
+    const onWarnRef = onWarn;
+    const onLogoutRef = onLogout;
+    const warnTimer = setTimeout(() => {
+      setWarned(true);
+      onWarnRef?.();
+    }, warnMs);
+    const logoutTimer = setTimeout(() => {
+      onLogoutRef?.();
+    }, logoutMs);
+    return () => {
+      clearTimeout(warnTimer);
+      clearTimeout(logoutTimer);
+    };
+  }, [enabled, warnMs, logoutMs, lastActivity, onWarn, onLogout]);
+
+  return { lastActivity, warned, reset: () => setLastActivity(Date.now()) };
+}
+
+// ─── Cambio de turno detector ────────────────────────────────────────────────
+// Turnos: 07:00, 14:00, 21:00. Ventana ±30 min alrededor del cambio.
+// Cuando entra en la ventana, emite onShiftChange. App muestra banner.
+
+const TURNO_HORAS = [
+  { h: 7, label: "07:00" },
+  { h: 14, label: "14:00" },
+  { h: 21, label: "21:00" },
+];
+const TURNO_VENTANA_MIN = 30;
+
+export function isShiftChangeWindow(now = new Date()) {
+  const minutes = now.getHours() * 60 + now.getMinutes();
+  for (const t of TURNO_HORAS) {
+    if (Math.abs(minutes - t.h * 60) <= TURNO_VENTANA_MIN) return t.label;
+  }
+  return null;
+}
+
+// Hook: emite onShiftChange(turno) UNA vez cuando entra en cada ventana de cambio.
+// Re-emite cada nueva ventana del mismo turno (siguiente día).
+export function useShiftChange({ enabled = true, onShiftChange } = {}) {
+  const [activeWindow, setActiveWindow] = useState(null);
+
+  useEffect(() => {
+    if (!enabled) return;
+    const check = () => {
+      const win = isShiftChangeWindow();
+      if (win && win !== activeWindow) {
+        setActiveWindow(win);
+        onShiftChange?.(win);
+      } else if (!win && activeWindow) {
+        setActiveWindow(null);
+      }
+    };
+    check();
+    const interval = setInterval(check, 60 * 1000); // chequeo cada minuto
+    return () => clearInterval(interval);
+  }, [enabled, activeWindow, onShiftChange]);
+
+  return activeWindow;
+}
