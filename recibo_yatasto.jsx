@@ -2432,13 +2432,15 @@ const SecCarga = ({ date, syncKey = 0, dayClosed = false, perfil = null }) => {
   const [modal, setModal] = useState(null);
   const [loading, setLoading] = useState(true);
   const [confirmUI, askConfirm] = useConfirm();
+  const { operario } = usePerfil();
   useEffect(() => { if (modal) return; load(date, "carga", []).then(d => { setList(d); setLoading(false); }); }, [date, syncKey, modal]);
   const persist = async u => {
     const ok = await save(date, "carga", u);
     if (ok !== false) setList(u);
     return ok;
   };
-  const onSave = async item => {
+  const onSave = async itemRaw => {
+    const item = stampOperario(itemRaw, { operario, perfil, perfilLabel: PERFILES[perfil]?.label });
     const existing = list.find(i => i.id === item.id);
     const exclude = existing ? () => parseFloat(existing.litros) || 0 : null;
     const check = await checkSiloBalance(date, item.siloProveniente, item.litros, exclude);
@@ -2671,13 +2673,16 @@ const SecMovimientos = ({ date, syncKey = 0, dayClosed = false, perfil = null })
   const [tab, setTab] = useState("movs");
   const [loading, setLoading] = useState(true);
   const [confirmUI, askConfirm] = useConfirm();
+  const { operario } = usePerfil();
+  const stampCtx = { operario, perfil, perfilLabel: PERFILES[perfil]?.label };
   useEffect(() => { if (modal) return; load(date, "movimientos", { movs: [], ctrls: [] }).then(d => { setData(d); setLoading(false); }); }, [date, syncKey, modal]);
   const persist = async u => {
     const ok = await save(date, "movimientos", u);
     if (ok !== false) setData(u);
     return ok;
   };
-  const saveMov = async item => {
+  const saveMov = async itemRaw => {
+    const item = stampOperario(itemRaw, stampCtx);
     const existing = data.movs.find(i => i.id === item.id);
     // Para excluir el impacto del mov anterior al editar: total = litros + perdida ?? 0
     const exclude = existing
@@ -2699,7 +2704,8 @@ const SecMovimientos = ({ date, syncKey = 0, dayClosed = false, perfil = null })
     const ok = await persist({ ...data, movs: ex ? l.map(i => i.id === item.id ? item : i) : [...l, item] });
     if (ok !== false) setModal(null);
   };
-  const saveCtrl = async item => {
+  const saveCtrl = async itemRaw => {
+    const item = stampOperario(itemRaw, stampCtx);
     const l = data.ctrls; const ex = l.find(i => i.id === item.id);
     const ok = await persist({ ...data, ctrls: ex ? l.map(i => i.id === item.id ? item : i) : [...l, item] });
     if (ok !== false) setModal(null);
@@ -3407,6 +3413,7 @@ const SecProduccion = ({ date, syncKey = 0, dayClosed = false, perfil = null }) 
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null);
   const [confirmUI, askConfirm] = useConfirm();
+  const { operario } = usePerfil();
 
   useEffect(() => {
     if (modal) return; // no recargar mientras hay un form abierto
@@ -3478,7 +3485,8 @@ const SecProduccion = ({ date, syncKey = 0, dayClosed = false, perfil = null }) 
     }
   };
 
-  const onSave = async (item, oldItem) => {
+  const onSave = async (itemRaw, oldItem) => {
+    const item = stampOperario(itemRaw, { operario, perfil, perfilLabel: PERFILES[perfil]?.label });
     const isEditOp = list.some(x => x.id === item.id);
     const updated = isEditOp
       ? list.map(x => x.id === item.id ? item : x)
@@ -4343,6 +4351,7 @@ const SecFortificados = ({ date, syncKey = 0, dayClosed = false, perfil = null }
   const [loading, setLoading] = useState(true);
   const [siloStates, setSiloStates] = useState({ totals: {}, productos: {}, reservados: {}, fechas: {} });
   const [confirmUI, askConfirm] = useConfirm();
+  const { operario } = usePerfil();
 
   useEffect(() => {
     if (modal) return; // no recargar mientras hay un form abierto
@@ -4364,7 +4373,8 @@ const SecFortificados = ({ date, syncKey = 0, dayClosed = false, perfil = null }
     if (ok !== false) setList(u);
     return ok;
   };
-  const onSave = async item => {
+  const onSave = async itemRaw => {
+    const item = stampOperario(itemRaw, { operario, perfil, perfilLabel: PERFILES[perfil]?.label });
     const existing = list.find(i => i.id === item.id);
 
     // Edge case #1: sourceSilo == siloOrigen → doble consumo del mismo silo.
