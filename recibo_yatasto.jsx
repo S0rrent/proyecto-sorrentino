@@ -16,6 +16,7 @@ import {
 import {
   isEcomilkDensity, normalizeDensity, formatDensity, validateDensity,
 } from "./lib/density.js";
+import { escapeHtml, escapeCsv } from "./lib/export-helpers.js";
 import { db, onWriteQueueChange, onSessionExpired, clearSessionExpired, onDiscarded, listDiscarded, clearDiscarded } from "./db-adapter.js";
 import { useToast } from "./components/Toast.jsx";
 import { track, initTelemetry } from "./telemetry.js";
@@ -41,15 +42,7 @@ import {
   SW,
 } from "./icons.js";
 
-// ─── HELPERS DE EXPORTACIÓN ───────────────────────────────────
-const escapeHtml = s => String(s == null ? "" : s)
-  .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-  .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
-
-const escapeCsv = s => {
-  const str = String(s == null ? "" : s);
-  return /[,"\n\r=+\-@|]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
-};
+// escapeHtml / escapeCsv importados de ./lib/export-helpers.js
 
 // ─── CONSTANTES ───────────────────────────────────────────────
 const TAMBOS_BASE = [
