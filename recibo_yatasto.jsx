@@ -17,6 +17,7 @@ import {
   isEcomilkDensity, normalizeDensity, formatDensity, validateDensity,
 } from "./lib/density.js";
 import { escapeHtml, escapeCsv } from "./lib/export-helpers.js";
+import { isLoteActivo, isLoteFinalizado, isLoteLegacyCancelado } from "./lib/produccion.js";
 import { db, onWriteQueueChange, onSessionExpired, clearSessionExpired, onDiscarded, listDiscarded, clearDiscarded } from "./db-adapter.js";
 import { useToast } from "./components/Toast.jsx";
 import { track, initTelemetry } from "./telemetry.js";
@@ -2834,11 +2835,7 @@ const SecMovimientos = ({ date, syncKey = 0, dayClosed = false, perfil = null })
 // Estados de lote:
 //   - "envasando"  → lote activo, litros reservados (no descontados del stock)
 //   - "finalizado" → lote cerrado, litros usados reales descontados
-// Compat legacy: "enviado" se trata como "envasando"; "cancelado" se filtra de
-// las vistas activas y dashboard (no se migra, sólo se ignora).
-const isLoteActivo     = e => e === "envasando" || e === "enviado";
-const isLoteFinalizado = e => e === "finalizado";
-const isLoteLegacyCancelado = e => e === "cancelado";
+// isLoteActivo / isLoteFinalizado / isLoteLegacyCancelado importados de ./lib/produccion.js
 
 const emptyLote = (preOrigen = null) => ({
   id: crypto.randomUUID(),
