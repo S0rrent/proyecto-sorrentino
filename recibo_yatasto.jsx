@@ -1,9 +1,18 @@
 import { useState, useEffect, useRef, Fragment } from "react";
 import { useRegisterSW } from "virtual:pwa-register/react";
 import { DARK, LIGHT, FONT_SANS, FONT_MONO, EASE_OUT, DUR } from "./tokens.js";
-import { useViewport } from "./hooks.js";
-import { db, onWriteQueueChange, onSessionExpired, clearSessionExpired } from "./db-adapter.js";
+import { useViewport, useOperarioActivo } from "./hooks.js";
+import { PerfilProvider } from "./components/PerfilProvider.jsx";
+import { db, onWriteQueueChange, onSessionExpired, clearSessionExpired, onDiscarded, listDiscarded, clearDiscarded } from "./db-adapter.js";
+import { useToast } from "./components/Toast.jsx";
 import { track, initTelemetry } from "./telemetry.js";
+import {
+  buildFortLabel,
+  diffDays,
+  calcSF,
+  isSueroLike,
+  shouldShowSF,
+} from "./lib/helpers.js";
 import {
   Ingresos as IcoIngresos, Movimientos as IcoMovimientos, Carga as IcoCarga,
   Fortificados as IcoFortificados, CIP as IcoCIP, Stock as IcoStock, Produccion as IcoProduccion,
@@ -82,36 +91,7 @@ const PRODS_STOCK = [
   "Crema", "Yogurt", "Postre", "Sucio (vacío)", "Limpio",
 ];
 
-// Deriva el label canónico de un lote fort según sus flags de proceso.
-// Pura — sin side effects. Siempre usa ?? false para compat con datos viejos.
-const buildFortLabel = (fort) => {
-  const p = fort?.pasteurizado ?? false;
-  const h = fort?.homogeneizado ?? false;
-  if (p && h) return "Leche PyH";
-  if (p)      return "Leche Pasteurizada";
-  if (h)      return "Leche Homogeneizada";
-  return "Leche Fortificada";
-};
-
-// Diferencia en días entre dos fechas ISO "YYYY-MM-DD". Resultado positivo = to es posterior.
-const diffDays = (from, to) => {
-  const [fy, fm, fd] = from.split("-").map(Number);
-  const [ty, tm, td] = to.split("-").map(Number);
-  return Math.round((Date.UTC(ty, tm - 1, td) - Date.UTC(fy, fm - 1, fd)) / 86400000);
-};
-
-// Badge SF+N: null si no hay fecha o inconsistencia.
-const calcSF = (fechaSilo, today) => {
-  if (!fechaSilo || !today) return null;
-  const d = diffDays(fechaSilo, today);
-  if (d < 0 || d > 999) return null;
-  return d === 0 ? "SF" : `SF+${d}`;
-};
-
-// Familia "Suero-like": suero y sus permeados comparten parámetros, color base, SF, form simplificado y disponibilidad en carga.
-const isSueroLike = (p) => p === "Suero" || p === "Permeado" || p === "Permeado de Suero" || p === "Permeado de Lactosa";
-// SF solo aplica a productos sin procesar. Productos industrializados no muestran antigüedad de materia prima.
-const shouldShowSF = (producto) => producto === "Leche Cruda" || isSueroLike(producto);
+// buildFortLabel, diffDays, calcSF, isSueroLike, shouldShowSF → importados de ./lib/helpers.js
 const NAV = [
   { id: "ingresos",    label: "Ingr.",  Icon: IcoIngresos },
   { id: "movimientos", label: "Movim.", Icon: IcoMovimientos },
@@ -288,7 +268,11 @@ async function load(date, sec, def) {
   catch { return def; }
 }
 async function save(date, sec, data) {
-  if (_closedDates.has(date)) { _onSaveBlocked?.(); return false; }
+  if (_closedDates.has(date)) {
+    track("save_blocked_closed", sec);
+    _onSaveBlocked?.();
+    return false;
+  }
   _autoLitrosCache.delete(date);
   const key = sKey(date, sec);
   // C5: detectar modificación concurrente antes de escribir
@@ -297,6 +281,7 @@ async function save(date, sec, data) {
     try {
       const remote = await db.getTimestamp(key);
       if (remote?.updatedAt && remote.updatedAt !== lastKnown) {
+        track("save_conflict", sec);
         _onSaveConflict?.({ sec, date });
         return false;
       }
@@ -304,10 +289,19 @@ async function save(date, sec, data) {
   }
   try {
     const ts = await db.set(key, JSON.stringify(data));
-    if (ts) _loadedAt.set(key, ts);
-    else _loadedAt.delete(key);
+    if (ts) {
+      _loadedAt.set(key, ts);
+      track("save_ok", sec);
+    } else {
+      // ts === null: db.set encoló para reintentar (offline o fallo de red).
+      // El operario debe enterarse — _onSaveQueued dispara un toast en la UI.
+      _loadedAt.delete(key);
+      track("save_queued", sec);
+      _onSaveQueued?.({ sec, date });
+    }
   } catch (e) {
     console.error(`[save] fallo al persistir ${key}:`, e);
+    track("save_failed", sec);
     return false;
   }
   // Edición retroactiva: cualquier guardado en una fecha anterior o igual a ayer
@@ -329,6 +323,9 @@ let _onSaveBlocked = null;
 // C5: timestamps de última carga por clave de sección; detecta modificaciones concurrentes
 const _loadedAt = new Map();
 let _onSaveConflict = null;
+// Callback para cuando save() detecta que db.set() encoló (offline/fallo de red).
+// App lo cablea para mostrar un Toast no bloqueante al operario.
+let _onSaveQueued = null;
 function _markDayClosed(date, closed) {
   if (closed) _closedDates.add(date); else _closedDates.delete(date);
 }
@@ -8609,7 +8606,14 @@ export default function App() {
   const [dayClosedBy, setDayClosedBy] = useState(null);
   const [dayClosedBlocked, setDayClosedBlocked] = useState(false);
   const [saveConflict, setSaveConflict] = useState(null); // C5: { sec, date }
+  const [operarioActivo, setOperarioActivo] = useOperarioActivo();
+  const [discardedItems, setDiscardedItems] = useState([]);
+  const [discardedSeenCount, setDiscardedSeenCount] = useState(() => {
+    try { return Number(localStorage.getItem("__yatasto_discarded_seen__")) || 0; } catch { return 0; }
+  });
+  const [discardedModal, setDiscardedModal] = useState(false);
   const [confirmUI, askConfirm] = useConfirm();
+  const toast = useToast();
   const [turnoActual, setTurnoActual] = useState(getCurrentTurno());
   const isToday = date === getToday();
 
@@ -8678,6 +8682,36 @@ export default function App() {
     _onSaveConflict = ({ sec, date }) => setSaveConflict({ sec, date });
     return () => { _onSaveConflict = null; };
   }, []);
+
+  // Toast cuando save() encoló por fallo de red (operario ve que su cambio quedó pendiente).
+  // Throttle 8s para no spamear si el usuario edita rápido.
+  useEffect(() => {
+    let lastShown = 0;
+    _onSaveQueued = () => {
+      const now = Date.now();
+      if (now - lastShown < 8000) return;
+      lastShown = now;
+      toast.warn("Sin conexión — el cambio quedó en cola para reintentar.");
+    };
+    return () => { _onSaveQueued = null; };
+  }, [toast]);
+
+  // Descartes auditables: cuando la cola descarta una entrada por 4xx permanente,
+  // notificamos al operario con un toast la primera vez y mostramos un contador
+  // persistente con acceso a la lista detallada.
+  useEffect(() => {
+    return onDiscarded((items) => {
+      setDiscardedItems(items);
+      const newCount = items.length - discardedSeenCount;
+      if (newCount > 0) {
+        track("discard_4xx", String(newCount));
+        toast.error(
+          `${newCount} ${newCount === 1 ? "registro fue rechazado" : "registros fueron rechazados"} por el servidor — revisar detalle.`,
+          { timeout: 8000 }
+        );
+      }
+    });
+  }, [toast, discardedSeenCount]);
 
   // Sincronizar perfil con sesión de Supabase Auth.
   // El perfil "verdadero" se deriva exclusivamente de la sesión Supabase (email del usuario
@@ -8916,6 +8950,7 @@ export default function App() {
   }, [perfilLoading, perfil]);
 
   return (
+    <PerfilProvider perfil={perfil} operario={operarioActivo} permisosExtra={null}>
     <div style={{
       background: C.bg, minHeight: "100vh", color: C.text, fontFamily: FONT_SANS,
       paddingBottom: isDesktop ? 0 : (UX_V2 ? "calc(env(safe-area-inset-bottom, 0px) + 76px)" : 72),
@@ -9073,6 +9108,32 @@ export default function App() {
           </div>
         );
       })()}
+
+      {/* Banner descartes auditables — entradas rechazadas por el servidor (4xx permanente) */}
+      {discardedItems.length > discardedSeenCount && (
+        <div style={{
+          background: "#7c1d1d20", borderBottom: "2px solid #ef4444",
+          paddingTop: "calc(env(safe-area-inset-top, 0px) + 10px)", paddingBottom: "10px", paddingLeft: "16px", paddingRight: "16px",
+          display: "flex", alignItems: "center", gap: 10,
+          position: "sticky", top: 0, zIndex: 303,
+          marginLeft: isDesktop ? SIDEBAR_W : 0,
+        }}>
+          <AlertaError size={20} strokeWidth={SW} color="#ef4444" />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#ef4444" }}>
+              {`${discardedItems.length - discardedSeenCount} registro${discardedItems.length - discardedSeenCount > 1 ? "s" : ""} rechazado${discardedItems.length - discardedSeenCount > 1 ? "s" : ""} por el servidor`}
+            </div>
+            <div style={{ fontSize: 11, color: C.sub, marginTop: 1 }}>
+              No se pudieron guardar por error de validación — ver detalle para resolver.
+            </div>
+          </div>
+          <button type="button"
+            onClick={() => setDiscardedModal(true)}
+            style={{ background: "#ef444420", border: "1px solid #ef444450", color: "#ef4444", borderRadius: 8, padding: "5px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
+            Ver detalle
+          </button>
+        </div>
+      )}
 
       {/* Banner cola de escritura — cambios pendientes de sincronizar */}
       {queueLen > 0 && (
@@ -9483,6 +9544,109 @@ export default function App() {
         })}
       </div>}
       {confirmUI}
+
+      {/* Modal: detalle de descartes auditables (4xx permanente) */}
+      {discardedModal && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="discarded-title"
+          onClick={(e) => { if (e.target === e.currentTarget) setDiscardedModal(false); }}
+          style={{
+            position: "fixed", inset: 0, zIndex: 9000,
+            background: "rgba(0,0,0,0.55)",
+            display: "flex", alignItems: "flex-end", justifyContent: "center",
+            padding: 0,
+          }}
+        >
+          <div style={{
+            background: C.surface || C.card, color: C.text,
+            borderTopLeftRadius: 16, borderTopRightRadius: 16,
+            width: "100%", maxWidth: 640, maxHeight: "85vh",
+            display: "flex", flexDirection: "column",
+            boxShadow: "0 -8px 32px rgba(0,0,0,0.5)",
+          }}>
+            <div style={{
+              padding: "14px 16px", borderBottom: `1px solid ${C.border}`,
+              display: "flex", alignItems: "center", gap: 10,
+            }}>
+              <AlertaError size={20} strokeWidth={SW} color="#ef4444" />
+              <div style={{ flex: 1 }}>
+                <div id="discarded-title" style={{ fontSize: 15, fontWeight: 700 }}>Registros rechazados</div>
+                <div style={{ fontSize: 11, color: C.sub }}>
+                  {`${discardedItems.length} en total — el servidor los rechazó por validación.`}
+                </div>
+              </div>
+              <button type="button"
+                onClick={() => setDiscardedModal(false)}
+                aria-label="Cerrar"
+                style={{ background: "transparent", border: "none", color: C.sub, cursor: "pointer", fontSize: 22, lineHeight: 1, padding: "4px 8px" }}>
+                ×
+              </button>
+            </div>
+            <div style={{ flex: 1, overflow: "auto", padding: "8px 12px" }}>
+              {discardedItems.length === 0 ? (
+                <div style={{ padding: 24, textAlign: "center", color: C.sub, fontSize: 13 }}>
+                  Sin descartes registrados.
+                </div>
+              ) : (
+                discardedItems.slice().reverse().map((d, i) => (
+                  <div key={i} style={{
+                    padding: "10px 12px", marginBottom: 8,
+                    background: C.card, border: `1px solid ${C.border}`, borderRadius: 8,
+                    fontSize: 12,
+                  }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                      <code style={{ fontSize: 11, color: C.accent, wordBreak: "break-all" }}>{d.key}</code>
+                      <span style={{ fontSize: 10, color: C.sub, whiteSpace: "nowrap", marginLeft: 8 }}>
+                        {d.ts ? new Date(d.ts).toLocaleString("es-AR") : ""}
+                      </span>
+                    </div>
+                    <div style={{ color: "#ef4444", fontSize: 11, marginBottom: 4 }}>
+                      {d.status ? `Status ${d.status} — ` : ""}{d.message}
+                    </div>
+                    {d.value && (
+                      <details style={{ marginTop: 6 }}>
+                        <summary style={{ cursor: "pointer", fontSize: 11, color: C.sub }}>Ver payload</summary>
+                        <pre style={{
+                          marginTop: 6, padding: 8, background: C.bg || "#000",
+                          fontSize: 10, lineHeight: 1.4, overflow: "auto", maxHeight: 200,
+                          borderRadius: 6, color: C.sub, whiteSpace: "pre-wrap", wordBreak: "break-all",
+                        }}>{d.value}</pre>
+                      </details>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+            <div style={{
+              padding: 12, borderTop: `1px solid ${C.border}`,
+              display: "flex", gap: 8, justifyContent: "space-between",
+            }}>
+              <button type="button"
+                onClick={() => {
+                  clearDiscarded();
+                  try { localStorage.setItem("__yatasto_discarded_seen__", "0"); } catch {}
+                  setDiscardedSeenCount(0);
+                }}
+                style={{ background: "transparent", border: `1px solid ${C.border}`, color: C.sub, borderRadius: 8, padding: "8px 14px", fontSize: 12, cursor: "pointer" }}>
+                Limpiar todo
+              </button>
+              <button type="button"
+                onClick={() => {
+                  const count = discardedItems.length;
+                  try { localStorage.setItem("__yatasto_discarded_seen__", String(count)); } catch {}
+                  setDiscardedSeenCount(count);
+                  setDiscardedModal(false);
+                }}
+                style={{ background: C.accent, color: "#000", border: "none", borderRadius: 8, padding: "8px 18px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                Marcar como visto
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
+    </PerfilProvider>
   );
 }
