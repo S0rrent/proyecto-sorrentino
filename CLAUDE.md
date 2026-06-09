@@ -39,11 +39,28 @@ npm run preview       # preview built dist/
 
 **Core files:**
 - `recibo_yatasto.jsx` — entire app: constants, UI atoms, section components, cross-section logic
-- `main.jsx` — React entry point; polyfills `window.storage` with `localStorage` for standalone preview
-- `db-adapter.js` — Supabase persistence: `db.get/set/remove/list` + `db.auth.signIn/signOut/getSession/onAuthStateChange`; reads `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` from env
+- `main.jsx` — React entry point; wraps `<App />` with `<ToastProvider>`; polyfills `window.storage` with `localStorage` for standalone preview
+- `db-adapter.js` — Supabase persistence: `db.get/set/remove/list` + `db.auth.signIn/signOut/getSession/onAuthStateChange`; offline queue with retry/backoff; reads `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` from env. Also exports `onDiscarded` listener for 4xx-permanent items dropped from the queue.
 - `tokens.js` — design system primitives: `DARK`/`LIGHT` OKLCH palettes, `TYPE_SCALE`, `SPACE`, motion tokens (`DUR`, `EASE_OUT`, `EASE_INOUT`), `BP` breakpoints
-- `hooks.js` — `useViewport()` returns `{ isMobile, isTablet, isDesktop, width }` based on `window.matchMedia`; SSR-safe
+- `hooks.js` — `useViewport`, `useOperarioActivo`, `usePerfil`, `useInactivityLock`, `useShiftChange`, `isShiftChangeWindow`
 - `icons.js` — centralises all `lucide-react` imports with semantic aliases (e.g. `Truck as Ingresos`); exports `SW = 1.75` (standard stroke width)
+- `telemetry.js` — opt-in telemetry (localStorage flag `yatasto:telemetry=true`). `track(event, value, field)` instrumented in `save()` flow + nav taps; `dumpTelemetry(days)` exporta vía `window.__yatastoTelemetry.dump()`.
+
+**`lib/` (puros, sin React):**
+- `lib/helpers.js` — `buildFortLabel`, `diffDays`, `calcSF`, `isSueroLike`, `shouldShowSF`
+- `lib/permisos.js` — `ACCIONES`, `PERMISOS_POR_PERFIL`, `tienePermiso(perfil, accion, permisosExtra?)`, `tieneAlguno`
+- `lib/pin.js` — `hashPin(pin)` → `"sha256:<salt>:<hash>"`, `verifyPin(pin, storedHash)` con comparación tiempo constante
+- `lib/operarios.js` — CRUD sobre clave `yatasto:operarios`: `loadOperarios`, `saveOperarios`, `createOperario`, `updateOperario`, `setPin`, `desactivarOperario`/`reactivarOperario`, `verifyOperarioPin`, `recordLogin`, `iniciales`
+- `lib/audit.js` — `respFor(operario, perfil, label)`, `stampOperario(item, ctx)`, `stampLote(items, ctx)`, `describirResp(item)`
+
+**`components/` (React, .jsx):**
+- `components/Toast.jsx` — `ToastProvider` + `useToast()` con `{ ok, warn, error }` API
+- `components/PerfilProvider.jsx` — `PerfilProvider` + `RequierePermiso` wrapper
+- `components/OperarioLogin.jsx` — modal selector + teclado PIN para identidad de turno
+- `components/SecUsuarios.jsx` — CRUD de operarios (solo jefe)
+- `components/StepUpPin.jsx` — `useStepUpPin()` retorna `[ui, askStepUp(opts)]`. Modal para autorizar acciones críticas con PIN de supervisor/jefe en vivo.
+
+**`tests/`:** vitest, jsdom. Cobertura: helpers, descartes, permisos, pin, operarios, audit, shift. `npm test` corre todos.
 
 **Storage keys** (all go through `db.get/set`):
 - Section data: `yatasto:YYYY-MM-DD:section` where section ∈ `ingresos | cip | carga | movimientos | stock | fortificados`
@@ -51,6 +68,16 @@ npm run preview       # preview built dist/
 - `yatasto:usuarios` — active session tracking per device
 - `yatasto:saldo-silos` — cached silo balance carried forward from previous dates
 - `yatasto:eliminados` — deletion audit log (capped at 300 entries), appended by `logElim()`
+- `yatasto:operarios` — lista JSON de operarios con `{ id, nombre, color, rol, pinHash, activo, permisosExtra, creadoEn, ultimoLogin }`; CRUD vía `lib/operarios.js`
+- `yatasto:telemetry:YYYY-MM-DD` — eventos del día (cap 500, retención 14 días); sólo si telemetría está enabled (opt-in)
+
+**localStorage (lado cliente, no Supabase):**
+- `__yatasto_wq__` — cola offline de escrituras pendientes (drena con backoff 2→16s)
+- `__yatasto_discarded__` — entradas descartadas por 4xx permanente (cap 50)
+- `__yatasto_discarded_seen__` — contador "marcado como visto" del banner de descartes
+
+**sessionStorage:**
+- `yatasto:operario_activo` — `{ id, nombre, rol }` del operario logueado; se va al cerrar tab
 
 **Section components** (each receives only `{ date }`):
 - `SecIngresos` — milk truck arrivals; each entry has quality params (acidez, pH, GB, SNG, densidad, proteína, etc.) and a silo destination; concentrated products (`PRODS_CONCENTRADOS`) use a simplified form
@@ -68,6 +95,14 @@ npm run preview       # preview built dist/
 **Item IDs:** All list items use `id: crypto.randomUUID()` as a unique key.
 
 **Authentication:** `PERFILES` defines three roles — `supervisor`, `jefe`, and `operador` — each mapped to an internal email (`supervisor@yatasto.internal`, `jefe@yatasto.internal`, `operador@yatasto.app`). The login form only resolves the username to an internal email client-side; the password is validated **server-side by Supabase Auth** (`db.auth.signIn(email, password)`). RLS on `yatasto_storage` restricts reads/writes to authenticated sessions. Role determines which UI actions are exposed (delete buttons, `SecDashboard` access, etc.).
+
+**Operario (identidad de turno):** Capa adicional sobre la sesión base. El jefe crea operarios desde `SecUsuarios` (`Modal perfil → Gestionar operarios`). Cada operario tiene PIN hasheado (SHA-256 con sal). Cuando hay operarios activos en `yatasto:operarios`, la app abre `OperarioLogin` (chips + teclado PIN) automáticamente al loguearse el supervisor/jefe; la identidad queda en `sessionStorage`. Inactividad 5/10 min → warn + auto-logout del operario (`useInactivityLock`). Ventana ±30min de 07/14/21h muestra banner "¿Cambio de turno?".
+
+**Audit trail (quién hizo qué):** Cada item de Ingresos / Carga / Movimientos / Fortificados / Producción se estampa con `stampOperario(item, { operario, perfil, perfilLabel })` al persistir. Inyecta `{ operarioId, operarioNombre, resp, savedAt }` y preserva `operarioIdOriginal` cuando otro operario edita un registro previo. Datos legacy sin `operarioId` siguen mostrándose con `resp` original.
+
+**Permisos:** La matriz vive en `lib/permisos.js`. Los handlers `onDelete` siguen usando checks inline `perfil === "supervisor" || perfil === "jefe"` como segunda línea de defensa hasta el refactor a `tienePermiso()`. La defensa principal es RLS en Supabase.
+
+**Step-up PIN:** Para acciones críticas (UX-V2 §2.3: eliminar lote finalizado, reabrir día >7d, cambiar saldo base, forzar CIP, eliminar ingreso de día cerrado) se puede pedir PIN de supervisor/jefe en vivo con `useStepUpPin()`. La autorización NO cambia la sesión activa, sólo desbloquea la acción y queda auditada (operario solicitante + supervisor autorizante).
 
 ## Cross-Section Computation
 
