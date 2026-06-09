@@ -273,11 +273,16 @@ async function load(date, sec, def) {
   }
   catch { return def; }
 }
-async function save(date, sec, data) {
-  if (_closedDates.has(date)) {
+async function save(date, sec, data, options = {}) {
+  // options.bypassClosed permite escrituras post-autorización step-up sobre día cerrado.
+  // Sólo debe usarse desde handlers que YA validaron el step-up del autorizante.
+  if (_closedDates.has(date) && !options.bypassClosed) {
     track("save_blocked_closed", sec);
     _onSaveBlocked?.();
     return false;
+  }
+  if (_closedDates.has(date) && options.bypassClosed) {
+    track("save_closed_bypass", sec);
   }
   _autoLitrosCache.delete(date);
   const key = sKey(date, sec);
@@ -1944,6 +1949,7 @@ const SecIngresos = ({ date, syncKey = 0, dayClosed = false, perfil = null }) =>
   const [filtro, setFiltro] = useState("");
   const [siloStates, setSiloStates] = useState({ totals: {}, productosBase: {} });
   const [confirmUI, askConfirm] = useConfirm();
+  const [stepUpUI, askStepUp] = useStepUpPin();
   const { operario } = usePerfil();
 
   useEffect(() => {
@@ -1953,8 +1959,9 @@ const SecIngresos = ({ date, syncKey = 0, dayClosed = false, perfil = null }) =>
     calcAutoLitros(date).then(r => setSiloStates(r)).catch(() => {});
   }, [date, syncKey, modal]);
 
-  const persist = async updated => {
-    const ok = await save(date, "ingresos", updated);
+  // persist acepta options opcional para bypassear el cierre de día tras step-up.
+  const persist = async (updated, options = {}) => {
+    const ok = await save(date, "ingresos", updated, options);
     if (ok !== false) setList(updated);
     return ok;
   };
@@ -1986,15 +1993,36 @@ const SecIngresos = ({ date, syncKey = 0, dayClosed = false, perfil = null }) =>
     }
     const item = list.find(i => i.id === id);
     const resumen = item ? buildResumen("ingreso", item) : "";
-    if (await askConfirm({
+    const confirmed = await askConfirm({
       title: "Eliminar ingreso",
       message: `¿Eliminar este ingreso?${resumen ? "\n\n" + resumen : ""}\n\nLa acción quedará registrada en el historial.`,
       danger: true,
       confirmLabel: "Eliminar",
-    })) {
-      if (item) await logDelete("ingreso", item);
-      await persist(list.filter(i => i.id !== id)); setModal(null);
+    });
+    if (!confirmed) return;
+
+    // UX-V2 §2.3: si el día ya está cerrado, eliminar requiere autorización
+    // de supervisor/jefe en vivo. El bypass se propaga a save() vía options.
+    let stepUpAuth = null;
+    if (dayClosed) {
+      stepUpAuth = await askStepUp({
+        accion: "Eliminar ingreso de día cerrado",
+        descripcion: `${fmtDate(date)} ya fue cerrado. Esta eliminación afectará el saldo histórico y se registrará con doble autoría.`,
+      });
+      if (!stepUpAuth) return;
+      track("stepup_eliminar_ingreso_cerrado", id);
     }
+
+    if (item) await logDelete("ingreso", item);
+    const ok = await persist(list.filter(i => i.id !== id), stepUpAuth ? { bypassClosed: true } : {});
+    if (ok !== false && stepUpAuth) {
+      // Audit complementario con doble autoría para casos de bypass.
+      const respStr = `${operario?.nombre || PERFILES[perfil]?.label || perfil || ""} (autorizado por ${stepUpAuth.operarioNombre})`;
+      await logAudit(date, "eliminar_ingreso_dia_cerrado", "ingreso",
+        `Eliminado ingreso ${item?.tambo || "?"} (${item?.litrosFca || 0} L) sobre día cerrado`,
+        respStr);
+    }
+    setModal(null);
   };
   const saveNuevoTambo = async () => {
     if (!newTambo.nombre.trim()) return;
@@ -2123,6 +2151,7 @@ const SecIngresos = ({ date, syncKey = 0, dayClosed = false, perfil = null }) =>
         </Modal>
       )}
       {confirmUI}
+      {stepUpUI}
     </div>
   );
 };
