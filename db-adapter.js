@@ -34,6 +34,53 @@ let _queue = (() => {
 let _flushing = false;
 const _listeners = new Set();
 
+// ── Descartes auditables ─────────────────────────────────────────────────────
+// Cuando la cola descarta una entrada por 4xx permanente, en vez de perderla
+// en silencio la guardamos en localStorage y notificamos a la UI.
+// Cap 50 entradas (las más recientes) — suficiente para investigar sin que
+// la lista crezca sin límite. Cada descarte: { key, value, status, message, ts }.
+const _DISCARDED_LS = "__yatasto_discarded__";
+const _DISCARDED_CAP = 50;
+const _discardedListeners = new Set();
+
+function _loadDiscarded() {
+  try { return JSON.parse(localStorage.getItem(_DISCARDED_LS) || "[]"); } catch { return []; }
+}
+function _saveDiscarded(items) {
+  try { localStorage.setItem(_DISCARDED_LS, JSON.stringify(items.slice(-_DISCARDED_CAP))); } catch {}
+}
+function _notifyDiscarded() {
+  const items = _loadDiscarded();
+  _discardedListeners.forEach(fn => fn(items));
+}
+function _recordDiscarded(key, value, error) {
+  const items = _loadDiscarded();
+  items.push({
+    key,
+    value: typeof value === "string" ? value.slice(0, 500) : String(value).slice(0, 500),
+    status: error?.status ?? null,
+    message: error?.message ?? String(error ?? "unknown"),
+    ts: new Date().toISOString(),
+  });
+  _saveDiscarded(items);
+  _notifyDiscarded();
+}
+
+export function onDiscarded(fn) {
+  _discardedListeners.add(fn);
+  fn(_loadDiscarded()); // estado inicial
+  return () => _discardedListeners.delete(fn);
+}
+
+export function listDiscarded() {
+  return _loadDiscarded();
+}
+
+export function clearDiscarded() {
+  try { localStorage.removeItem(_DISCARDED_LS); } catch {}
+  _notifyDiscarded();
+}
+
 // ── Gestión de sesión expirada ───────────────────────────────────────────────
 // Cuando Supabase devuelve 401, se intenta refresh una sola vez.
 // Si falla, _sessionExpired=true pausa todas las escrituras directas hasta relogin.
@@ -122,8 +169,10 @@ async function _flushQueue() {
       _queueNotify();
     } else if (_isPermanent4xx(lastError)) {
       // 4xx permanente (validación, constraint, payload corrupto): reintentar es
-      // inútil y bloquea la cola indefinidamente. Descartar con log y seguir.
+      // inútil y bloquea la cola indefinidamente. Descartar, registrar para auditoría
+      // y notificar a la UI (banner de descartes auditable).
       console.error(`[queue] descartando entrada con error 4xx permanente (status=${lastError?.status}) key=${key}:`, lastError);
+      _recordDiscarded(key, value, lastError);
       _queue.shift();
       _queuePersist();
       _queueNotify();
