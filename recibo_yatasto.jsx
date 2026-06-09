@@ -1134,12 +1134,20 @@ const F = ({ label, children }) => (
     {children}
   </label>
 );
-const Inp = ({ value, onChange, type = "text", placeholder, step, readOnly }) => (
+// Inp con soporte opt-in para aria-invalid. error?: string|boolean → marca el
+// input como inválido (visual + accesibilidad). Backward compat: callers sin
+// `error` mantienen comportamiento previo.
+const Inp = ({ value, onChange, type = "text", placeholder, step, readOnly, error }) => (
   <input
-    style={{ ...inp, ...(readOnly ? { opacity: 0.6, cursor: "default" } : {}) }}
+    style={{
+      ...inp,
+      ...(readOnly ? { opacity: 0.6, cursor: "default" } : {}),
+      ...(error ? { borderColor: C.danger, boxShadow: `0 0 0 1px ${C.danger}` } : {}),
+    }}
     type={type} inputMode={type === "number" ? "decimal" : "text"}
     value={value} onChange={e => onChange(e.target.value)}
     placeholder={placeholder} step={step} readOnly={readOnly}
+    aria-invalid={error ? "true" : undefined}
   />
 );
 // Input decimal inteligente para parámetros de calidad.
@@ -1195,8 +1203,16 @@ const SmartDecInp = ({ value, onChange, decimalAfter = 1, placeholder, readOnly 
     />
   );
 };
-const Sel = ({ value, onChange, options, placeholder }) => (
-  <select style={{ ...inp, WebkitAppearance: "none" }} value={value} onChange={e => onChange(e.target.value)}>
+const Sel = ({ value, onChange, options, placeholder, error }) => (
+  <select
+    style={{
+      ...inp, WebkitAppearance: "none",
+      ...(error ? { borderColor: C.danger, boxShadow: `0 0 0 1px ${C.danger}` } : {}),
+    }}
+    value={value}
+    onChange={e => onChange(e.target.value)}
+    aria-invalid={error ? "true" : undefined}
+  >
     {placeholder && <option value="">{placeholder}</option>}
     {options.map(o => (
       <option key={typeof o === "string" ? o : o.value} value={typeof o === "string" ? o : o.value}>
@@ -1232,13 +1248,16 @@ const FAB = ({ onClick }) => (
 //      setBanner(null); para limpiar
 const Banner = ({ kind = "error", message, onClose, sticky = false }) => {
   const palette = {
-    error:   { bg: C.danger,  fg: "#fff",  icon: "⚠" },
-    warning: { bg: C.accent,  fg: "#000",  icon: "!" },
-    info:    { bg: C.surface, fg: C.text,  icon: "i", border: C.border },
+    error:   { bg: C.danger,  fg: "#fff",  icon: "⚠", role: "alert",  live: "assertive" },
+    warning: { bg: C.accent,  fg: "#000",  icon: "!", role: "status", live: "polite" },
+    info:    { bg: C.surface, fg: C.text,  icon: "i", role: "status", live: "polite", border: C.border },
   };
   const c = palette[kind] || palette.error;
   return (
-    <div role="alert" aria-live="polite" style={{
+    // role="alert" implica aria-live="assertive" + aria-atomic="true"; lo seteamos
+    // explícitamente para que screen readers viejos también lo respeten.
+    // warning/info bajan a "status"+"polite" para no interrumpir tareas en curso.
+    <div role={c.role} aria-live={c.live} aria-atomic="true" style={{
       background: c.bg,
       border: `1px solid ${c.border || c.bg}`,
       color: c.fg,
