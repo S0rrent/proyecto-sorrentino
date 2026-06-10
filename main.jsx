@@ -1,6 +1,7 @@
 import { createRoot } from 'react-dom/client';
 import App from './recibo_yatasto.jsx';
 import { ToastProvider } from './components/Toast.jsx';
+import { ErrorBoundary } from './components/ErrorBoundary.jsx';
 
 // Polyfill window.storage with localStorage for standalone preview
 if (!window.storage) {
@@ -48,7 +49,9 @@ _globalStyle.textContent = `
 document.head.appendChild(_globalStyle);
 
 createRoot(document.getElementById('root')).render(
-  <ToastProvider>
-    <App />
-  </ToastProvider>
+  <ErrorBoundary>
+    <ToastProvider>
+      <App />
+    </ToastProvider>
+  </ErrorBoundary>
 );

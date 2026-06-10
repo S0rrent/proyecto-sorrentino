@@ -1434,6 +1434,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo,
   const [f, setF] = useState(initial || emptyIng());
   const [aguadoAlerta, setAguadoAlerta] = useState(false);
   const [cipForzado, setCipForzado] = useState(false);
+  const [stepUpUI, askStepUp] = useStepUpPin();
   const overrideSavingRef = useRef(false); // double-tap guard for CIP/aguado override buttons
   const savingRef = useRef(false); // double-tap guard for main Guardar button
   const [fieldError, setFieldError] = useState("");
@@ -1663,7 +1664,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo,
     </>
   );
 
-  const onClickGuardar = () => {
+  const onClickGuardar = async () => {
     const miss = allRequired.filter(([k]) => !String(f[k] || "").trim());
     if (miss.length) {
       setFieldError("Faltan completar:\n• " + miss.map(([, v]) => v).join("\n• "));
@@ -1699,8 +1700,19 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo,
     }
     if (siloSucioLevel === "bloqueado") {
       if (!canForce) {
-        setFieldError("El silo " + f.destino + " está pendiente de CIP. Solo el supervisor puede autorizar este ingreso.");
+        // UX-V2 §2.3 (5ª acción crítica): el operario no puede forzar solo,
+        // pero puede pedir autorización con PIN de supervisor/jefe en vivo.
         track("save_fail", "silo_sucio_blocked", "ingreso");
+        const auth = await askStepUp({
+          accion: `Forzar ingreso a silo ${f.destino} con CIP pendiente`,
+          descripcion: "El silo está vacío y marcado como sucio. Forzar el ingreso puede comprometer la calidad del producto. Un supervisor o jefe debe autorizar con su PIN.",
+        });
+        if (!auth) {
+          setFieldError("El silo " + f.destino + " está pendiente de CIP. Se necesita autorización de un supervisor para forzar el ingreso.");
+          return;
+        }
+        track("stepup_forzar_cip", f.destino);
+        onSave({ ...f, _forzadoCIP: true, _stepUpAuth: auth });
         return;
       }
       track("save_fail", "silo_sucio_force", "ingreso");
@@ -1797,7 +1809,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo,
             </div>
             <div style={{ fontSize: 12, color: C.sub, lineHeight: 1.5 }}>
               Este silo está vacío y marcado como sucio. Debe realizarse la limpieza CIP antes de recibir producto.
-              {canForce ? " Como supervisor podés autorizar y forzar el ingreso." : " Solo el supervisor puede autorizar este ingreso."}
+              {canForce ? " Como supervisor podés autorizar y forzar el ingreso." : " Al guardar, la app va a pedir el PIN de un supervisor para autorizar."}
             </div>
           </div>
         </div>
@@ -1854,6 +1866,9 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo,
         </Modal>
       )}
 
+      {/* Step-up: autorización con PIN para forzar CIP cuando el perfil no puede solo */}
+      {stepUpUI}
+
       {/* Modal bloqueante de Aguado */}
       {aguadoAlerta && (
         <Modal title="⚠ Aguado detectado" onClose={() => setAguadoAlerta(false)} zIndex={300}>
@@ -1908,7 +1923,8 @@ const SecIngresos = ({ date, syncKey = 0, dayClosed = false, perfil = null }) =>
   };
   const onSave = async item => {
     const forzado = item._forzadoCIP;
-    const { _forzadoCIP, ...itemRaw } = item;
+    const stepUpAuth = item._stepUpAuth; // viene cuando un operario forzó CIP con PIN de supervisor
+    const { _forzadoCIP, _stepUpAuth, ...itemRaw } = item;
     // Audit trail: estampa con operario activo si lo hay; si no, perfil base.
     // Preserva creador original al editarse por otro operario.
     const itemClean = stampOperario(itemRaw, {
@@ -1917,9 +1933,11 @@ const SecIngresos = ({ date, syncKey = 0, dayClosed = false, perfil = null }) =>
       perfilLabel: PERFILES[perfil]?.label,
     });
     if (forzado) {
+      const ejecutor = operario?.nombre || PERFILES[perfil]?.label || perfil || "Supervisor";
+      const respStr = stepUpAuth ? `${ejecutor} (autorizado por ${stepUpAuth.operarioNombre})` : ejecutor;
       await logAudit(date, "forzar_ingreso_silo_sucio", "ingreso",
         `Ingreso forzado a silo ${item.destino || "?"} (estado Sucio) — ${item.litrosFca || 0} L de ${item.tambo || "?"}`,
-        operario?.nombre || PERFILES[perfil]?.label || perfil || "Supervisor");
+        respStr);
     }
     const ex = list.find(i => i.id === itemClean.id);
     const ok = await persist(ex ? list.map(i => i.id === itemClean.id ? itemClean : i) : [...list, itemClean]);
