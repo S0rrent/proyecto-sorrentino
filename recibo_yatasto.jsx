@@ -5,8 +5,20 @@ import { useViewport, useOperarioActivo, usePerfil, useInactivityLock, useShiftC
 import { PerfilProvider } from "./components/PerfilProvider.jsx";
 import { OperarioLogin } from "./components/OperarioLogin.jsx";
 import { SecUsuarios } from "./components/SecUsuarios.jsx";
+import { useStepUpPin } from "./components/StepUpPin.jsx";
 import { loadOperarios, operariosActivos } from "./lib/operarios.js";
 import { stampOperario } from "./lib/audit.js";
+import { ACCIONES, tienePermiso } from "./lib/permisos.js";
+import {
+  getToday, getPreviousDate, addDay, getLastNDays, getDaysInRange,
+  fmtDate, getNow,
+} from "./lib/dates.js";
+import {
+  isEcomilkDensity, normalizeDensity, formatDensity, validateDensity,
+} from "./lib/density.js";
+import { escapeHtml, escapeCsv } from "./lib/export-helpers.js";
+import { isLoteActivo, isLoteFinalizado, isLoteLegacyCancelado } from "./lib/produccion.js";
+import { buildResumen } from "./lib/resumen.js";
 import { db, onWriteQueueChange, onSessionExpired, clearSessionExpired, onDiscarded, listDiscarded, clearDiscarded } from "./db-adapter.js";
 import { useToast } from "./components/Toast.jsx";
 import { track, initTelemetry } from "./telemetry.js";
@@ -16,6 +28,8 @@ import {
   calcSF,
   isSueroLike,
   shouldShowSF,
+  adicionLitros,
+  fortSourceDraws as _fortSourceDrawsLib,
 } from "./lib/helpers.js";
 import {
   Ingresos as IcoIngresos, Movimientos as IcoMovimientos, Carga as IcoCarga,
@@ -32,15 +46,7 @@ import {
   SW,
 } from "./icons.js";
 
-// ─── HELPERS DE EXPORTACIÓN ───────────────────────────────────
-const escapeHtml = s => String(s == null ? "" : s)
-  .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-  .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
-
-const escapeCsv = s => {
-  const str = String(s == null ? "" : s);
-  return /[,"\n\r=+\-@|]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
-};
+// escapeHtml / escapeCsv importados de ./lib/export-helpers.js
 
 // ─── CONSTANTES ───────────────────────────────────────────────
 const TAMBOS_BASE = [
@@ -211,15 +217,10 @@ const PRODS_PRODUCCION_LIST = [
 const PRODS_CONCENTRADOS = ["Lactosa", "Suero", "Permeado", "Permeado de Suero", "Permeado de Lactosa", "Concentrado"];
 
 // ─── UTILS ────────────────────────────────────────────────────
-const getToday = () => new Date().toISOString().split("T")[0];
-const getPreviousDate = (dateStr) => { const d = new Date(dateStr + "T00:00:00"); d.setDate(d.getDate() - 1); return d.toISOString().split("T")[0]; };
-const addDay = (dateStr) => { const d = new Date(dateStr + "T00:00:00"); d.setDate(d.getDate() + 1); return d.toISOString().split("T")[0]; };
-const getLastNDays = (n) => { const days = []; for (let i = n - 1; i >= 0; i--) { const d = new Date(); d.setDate(d.getDate() - i); days.push(d.toISOString().split("T")[0]); } return days; };
-const getDaysInRange = (from, to) => { const days = []; const cur = new Date(from + "T00:00:00"); const end = new Date(to + "T00:00:00"); while (cur <= end && days.length < 90) { days.push(cur.toISOString().slice(0, 10)); cur.setDate(cur.getDate() + 1); } return days; };
+// getToday/getPreviousDate/addDay/getLastNDays/getDaysInRange/fmtDate/getNow
+// importados de ./lib/dates.js (extraídos para tener tests propios).
 const DIAS_ES = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
-const getNow = () => { const d = new Date(); return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
 const getCurrentTurno = () => { const h = new Date().getHours(); return h >= 7 && h < 14 ? "07:00" : h >= 14 && h < 21 ? "14:00" : "21:00"; };
-const fmtDate = (iso) => { const [y, m, d] = iso.split("-"); return `${d}/${m}/${y}`; };
 const sKey = (date, sec) => `yatasto:${date}:${sec}`;
 const CFG_KEY = "yatasto:config";
 
@@ -271,11 +272,16 @@ async function load(date, sec, def) {
   }
   catch { return def; }
 }
-async function save(date, sec, data) {
-  if (_closedDates.has(date)) {
+async function save(date, sec, data, options = {}) {
+  // options.bypassClosed permite escrituras post-autorización step-up sobre día cerrado.
+  // Sólo debe usarse desde handlers que YA validaron el step-up del autorizante.
+  if (_closedDates.has(date) && !options.bypassClosed) {
     track("save_blocked_closed", sec);
     _onSaveBlocked?.();
     return false;
+  }
+  if (_closedDates.has(date) && options.bypassClosed) {
+    track("save_closed_bypass", sec);
   }
   _autoLitrosCache.delete(date);
   const key = sKey(date, sec);
@@ -434,48 +440,8 @@ const QUALITY_REFS = {
 // Formato técnico:    1.028, 1.029, 1.030, 1.031, 1.034
 // Regla: entero sin punto decimal en rango [20, 40] → interpretar como Ecomilk.
 
-function isEcomilkDensity(v) {
-  const s = String(v == null ? "" : v).trim().replace(",", ".");
-  if (!s) return false;
-  const n = Number(s);
-  return Number.isFinite(n) && n >= 20 && n <= 40;
-}
-
-// Convierte cualquier formato válido al valor técnico con 3 decimales (4 si Ecomilk con decimal).
-function normalizeDensity(v) {
-  if (v === "" || v == null) return "";
-  const s = String(v).trim().replace(",", ".");
-  if (isEcomilkDensity(s)) {
-    const n = parseFloat(s);
-    return (1 + n / 1000).toFixed(Number.isInteger(n) ? 3 : 4);
-  }
-  const n = parseFloat(s);
-  return !isNaN(n) ? n.toFixed(3) : String(v);
-}
-
-// Para display en auditorías, reportes y exports.
-// Retro-compatible: si un registro viejo tuviera "28" guardado, lo convierte al mostrarlo.
-function formatDensity(v) {
-  if (v === "" || v == null) return "";
-  const s = String(v).trim().replace(",", ".");
-  if (isEcomilkDensity(s)) {
-    const n = parseFloat(s);
-    return (1 + n / 1000).toFixed(Number.isInteger(n) ? 3 : 4);
-  }
-  const n = parseFloat(s);
-  return !isNaN(n) ? n.toFixed(3) : String(v);
-}
-
-// Retorna null si el valor es válido; string de error si no.
-function validateDensity(raw) {
-  if (raw === "" || raw == null) return null;
-  const s = String(raw).trim().replace(",", ".");
-  if (isEcomilkDensity(s)) return null; // 20–40 Ecomilk → OK
-  const n = parseFloat(s);
-  if (isNaN(n)) return "Valor inválido";
-  if (n < 1.020 || n > 1.040) return `Fuera de rango (1.020–1.040 ó 20–40 Ecomilk)`;
-  return null;
-}
+// isEcomilkDensity / normalizeDensity / formatDensity / validateDensity
+// importados de ./lib/density.js
 
 // Campos a comparar Tambo vs Fábrica para detección de desvíos
 const DIFF_FIELDS = [
@@ -507,14 +473,7 @@ async function getActiveUsers() {
   } catch { return []; }
 }
 
-function buildResumen(tipo, item) {
-  if (tipo === "ingreso") return `[${item.num || "-"}] ${item.tambo || "—"} — ${item.litrosFca || 0} L → ${item.destino || "?"}`;
-  if (tipo === "carga") return `${item.label || ""} ${item.destino || "—"} — ${item.litros || 0} L desde ${item.siloProveniente || "?"}`;
-  if (tipo === "movimiento") return `${item.desde || "?"}→${item.hasta || "?"} — ${item.litros || 0} L${item.motivo ? " (" + item.motivo + ")" : ""}`;
-  if (tipo === "control") return `Silo ${item.silo || "?"} — pH ${item.ph || "?"} / ${item.hora || "?"}`;
-  if (tipo === "fortificado") return `${item.siloOrigen || "?"}→${item.siloDestino || "?"} — ${item.litrosBase || 0} L${item.paraQue ? " (" + item.paraQue + ")" : ""}`;
-  return String(item.id || "");
-}
+// buildResumen importado de ./lib/resumen.js
 async function logDelete(tipo, item, by) {
   const resumen = buildResumen(tipo, item);
   // Registro global (para dashboard de historial)
@@ -564,41 +523,11 @@ function invalidateAutoLitrosFrom(fromDate) {
   return count;
 }
 
-// Conversión de unidad de adición → litros equivalentes para el balance del silo destino
-// y para el descuento opcional del sourceSilo. 1 kg ≈ 1 L (densidad ~1 g/mL).
-const adicionLitros = (unidad, cantidad) => {
-  const qty = parseFloat(cantidad) || 0;
-  if (qty <= 0) return 0;
-  switch (unidad) {
-    case "L":  return qty;
-    case "mL": return qty / 1000;
-    case "cc": return qty / 1000;
-    case "kg": return qty;
-    case "g":  return qty / 1000;
-    case "mg": return qty / 1000000;
-    default:   return 0;
-  }
-};
+// adicionLitros importado de ./lib/helpers.js
 
-// Suma por silo (clave normalizada) los litros que un fort descuenta:
-// siloOrigen (litrosBase) + cada adición con sourceSilo (litros equivalentes).
-// Reusado por calcAutoLitros y checkSiloBalance — única fuente de verdad.
-const fortSourceDraws = (fort) => {
-  const draws = {};
-  const baseL = parseFloat(fort?.litrosBase) || 0;
-  if (fort?.siloOrigen && baseL > 0) {
-    const k = SILO_STOCK_KEY[fort.siloOrigen] || fort.siloOrigen;
-    draws[k] = (draws[k] || 0) + baseL;
-  }
-  (fort?.adiciones || []).forEach(a => {
-    if (!a?.sourceSilo) return;
-    const L = adicionLitros(a.unidad, a.cantidad);
-    if (L <= 0) return;
-    const k = SILO_STOCK_KEY[a.sourceSilo] || a.sourceSilo;
-    draws[k] = (draws[k] || 0) + L;
-  });
-  return draws;
-};
+// Wrapper que cierra sobre SILO_STOCK_KEY (la única dependencia mutable del
+// helper puro). La función pura vive en lib/helpers.js y es testeable.
+const fortSourceDraws = (fort) => _fortSourceDrawsLib(fort, SILO_STOCK_KEY);
 
 // calcAutoLitros puede llamarse en dos modos:
 // - modo normal (sin args extra): lee el saldo desde DB
@@ -1119,15 +1048,28 @@ const SiloSVG = ({ siloKey, litros, producto }) => {
 };
 
 // ─── UI ATOMS ────────────────────────────────────────────────
+// F (Field): label envuelve a children para que el screen reader asocie el
+// label con el primer input/select interno (asociación implícita HTML5).
 const F = ({ label, children }) => (
-  <div style={{ marginBottom: 12 }}><label style={lbl}>{label}</label>{children}</div>
+  <label style={{ marginBottom: 12, display: "block" }}>
+    <span style={lbl}>{label}</span>
+    {children}
+  </label>
 );
-const Inp = ({ value, onChange, type = "text", placeholder, step, readOnly }) => (
+// Inp con soporte opt-in para aria-invalid. error?: string|boolean → marca el
+// input como inválido (visual + accesibilidad). Backward compat: callers sin
+// `error` mantienen comportamiento previo.
+const Inp = ({ value, onChange, type = "text", placeholder, step, readOnly, error }) => (
   <input
-    style={{ ...inp, ...(readOnly ? { opacity: 0.6, cursor: "default" } : {}) }}
+    style={{
+      ...inp,
+      ...(readOnly ? { opacity: 0.6, cursor: "default" } : {}),
+      ...(error ? { borderColor: C.danger, boxShadow: `0 0 0 1px ${C.danger}` } : {}),
+    }}
     type={type} inputMode={type === "number" ? "decimal" : "text"}
     value={value} onChange={e => onChange(e.target.value)}
     placeholder={placeholder} step={step} readOnly={readOnly}
+    aria-invalid={error ? "true" : undefined}
   />
 );
 // Input decimal inteligente para parámetros de calidad.
@@ -1183,8 +1125,16 @@ const SmartDecInp = ({ value, onChange, decimalAfter = 1, placeholder, readOnly 
     />
   );
 };
-const Sel = ({ value, onChange, options, placeholder }) => (
-  <select style={{ ...inp, WebkitAppearance: "none" }} value={value} onChange={e => onChange(e.target.value)}>
+const Sel = ({ value, onChange, options, placeholder, error }) => (
+  <select
+    style={{
+      ...inp, WebkitAppearance: "none",
+      ...(error ? { borderColor: C.danger, boxShadow: `0 0 0 1px ${C.danger}` } : {}),
+    }}
+    value={value}
+    onChange={e => onChange(e.target.value)}
+    aria-invalid={error ? "true" : undefined}
+  >
     {placeholder && <option value="">{placeholder}</option>}
     {options.map(o => (
       <option key={typeof o === "string" ? o : o.value} value={typeof o === "string" ? o : o.value}>
@@ -1220,13 +1170,16 @@ const FAB = ({ onClick }) => (
 //      setBanner(null); para limpiar
 const Banner = ({ kind = "error", message, onClose, sticky = false }) => {
   const palette = {
-    error:   { bg: C.danger,  fg: "#fff",  icon: "⚠" },
-    warning: { bg: C.accent,  fg: "#000",  icon: "!" },
-    info:    { bg: C.surface, fg: C.text,  icon: "i", border: C.border },
+    error:   { bg: C.danger,  fg: "#fff",  icon: "⚠", role: "alert",  live: "assertive" },
+    warning: { bg: C.accent,  fg: "#000",  icon: "!", role: "status", live: "polite" },
+    info:    { bg: C.surface, fg: C.text,  icon: "i", role: "status", live: "polite", border: C.border },
   };
   const c = palette[kind] || palette.error;
   return (
-    <div role="alert" aria-live="polite" style={{
+    // role="alert" implica aria-live="assertive" + aria-atomic="true"; lo seteamos
+    // explícitamente para que screen readers viejos también lo respeten.
+    // warning/info bajan a "status"+"polite" para no interrumpir tareas en curso.
+    <div role={c.role} aria-live={c.live} aria-atomic="true" style={{
       background: c.bg,
       border: `1px solid ${c.border || c.bg}`,
       color: c.fg,
@@ -1481,6 +1434,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo,
   const [f, setF] = useState(initial || emptyIng());
   const [aguadoAlerta, setAguadoAlerta] = useState(false);
   const [cipForzado, setCipForzado] = useState(false);
+  const [stepUpUI, askStepUp] = useStepUpPin();
   const overrideSavingRef = useRef(false); // double-tap guard for CIP/aguado override buttons
   const savingRef = useRef(false); // double-tap guard for main Guardar button
   const [fieldError, setFieldError] = useState("");
@@ -1710,7 +1664,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo,
     </>
   );
 
-  const onClickGuardar = () => {
+  const onClickGuardar = async () => {
     const miss = allRequired.filter(([k]) => !String(f[k] || "").trim());
     if (miss.length) {
       setFieldError("Faltan completar:\n• " + miss.map(([, v]) => v).join("\n• "));
@@ -1746,8 +1700,19 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo,
     }
     if (siloSucioLevel === "bloqueado") {
       if (!canForce) {
-        setFieldError("El silo " + f.destino + " está pendiente de CIP. Solo el supervisor puede autorizar este ingreso.");
+        // UX-V2 §2.3 (5ª acción crítica): el operario no puede forzar solo,
+        // pero puede pedir autorización con PIN de supervisor/jefe en vivo.
         track("save_fail", "silo_sucio_blocked", "ingreso");
+        const auth = await askStepUp({
+          accion: `Forzar ingreso a silo ${f.destino} con CIP pendiente`,
+          descripcion: "El silo está vacío y marcado como sucio. Forzar el ingreso puede comprometer la calidad del producto. Un supervisor o jefe debe autorizar con su PIN.",
+        });
+        if (!auth) {
+          setFieldError("El silo " + f.destino + " está pendiente de CIP. Se necesita autorización de un supervisor para forzar el ingreso.");
+          return;
+        }
+        track("stepup_forzar_cip", f.destino);
+        onSave({ ...f, _forzadoCIP: true, _stepUpAuth: auth });
         return;
       }
       track("save_fail", "silo_sucio_force", "ingreso");
@@ -1844,7 +1809,7 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo,
             </div>
             <div style={{ fontSize: 12, color: C.sub, lineHeight: 1.5 }}>
               Este silo está vacío y marcado como sucio. Debe realizarse la limpieza CIP antes de recibir producto.
-              {canForce ? " Como supervisor podés autorizar y forzar el ingreso." : " Solo el supervisor puede autorizar este ingreso."}
+              {canForce ? " Como supervisor podés autorizar y forzar el ingreso." : " Al guardar, la app va a pedir el PIN de un supervisor para autorizar."}
             </div>
           </div>
         </div>
@@ -1901,6 +1866,9 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo,
         </Modal>
       )}
 
+      {/* Step-up: autorización con PIN para forzar CIP cuando el perfil no puede solo */}
+      {stepUpUI}
+
       {/* Modal bloqueante de Aguado */}
       {aguadoAlerta && (
         <Modal title="⚠ Aguado detectado" onClose={() => setAguadoAlerta(false)} zIndex={300}>
@@ -1937,6 +1905,7 @@ const SecIngresos = ({ date, syncKey = 0, dayClosed = false, perfil = null }) =>
   const [filtro, setFiltro] = useState("");
   const [siloStates, setSiloStates] = useState({ totals: {}, productosBase: {} });
   const [confirmUI, askConfirm] = useConfirm();
+  const [stepUpUI, askStepUp] = useStepUpPin();
   const { operario } = usePerfil();
 
   useEffect(() => {
@@ -1946,14 +1915,16 @@ const SecIngresos = ({ date, syncKey = 0, dayClosed = false, perfil = null }) =>
     calcAutoLitros(date).then(r => setSiloStates(r)).catch(() => {});
   }, [date, syncKey, modal]);
 
-  const persist = async updated => {
-    const ok = await save(date, "ingresos", updated);
+  // persist acepta options opcional para bypassear el cierre de día tras step-up.
+  const persist = async (updated, options = {}) => {
+    const ok = await save(date, "ingresos", updated, options);
     if (ok !== false) setList(updated);
     return ok;
   };
   const onSave = async item => {
     const forzado = item._forzadoCIP;
-    const { _forzadoCIP, ...itemRaw } = item;
+    const stepUpAuth = item._stepUpAuth; // viene cuando un operario forzó CIP con PIN de supervisor
+    const { _forzadoCIP, _stepUpAuth, ...itemRaw } = item;
     // Audit trail: estampa con operario activo si lo hay; si no, perfil base.
     // Preserva creador original al editarse por otro operario.
     const itemClean = stampOperario(itemRaw, {
@@ -1962,31 +1933,55 @@ const SecIngresos = ({ date, syncKey = 0, dayClosed = false, perfil = null }) =>
       perfilLabel: PERFILES[perfil]?.label,
     });
     if (forzado) {
+      const ejecutor = operario?.nombre || PERFILES[perfil]?.label || perfil || "Supervisor";
+      const respStr = stepUpAuth ? `${ejecutor} (autorizado por ${stepUpAuth.operarioNombre})` : ejecutor;
       await logAudit(date, "forzar_ingreso_silo_sucio", "ingreso",
         `Ingreso forzado a silo ${item.destino || "?"} (estado Sucio) — ${item.litrosFca || 0} L de ${item.tambo || "?"}`,
-        operario?.nombre || PERFILES[perfil]?.label || perfil || "Supervisor");
+        respStr);
     }
     const ex = list.find(i => i.id === itemClean.id);
     const ok = await persist(ex ? list.map(i => i.id === itemClean.id ? itemClean : i) : [...list, itemClean]);
     if (ok !== false) setModal(null);
   };
   const onDelete = async id => {
-    // Guard de perfil — solo supervisor/jefe pueden eliminar ingresos
-    if (perfil !== "supervisor" && perfil !== "jefe") {
+    // Guard de perfil — matriz centralizada en lib/permisos.js (segunda línea
+    // de defensa; la principal es RLS en Supabase).
+    if (!tienePermiso(perfil, ACCIONES.INGRESOS_ELIMINAR)) {
       console.warn("[onDelete ingreso] perfil sin permiso:", perfil);
       return;
     }
     const item = list.find(i => i.id === id);
     const resumen = item ? buildResumen("ingreso", item) : "";
-    if (await askConfirm({
+    const confirmed = await askConfirm({
       title: "Eliminar ingreso",
       message: `¿Eliminar este ingreso?${resumen ? "\n\n" + resumen : ""}\n\nLa acción quedará registrada en el historial.`,
       danger: true,
       confirmLabel: "Eliminar",
-    })) {
-      if (item) await logDelete("ingreso", item);
-      await persist(list.filter(i => i.id !== id)); setModal(null);
+    });
+    if (!confirmed) return;
+
+    // UX-V2 §2.3: si el día ya está cerrado, eliminar requiere autorización
+    // de supervisor/jefe en vivo. El bypass se propaga a save() vía options.
+    let stepUpAuth = null;
+    if (dayClosed) {
+      stepUpAuth = await askStepUp({
+        accion: "Eliminar ingreso de día cerrado",
+        descripcion: `${fmtDate(date)} ya fue cerrado. Esta eliminación afectará el saldo histórico y se registrará con doble autoría.`,
+      });
+      if (!stepUpAuth) return;
+      track("stepup_eliminar_ingreso_cerrado", id);
     }
+
+    if (item) await logDelete("ingreso", item);
+    const ok = await persist(list.filter(i => i.id !== id), stepUpAuth ? { bypassClosed: true } : {});
+    if (ok !== false && stepUpAuth) {
+      // Audit complementario con doble autoría para casos de bypass.
+      const respStr = `${operario?.nombre || PERFILES[perfil]?.label || perfil || ""} (autorizado por ${stepUpAuth.operarioNombre})`;
+      await logAudit(date, "eliminar_ingreso_dia_cerrado", "ingreso",
+        `Eliminado ingreso ${item?.tambo || "?"} (${item?.litrosFca || 0} L) sobre día cerrado`,
+        respStr);
+    }
+    setModal(null);
   };
   const saveNuevoTambo = async () => {
     if (!newTambo.nombre.trim()) return;
@@ -2115,6 +2110,7 @@ const SecIngresos = ({ date, syncKey = 0, dayClosed = false, perfil = null }) =>
         </Modal>
       )}
       {confirmUI}
+      {stepUpUI}
     </div>
   );
 };
@@ -2188,13 +2184,18 @@ const CIPRow = ({ nombre, tipo, data, onChange }) => {
   );
 };
 
-const SecCIP = ({ date, syncKey = 0, readOnly = false }) => {
+const SecCIP = ({ date, syncKey = 0, readOnly = false, perfil = null }) => {
   const [data, setData] = useState({});
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("silos");
   const [camiones, setCamiones] = useState(CAMIONES_BASE);
   const [camionModal, setCamionModal] = useState(false);
   const [newCamion, setNewCamion] = useState("");
+  const { operario } = usePerfil();
+  // CIP stampa cada entrada de silo/camión individualmente — son mini-registros
+  // semi-independientes (resp, hora, soda, ácido…). Esto permite auditar quién
+  // hizo cada limpieza aunque el bundle se guarde junto.
+  const stampCIPEntry = (entry) => stampOperario(entry || {}, { operario, perfil, perfilLabel: PERFILES[perfil]?.label });
 
   useEffect(() => {
     load(date, "cip", {}).then(d => { setData(d); setLoading(false); });
@@ -2203,12 +2204,14 @@ const SecCIP = ({ date, syncKey = 0, readOnly = false }) => {
 
   const updateSilo = async (s, v) => {
     if (readOnly) return;
-    const prev = data; const u = { ...data, silos: { ...(data.silos || {}), [s]: v } };
+    const stamped = stampCIPEntry(v);
+    const prev = data; const u = { ...data, silos: { ...(data.silos || {}), [s]: stamped } };
     setData(u); if (await save(date, "cip", u) === false) setData(prev);
   };
   const updateCamion = async (c, v) => {
     if (readOnly) return;
-    const prev = data; const u = { ...data, camiones: { ...(data.camiones || {}), [c]: v } };
+    const stamped = stampCIPEntry(v);
+    const prev = data; const u = { ...data, camiones: { ...(data.camiones || {}), [c]: stamped } };
     setData(u); if (await save(date, "cip", u) === false) setData(prev);
   };
   const setFiltro = async (k, v) => {
@@ -2458,8 +2461,8 @@ const SecCarga = ({ date, syncKey = 0, dayClosed = false, perfil = null }) => {
     if (ok !== false) setModal(null);
   };
   const onDelete = async id => {
-    // Guard de perfil — solo supervisor/jefe pueden eliminar cargas
-    if (perfil !== "supervisor" && perfil !== "jefe") {
+    // Guard de perfil — matriz en lib/permisos.js.
+    if (!tienePermiso(perfil, ACCIONES.CARGA_ELIMINAR)) {
       console.warn("[onDelete carga] perfil sin permiso:", perfil);
       return;
     }
@@ -2711,8 +2714,8 @@ const SecMovimientos = ({ date, syncKey = 0, dayClosed = false, perfil = null })
     if (ok !== false) setModal(null);
   };
   const delMov = async id => {
-    // Guard de perfil — solo supervisor/jefe pueden eliminar movimientos
-    if (perfil !== "supervisor" && perfil !== "jefe") {
+    // Guard de perfil — matriz en lib/permisos.js.
+    if (!tienePermiso(perfil, ACCIONES.MOVIMIENTOS_ELIMINAR)) {
       console.warn("[delMov] perfil sin permiso:", perfil);
       return;
     }
@@ -2725,8 +2728,8 @@ const SecMovimientos = ({ date, syncKey = 0, dayClosed = false, perfil = null })
     setModal(null);
   };
   const delCtrl = async id => {
-    // Guard de perfil — solo supervisor/jefe pueden eliminar controles de calidad
-    if (perfil !== "supervisor" && perfil !== "jefe") {
+    // Guard de perfil — los controles comparten permiso con movimientos.
+    if (!tienePermiso(perfil, ACCIONES.MOVIMIENTOS_ELIMINAR)) {
       console.warn("[delCtrl] perfil sin permiso:", perfil);
       return;
     }
@@ -2829,11 +2832,7 @@ const SecMovimientos = ({ date, syncKey = 0, dayClosed = false, perfil = null })
 // Estados de lote:
 //   - "envasando"  → lote activo, litros reservados (no descontados del stock)
 //   - "finalizado" → lote cerrado, litros usados reales descontados
-// Compat legacy: "enviado" se trata como "envasando"; "cancelado" se filtra de
-// las vistas activas y dashboard (no se migra, sólo se ignora).
-const isLoteActivo     = e => e === "envasando" || e === "enviado";
-const isLoteFinalizado = e => e === "finalizado";
-const isLoteLegacyCancelado = e => e === "cancelado";
+// isLoteActivo / isLoteFinalizado / isLoteLegacyCancelado importados de ./lib/produccion.js
 
 const emptyLote = (preOrigen = null) => ({
   id: crypto.randomUUID(),
@@ -3413,6 +3412,7 @@ const SecProduccion = ({ date, syncKey = 0, dayClosed = false, perfil = null }) 
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null);
   const [confirmUI, askConfirm] = useConfirm();
+  const [stepUpUI, askStepUp] = useStepUpPin();
   const { operario } = usePerfil();
 
   useEffect(() => {
@@ -3547,18 +3547,36 @@ const SecProduccion = ({ date, syncKey = 0, dayClosed = false, perfil = null }) 
       confirmLabel: "Eliminar",
     });
     if (!confirmed) return;
+
+    // UX-V2 §2.3: eliminar lote FINALIZADO requiere autorización adicional
+    // si lo intenta un supervisor (revierte litros consumidos a su silo origen).
+    // Jefe no requiere step-up (matriz dice puede solo). Operario está bloqueado más arriba.
+    let stepUpAuth = null;
+    if (esFinal && perfil === "supervisor") {
+      stepUpAuth = await askStepUp({
+        accion: `Eliminar lote finalizado ${item.lote || item.producto || ""}`.trim(),
+        descripcion: `Restituye ${Math.round((item.litrosUsados || []).reduce((s, u) => s + (parseFloat(u.litros) || 0), 0)).toLocaleString("es-AR")} L al silo de origen. Acción irreversible.`,
+      });
+      if (!stepUpAuth) return;
+      track("stepup_eliminar_lote_finalizado", item.id);
+    }
+
     await persist(list.filter(x => x.id !== item.id));
     _autoLitrosCache.delete(date);
     // Eliminar movimientos automáticos huérfanos asociados al lote (si existían)
     if (esFinal) {
       await syncAutoMovSobrante({ ...item, destinoSobrante: null, sobranteL: 0 }, item);
     }
-    // Auditoría diferenciada por estado del lote eliminado
+    // Auditoría diferenciada por estado del lote eliminado.
+    // Si hubo step-up, el resp combina al ejecutor + al autorizante.
+    const respStr = stepUpAuth
+      ? `${operario?.nombre || PERFILES[perfil]?.label || perfil || ""} (autorizado por ${stepUpAuth.operarioNombre})`
+      : (operario?.nombre || PERFILES[perfil]?.label || perfil || "");
     await logAudit(date,
       esFinal ? "eliminar_produccion_finalizada" : "eliminar_produccion",
       "produccion",
       `${item.producto} — Lote ${item.lote || "—"} — estado ${item.estado || "envasando"}`,
-      perfil || "");
+      respStr);
     setModal(null);
   };
 
@@ -3658,6 +3676,7 @@ const SecProduccion = ({ date, syncKey = 0, dayClosed = false, perfil = null }) 
   return (
     <div>
       {confirmUI}
+      {stepUpUI}
       <div style={secTitle}>Producción — {fmtDate(date)}</div>
 
       {visibles.length === 0 ? (
@@ -4441,8 +4460,8 @@ const SecFortificados = ({ date, syncKey = 0, dayClosed = false, perfil = null }
     if (ok !== false) setModal(null);
   };
   const onDelete = async id => {
-    // Guard de perfil — solo supervisor/jefe pueden eliminar fortificados
-    if (perfil !== "supervisor" && perfil !== "jefe") {
+    // Guard de perfil — matriz en lib/permisos.js.
+    if (!tienePermiso(perfil, ACCIONES.FORTIFICADOS_ELIMINAR)) {
       console.warn("[onDelete fortificado] perfil sin permiso:", perfil);
       return;
     }
@@ -8184,6 +8203,7 @@ ${cargas.map(r=>`<tr><td>${r._date}</td><td>${r.hora||""}</td><td>${escapeHtml(r
 // ─── SALDO INICIAL ────────────────────────────────────────────
 const SaldoInicialPanel = ({ perfil }) => {
   const [confirmUI, askConfirm] = useConfirm();
+  const [stepUpUI, askStepUp] = useStepUpPin();
   const [baseSaldo, setBaseSaldo] = useState(null);
   const [editSilos, setEditSilos] = useState(() =>
     Object.fromEntries(STOCK_SILOS.map(s => [s, { litros: "", producto: "" }]))
@@ -8195,6 +8215,7 @@ const SaldoInicialPanel = ({ perfil }) => {
   const [viewResult, setViewResult] = useState(null);
   const [loadingView, setLoadingView] = useState(false);
   const [status, setStatus] = useState(null); // null | "saving" | "chaining" | "saved" | "saving-date"
+  const { operario } = usePerfil();
 
   const canEdit = perfil === "supervisor" || perfil === "jefe";
 
@@ -8231,6 +8252,18 @@ const SaldoInicialPanel = ({ perfil }) => {
     });
     if (!ok) return;
 
+    // UX-V2 §2.3: si lo intenta un supervisor (matriz canónica dice "sólo jefe"),
+    // requerir PIN extra de otro supervisor/jefe. Jefe pasa directo.
+    let stepUpAuth = null;
+    if (perfil === "supervisor") {
+      stepUpAuth = await askStepUp({
+        accion: "Cambiar saldo base oficial",
+        descripcion: `Recalcula la cadena histórica desde ${baseDateLabel}. Acción de alta consecuencia — el saldo base es el anclaje de todo el inventario.`,
+      });
+      if (!stepUpAuth) return;
+      track("stepup_saldo_base");
+    }
+
     setStatus("saving");
     const data = Object.fromEntries(
       STOCK_SILOS.map(s => [s, parseFloat(editSilos[s]?.litros) || 0])
@@ -8256,6 +8289,14 @@ const SaldoInicialPanel = ({ perfil }) => {
     setBaseSaldo({ data, fromDate: baseDate, productos });
     setEditing(false);
     setStatus("saved");
+
+    // Audit con doble autoría si hubo step-up.
+    const respStr = stepUpAuth
+      ? `${operario?.nombre || PERFILES[perfil]?.label || perfil || ""} (autorizado por ${stepUpAuth.operarioNombre})`
+      : (operario?.nombre || PERFILES[perfil]?.label || perfil || "");
+    await logAudit(baseDate, "saldo_base_modificado", "saldo",
+      `Saldo base modificado para ${baseDateLabel}${stepUpAuth ? " — requirió step-up" : ""}`,
+      respStr);
     setTimeout(() => setStatus(null), 5000);
   };
 
@@ -8331,6 +8372,7 @@ const SaldoInicialPanel = ({ perfil }) => {
   return (
     <div>
       {confirmUI}
+      {stepUpUI}
 
       {/* ── ZONA 1: Saldo Base Oficial ── */}
       <div style={{ ...card, marginBottom: 16, borderColor: `${C.accent}50` }}>
@@ -8639,6 +8681,7 @@ export default function App() {
   });
   const [discardedModal, setDiscardedModal] = useState(false);
   const [confirmUI, askConfirm] = useConfirm();
+  const [stepUpUI, askStepUp] = useStepUpPin();
   const toast = useToast();
   const [turnoActual, setTurnoActual] = useState(getCurrentTurno());
   const isToday = date === getToday();
@@ -8913,8 +8956,8 @@ export default function App() {
       confirmLabel: "Cerrar día",
     });
     if (!ok) return;
-    // VALIDACIÓN INTERNA DE PERFIL — no confiar en que el botón esté oculto
-    if (perfil !== "supervisor" && perfil !== "jefe") {
+    // VALIDACIÓN INTERNA DE PERFIL — matriz en lib/permisos.js.
+    if (!tienePermiso(perfil, ACCIONES.DIA_CERRAR)) {
       console.warn("[handleCerrarDia] perfil sin permiso:", perfil);
       return;
     }
@@ -8950,8 +8993,26 @@ export default function App() {
       confirmLabel: "Reabrir",
     });
     if (!ok) return;
+
+    // UX-V2 §2.3: si el día tiene >7 días, requerir step-up de otro
+    // supervisor/jefe. Evita reaperturas accidentales sobre saldos viejos.
+    const ageDays = diffDays(date, getToday());
+    let stepUpAuth = null;
+    if (ageDays > 7) {
+      stepUpAuth = await askStepUp({
+        accion: "Reabrir día de hace más de 7 días",
+        descripcion: `${fmtDate(date)} (hace ${ageDays} días). Esto puede afectar saldos encadenados de días posteriores.`,
+        tokens: { accent: C.accent, surface: C.surface || C.card, card: C.card, text: C.text, sub: C.sub, border: C.border },
+      });
+      if (!stepUpAuth) return;
+      track("stepup_reabrir_dia", String(ageDays));
+    }
+
     await saveEstado(date, { closed: false });
-    await logAudit(date, "reopen_day", "dia", `Día ${date} reabierto por ${PERFILES[perfil]?.label || "Jefe"}`, PERFILES[perfil]?.label || "Jefe");
+    const respStr = stepUpAuth
+      ? `${PERFILES[perfil]?.label || "Jefe"} (autorizado por ${stepUpAuth.operarioNombre})`
+      : (PERFILES[perfil]?.label || "Jefe");
+    await logAudit(date, "reopen_day", "dia", `Día ${date} reabierto por ${respStr}`, respStr);
     setDayClosed(false);
     setDayClosedBy(null);
     // Reabrir un día puede llevar a edits retroactivos — pre-invalidar la cadena
@@ -9665,7 +9726,7 @@ export default function App() {
         <div style={{ maxWidth: isDesktop ? 960 : "100%", margin: isDesktop ? "0 auto" : undefined }}>
         {/* Gate: ninguna sección renderiza sin sesión válida — el login modal queda forzado en primer plano */}
         {perfil && section === "ingresos" && <SecIngresos date={date} syncKey={syncKey} dayClosed={dayClosed} perfil={perfil} />}
-        {perfil && section === "cip" && <SecCIP date={date} syncKey={syncKey} />}
+        {perfil && section === "cip" && <SecCIP date={date} syncKey={syncKey} perfil={perfil} />}
         {perfil && section === "carga" && <SecCarga date={date} syncKey={syncKey} dayClosed={dayClosed} perfil={perfil} />}
         {perfil && section === "movimientos" && <SecMovimientos date={date} syncKey={syncKey} dayClosed={dayClosed} perfil={perfil} />}
         {perfil && section === "stock" && <SecStock date={date} syncKey={syncKey} perfil={perfil} />}
@@ -9730,6 +9791,7 @@ export default function App() {
         })}
       </div>}
       {confirmUI}
+      {stepUpUI}
 
       {/* Modal: detalle de descartes auditables (4xx permanente) */}
       {discardedModal && (

@@ -47,7 +47,12 @@ npm run preview       # preview built dist/
 - `telemetry.js` — opt-in telemetry (localStorage flag `yatasto:telemetry=true`). `track(event, value, field)` instrumented in `save()` flow + nav taps; `dumpTelemetry(days)` exporta vía `window.__yatastoTelemetry.dump()`.
 
 **`lib/` (puros, sin React):**
-- `lib/helpers.js` — `buildFortLabel`, `diffDays`, `calcSF`, `isSueroLike`, `shouldShowSF`
+- `lib/helpers.js` — `buildFortLabel`, `diffDays`, `calcSF`, `isSueroLike`, `shouldShowSF`, `adicionLitros`, `fortSourceDraws(fort, siloKeyMap)`
+- `lib/dates.js` — `getToday(now?)`, `getPreviousDate(iso)`, `addDay(iso)`, `getLastNDays(n, now?)`, `getDaysInRange(from, to)`, `fmtDate(iso)`, `getNow(now?)`
+- `lib/density.js` — `isEcomilkDensity`, `normalizeDensity`, `formatDensity`, `validateDensity` (tolera Ecomilk 20-40 o técnico 1.020-1.040, coma o punto decimal)
+- `lib/export-helpers.js` — `escapeHtml`, `escapeCsv` (protección CSV injection)
+- `lib/resumen.js` — `buildResumen(tipo, item)` para confirmaciones de borrado + audit log
+- `lib/produccion.js` — predicados de estado de lote: `isLoteActivo`, `isLoteFinalizado`, `isLoteLegacyCancelado`
 - `lib/permisos.js` — `ACCIONES`, `PERMISOS_POR_PERFIL`, `tienePermiso(perfil, accion, permisosExtra?)`, `tieneAlguno`
 - `lib/pin.js` — `hashPin(pin)` → `"sha256:<salt>:<hash>"`, `verifyPin(pin, storedHash)` con comparación tiempo constante
 - `lib/operarios.js` — CRUD sobre clave `yatasto:operarios`: `loadOperarios`, `saveOperarios`, `createOperario`, `updateOperario`, `setPin`, `desactivarOperario`/`reactivarOperario`, `verifyOperarioPin`, `recordLogin`, `iniciales`
@@ -60,7 +65,13 @@ npm run preview       # preview built dist/
 - `components/SecUsuarios.jsx` — CRUD de operarios (solo jefe)
 - `components/StepUpPin.jsx` — `useStepUpPin()` retorna `[ui, askStepUp(opts)]`. Modal para autorizar acciones críticas con PIN de supervisor/jefe en vivo.
 
-**`tests/`:** vitest, jsdom. Cobertura: helpers, descartes, permisos, pin, operarios, audit, shift. `npm test` corre todos.
+**`tests/`:** vitest + jsdom + @testing-library/react. `npm test` corre todos (~55s). Cobertura por archivo:
+- helpers, dates, density, export-helpers, resumen, produccion (puros).
+- permisos, pin, operarios, audit, isPermanent4xx, is401 (lógica de dominio + seguridad).
+- discarded, queue (cola offline con escenarios reales de timing).
+- toast, perfilProvider, operarioLogin (UI con RTL).
+- useInactivityLock, useShiftChange, useOperarioActivo, useViewport (hooks con fake timers).
+- shift, operario-flow, telemetry (integración).
 
 **Storage keys** (all go through `db.get/set`):
 - Section data: `yatasto:YYYY-MM-DD:section` where section ∈ `ingresos | cip | carga | movimientos | stock | fortificados`
