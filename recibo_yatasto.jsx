@@ -8,6 +8,7 @@ import { SecUsuarios } from "./components/SecUsuarios.jsx";
 import { useStepUpPin } from "./components/StepUpPin.jsx";
 import { loadOperarios, operariosActivos } from "./lib/operarios.js";
 import { stampOperario, respFor } from "./lib/audit.js";
+import { leerClave, esLecturaConfiable, contadorFallosLectura, registrarFalloLectura } from "./lib/lecturas.js";
 import { ACCIONES, tienePermiso } from "./lib/permisos.js";
 import {
   getToday, getPreviousDate, addDay, getLastNDays, getDaysInRange,
@@ -264,12 +265,21 @@ const card = { background: C.card, borderRadius: 12, padding: 14, marginBottom: 
 const panel = { background: C.surface, borderRadius: 10, padding: 12, marginBottom: 12 };
 
 // ─── STORAGE ─────────────────────────────────────────────────
+// Tanda 2 (P0-2): lectura estricta — distingue red caída / fila inexistente /
+// datos corruptos (lib/lecturas.js). Las secciones y todo flujo load-modify-write
+// usan esta variante; ante ErrorDeLectura conservan su último estado bueno.
+async function loadSeguro(date, sec, def) {
+  const key = sKey(date, sec);
+  const r = await leerClave(db.get, key, def); // lanza ErrorDeLectura (red/corrupto)
+  _loadedAt.set(key, r.updatedAt);
+  return r.data;
+}
+// Variante tolerante (motor de saldos, informes, dashboard de solo lectura):
+// conserva la semántica histórica — default ante cualquier fallo.
+// NO usar para datos que después se guardan: el save quedaría bloqueado igual
+// por el guard de lectura confiable, pero la UI no sabría explicar por qué.
 async function load(date, sec, def) {
-  try {
-    const r = await db.get(sKey(date, sec));
-    _loadedAt.set(sKey(date, sec), r ? (r.updatedAt || null) : null);
-    return r ? JSON.parse(r.value) : def;
-  }
+  try { return await loadSeguro(date, sec, def); }
   catch { return def; }
 }
 async function save(date, sec, data, options = {}) {
@@ -283,8 +293,17 @@ async function save(date, sec, data, options = {}) {
   if (_closedDates.has(date) && options.bypassClosed) {
     track("save_closed_bypass", sec);
   }
-  _autoLitrosCache.delete(date);
   const key = sKey(date, sec);
+  // Tanda 2 (P0-2): nunca escribir una clave sin una lectura confiable en esta
+  // sesión. Si la única "lectura" fue un fallo de red convertido en default,
+  // este save pisaría el día real del servidor con una lista vacía.
+  // Sin bypass: a diferencia del cierre de día, acá no hay caso legítimo.
+  if (!esLecturaConfiable(key)) {
+    track("save_blocked_unread", sec);
+    _onSaveNoLeido?.({ sec, date });
+    return false;
+  }
+  _autoLitrosCache.delete(date);
   // C5: detectar modificación concurrente antes de escribir
   const lastKnown = _loadedAt.get(key);
   if (lastKnown !== undefined) {
@@ -336,6 +355,12 @@ let _onSaveConflict = null;
 // Callback para cuando save() detecta que db.set() encoló (offline/fallo de red).
 // App lo cablea para mostrar un Toast no bloqueante al operario.
 let _onSaveQueued = null;
+// Callback para cuando save() se bloquea porque la clave nunca tuvo una lectura
+// confiable en esta sesión (Tanda 2). App lo cablea a un toast explicativo.
+let _onSaveNoLeido = null;
+// Caso especial: el lote de producción SÍ se guardó pero el movimiento
+// automático de sobrante no pudo generarse — el mensaje debe decir eso.
+let _onSobranteOmitido = null;
 function _markDayClosed(date, closed) {
   if (closed) _closedDates.add(date); else _closedDates.delete(date);
 }
@@ -348,7 +373,10 @@ async function loadCfg() {
 // SALDO_KEY = fast path para hoy: resultado encadenado hasta ayer (actualizado por cadena y cierre del día)
 // SALDO_BASE_KEY = ancla permanente: ingresado manualmente; nunca sobreescrito por la cadena
 async function loadSaldo() {
-  try { const r = await db.get(SALDO_KEY); return r ? JSON.parse(r.value) : null; } catch { return null; }
+  // El fallo se registra en el contador: un saldo null por red caída envenena
+  // cualquier cómputo de calcAutoLitros que lo consuma.
+  try { const r = await db.get(SALDO_KEY); return r ? JSON.parse(r.value) : null; }
+  catch { registrarFalloLectura(); return null; }
 }
 async function saveSaldo(data, fromDate, productos, fechas) {
   try {
@@ -539,6 +567,11 @@ async function calcAutoLitros(date, _baseTotals, _baseProductos, _baseFechas) {
     const hit = _autoLitrosCache.get(date);
     if (hit && Date.now() - hit.ts < _AUTO_LITROS_TTL) return hit.result;
   }
+  // Tanda 2: si alguna lectura interna falla (las load() tolerantes lo tapan con
+  // defaults), el resultado NO debe cachearse — un cache envenenado con totals
+  // vacíos sobrevive al regreso de la señal y hace que SecStock marque silos
+  // con leche como "Sucio (vacío)" y lo persista.
+  const _fallosAlEmpezar = contadorFallosLectura();
 
   const [ingresos, movData, cargas, forts, produccion, saldo, baseSaldo] = await Promise.all([
     load(date, "ingresos", []),
@@ -724,8 +757,11 @@ async function calcAutoLitros(date, _baseTotals, _baseProductos, _baseFechas) {
     }
   });
   const result = { totals, productosBase, reservados, fechasBase };
-  // Solo cachear en modo normal (no en cadena, que es one-shot)
-  if (!chainMode) _autoLitrosCache.set(date, { result, ts: Date.now() });
+  // Solo cachear en modo normal (no en cadena, que es one-shot) y solo si
+  // ninguna lectura interna falló durante este cómputo.
+  const _huboFallos = contadorFallosLectura() !== _fallosAlEmpezar;
+  if (!chainMode && !_huboFallos) _autoLitrosCache.set(date, { result, ts: Date.now() });
+  result._lecturasFallidas = _huboFallos;
   return result;
 }
 
@@ -1203,6 +1239,15 @@ const Banner = ({ kind = "error", message, onClose, sticky = false }) => {
     </div>
   );
 };
+// Tanda 2: aviso por sección cuando la lectura remota falló. La sección conserva
+// su último estado bueno (hayDatos) o queda sin datos confiables para la fecha.
+// El polling de 10s reintenta solo; al lograr una lectura OK el banner se va.
+const BannerSinConexion = ({ hayDatos }) => (
+  <Banner kind="warning" sticky message={hayDatos
+    ? "Sin conexión — mostrando la última información disponible. Se reintenta automáticamente."
+    : "Sin conexión — no se pudieron cargar los datos de esta fecha. Se reintenta automáticamente."} />
+);
+
 // Tracks how many Modal instances are currently mounted — used by the back-button hook
 // below so only the outermost modal pushes a history entry. Nested modals skip pushState
 // to prevent a cascade where closing a phantom entry fires the parent modal's popstate handler.
@@ -1908,15 +1953,33 @@ const SecIngresos = ({ date, syncKey = 0, dayClosed = false, perfil = null }) =>
   const [stepUpUI, askStepUp] = useStepUpPin();
   const { operario } = usePerfil();
 
+  const [readFailed, setReadFailed] = useState(false);
+  const loadedDateRef = useRef(null); // última fecha con lectura confiable en esta sección
+
   useEffect(() => {
     if (modal) return; // no recargar mientras hay un form abierto — evita pisar edición en curso
-    load(date, "ingresos", []).then(d => { setList(d); setLoading(false); });
-    loadCfg().then(cfg => setTambos([...TAMBOS_BASE, ...(cfg.tambosCustom || [])]));
-    calcAutoLitros(date).then(r => setSiloStates(r)).catch(() => {});
+    let ignore = false; // respuesta tardía de otra fecha/tick: descartarla
+    loadSeguro(date, "ingresos", []).then(d => {
+      if (ignore) return;
+      setList(d); setLoading(false); setReadFailed(false); loadedDateRef.current = date;
+    }).catch(() => {
+      if (ignore) return;
+      // Red caída o datos corruptos: conservar el último estado bueno de ESTA fecha.
+      // Si la fecha en pantalla nunca cargó, vaciar — no mostrar datos de otra fecha.
+      setLoading(false); setReadFailed(true);
+      if (loadedDateRef.current !== date) setList([]);
+    });
+    loadCfg().then(cfg => { if (!ignore) setTambos([...TAMBOS_BASE, ...(cfg.tambosCustom || [])]); });
+    calcAutoLitros(date).then(r => { if (!ignore) setSiloStates(r); }).catch(() => {});
+    return () => { ignore = true; };
   }, [date, syncKey, modal]);
 
   // persist acepta options opcional para bypassear el cierre de día tras step-up.
   const persist = async (updated, options = {}) => {
+    // Tanda 2: el estado en memoria debe descender de una lectura confiable de
+    // ESTA fecha en ESTE montaje — cubre el remount con red caída (una lista
+    // default + clave confiable de una lectura vieja pisaría el día real).
+    if (loadedDateRef.current !== date) { _onSaveNoLeido?.({ sec: "ingresos", date }); return false; }
     const ok = await save(date, "ingresos", updated, options);
     if (ok !== false) setList(updated);
     return ok;
@@ -1999,6 +2062,7 @@ const SecIngresos = ({ date, syncKey = 0, dayClosed = false, perfil = null }) =>
 
   return (
     <div>
+      {readFailed && <BannerSinConexion hayDatos={list.length > 0} />}
       <div style={{ ...card, display: "flex", justifyContent: "space-between", alignItems: "center", borderColor: C.accentDark }}>
         <div>
           <div style={{ fontSize: 11, color: C.sub, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 2 }}>Total del día</div>
@@ -2197,25 +2261,64 @@ const SecCIP = ({ date, syncKey = 0, readOnly = false, perfil = null }) => {
   // hizo cada limpieza aunque el bundle se guarde junto.
   const stampCIPEntry = (entry) => stampOperario(entry || {}, { operario, perfil, perfilLabel: PERFILES[perfil]?.label });
 
+  const [readFailed, setReadFailed] = useState(false);
+  const loadedDateRef = useRef(null);
+  // CIP edita con inputs inline (sin modal que frene el efecto). El repoll no
+  // debe pisar lo tipeado: se chequea EN EL MOMENTO de aplicar si hay un campo
+  // de formulario de la sección con foco. Sin estado persistente que pueda
+  // quedar trabado en "editando" (botones que retienen foco, teclado de Android).
+  const containerRef = useRef(null);
+  const editandoCampo = () => {
+    const ae = typeof document !== "undefined" ? document.activeElement : null;
+    return !!(ae && containerRef.current && containerRef.current.contains(ae)
+      && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName));
+  };
+
   useEffect(() => {
-    load(date, "cip", {}).then(d => { setData(d); setLoading(false); });
-    loadCfg().then(cfg => setCamiones([...CAMIONES_BASE, ...(cfg.camionesCustom || [])]));
+    let ignore = false; // respuesta tardía de otra fecha/tick: descartarla
+    const key = sKey(date, "cip");
+    const teniaTs = _loadedAt.has(key);
+    const prevTs = _loadedAt.get(key);
+    loadSeguro(date, "cip", {}).then(d => {
+      if (ignore) return;
+      setReadFailed(false); // la señal volvió, aunque no apliquemos los datos
+      if (editandoCampo() && loadedDateRef.current === date) {
+        // Descartar el resultado SIN desarmar el C5: si los datos nuevos no se
+        // aplican a la pantalla, tampoco debe avanzar el timestamp conocido —
+        // un save posterior pisaría silenciosamente lo de otro dispositivo.
+        if (teniaTs) _loadedAt.set(key, prevTs); else _loadedAt.delete(key);
+        return;
+      }
+      setData(d); setLoading(false); loadedDateRef.current = date;
+    }).catch(() => {
+      if (ignore) return;
+      setLoading(false); setReadFailed(true);
+      if (loadedDateRef.current !== date) setData({});
+    });
+    loadCfg().then(cfg => { if (!ignore) setCamiones([...CAMIONES_BASE, ...(cfg.camionesCustom || [])]); });
+    return () => { ignore = true; };
   }, [date, syncKey]);
 
+  // Tanda 2: linaje de la lectura — ver comentario en SecIngresos.persist.
+  const linajeOk = () => {
+    if (loadedDateRef.current === date) return true;
+    _onSaveNoLeido?.({ sec: "cip", date });
+    return false;
+  };
   const updateSilo = async (s, v) => {
-    if (readOnly) return;
+    if (readOnly || !linajeOk()) return;
     const stamped = stampCIPEntry(v);
     const prev = data; const u = { ...data, silos: { ...(data.silos || {}), [s]: stamped } };
     setData(u); if (await save(date, "cip", u) === false) setData(prev);
   };
   const updateCamion = async (c, v) => {
-    if (readOnly) return;
+    if (readOnly || !linajeOk()) return;
     const stamped = stampCIPEntry(v);
     const prev = data; const u = { ...data, camiones: { ...(data.camiones || {}), [c]: stamped } };
     setData(u); if (await save(date, "cip", u) === false) setData(prev);
   };
   const setFiltro = async (k, v) => {
-    if (readOnly) return;
+    if (readOnly || !linajeOk()) return;
     const prev = data; const u = { ...data, [k]: v };
     setData(u); if (await save(date, "cip", u) === false) setData(prev);
   };
@@ -2232,7 +2335,8 @@ const SecCIP = ({ date, syncKey = 0, readOnly = false, perfil = null }) => {
 
   if (loading) return <div style={{ padding: 40, textAlign: "center", color: C.sub }}>Cargando...</div>;
   return (
-    <div>
+    <div ref={containerRef}>
+      {readFailed && <BannerSinConexion hayDatos={Object.keys(data || {}).length > 0} />}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
         {[["silos", "Silos / Líneas"], ["camiones", "Camiones"]].map(([t, l]) => (
           <button type="button" key={t} onClick={() => setTab(t)} style={{ ...(tab === t ? btnPrimary : btnSecondary), padding: "10px 6px" }}>{l}</button>
@@ -2436,8 +2540,24 @@ const SecCarga = ({ date, syncKey = 0, dayClosed = false, perfil = null }) => {
   const [loading, setLoading] = useState(true);
   const [confirmUI, askConfirm] = useConfirm();
   const { operario } = usePerfil();
-  useEffect(() => { if (modal) return; load(date, "carga", []).then(d => { setList(d); setLoading(false); }); }, [date, syncKey, modal]);
+  const [readFailed, setReadFailed] = useState(false);
+  const loadedDateRef = useRef(null);
+  useEffect(() => {
+    if (modal) return;
+    let ignore = false;
+    loadSeguro(date, "carga", []).then(d => {
+      if (ignore) return;
+      setList(d); setLoading(false); setReadFailed(false); loadedDateRef.current = date;
+    }).catch(() => {
+      if (ignore) return;
+      setLoading(false); setReadFailed(true);
+      if (loadedDateRef.current !== date) setList([]);
+    });
+    return () => { ignore = true; };
+  }, [date, syncKey, modal]);
   const persist = async u => {
+    // Tanda 2: ver comentario en SecIngresos.persist (linaje de la lectura).
+    if (loadedDateRef.current !== date) { _onSaveNoLeido?.({ sec: "carga", date }); return false; }
     const ok = await save(date, "carga", u);
     if (ok !== false) setList(u);
     return ok;
@@ -2476,6 +2596,7 @@ const SecCarga = ({ date, syncKey = 0, dayClosed = false, perfil = null }) => {
   if (loading) return <div style={{ padding: 40, textAlign: "center", color: C.sub }}>Cargando...</div>;
   return (
     <div>
+      {readFailed && <BannerSinConexion hayDatos={list.length > 0} />}
       {list.length === 0 ? (
         <div style={{ textAlign: "center", padding: "48px 24px", color: C.sub }}><div style={{ marginBottom: 12, display: "flex", justifyContent: "center", opacity: 0.35 }}><IcoCarga size={48} strokeWidth={1} /></div><div>Sin cargas registradas</div><div style={{ fontSize: 13, marginTop: 6 }}>Tocá + para agregar</div></div>
       ) : list.map(c => (
@@ -2678,8 +2799,24 @@ const SecMovimientos = ({ date, syncKey = 0, dayClosed = false, perfil = null })
   const [confirmUI, askConfirm] = useConfirm();
   const { operario } = usePerfil();
   const stampCtx = { operario, perfil, perfilLabel: PERFILES[perfil]?.label };
-  useEffect(() => { if (modal) return; load(date, "movimientos", { movs: [], ctrls: [] }).then(d => { setData(d); setLoading(false); }); }, [date, syncKey, modal]);
+  const [readFailed, setReadFailed] = useState(false);
+  const loadedDateRef = useRef(null);
+  useEffect(() => {
+    if (modal) return;
+    let ignore = false;
+    loadSeguro(date, "movimientos", { movs: [], ctrls: [] }).then(d => {
+      if (ignore) return;
+      setData(d); setLoading(false); setReadFailed(false); loadedDateRef.current = date;
+    }).catch(() => {
+      if (ignore) return;
+      setLoading(false); setReadFailed(true);
+      if (loadedDateRef.current !== date) setData({ movs: [], ctrls: [] });
+    });
+    return () => { ignore = true; };
+  }, [date, syncKey, modal]);
   const persist = async u => {
+    // Tanda 2: ver comentario en SecIngresos.persist (linaje de la lectura).
+    if (loadedDateRef.current !== date) { _onSaveNoLeido?.({ sec: "movimientos", date }); return false; }
     const ok = await save(date, "movimientos", u);
     if (ok !== false) setData(u);
     return ok;
@@ -2744,6 +2881,7 @@ const SecMovimientos = ({ date, syncKey = 0, dayClosed = false, perfil = null })
   if (loading) return <div style={{ padding: 40, textAlign: "center", color: C.sub }}>Cargando...</div>;
   return (
     <div>
+      {readFailed && <BannerSinConexion hayDatos={((data.movs || []).length + (data.ctrls || []).length) > 0} />}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
         {[["movs", "Movimientos"], ["ctrls", "Control Silos"]].map(([t, l]) => (
           <button type="button" key={t} onClick={() => setTab(t)} style={{ ...(tab === t ? btnPrimary : btnSecondary), padding: "10px 6px" }}>{l}</button>
@@ -3415,9 +3553,13 @@ const SecProduccion = ({ date, syncKey = 0, dayClosed = false, perfil = null }) 
   const [stepUpUI, askStepUp] = useStepUpPin();
   const { operario } = usePerfil();
 
+  const [readFailed, setReadFailed] = useState(false);
+  const loadedDateRef = useRef(null);
   useEffect(() => {
     if (modal) return; // no recargar mientras hay un form abierto
-    load(date, "produccion", []).then(d => {
+    let ignore = false;
+    loadSeguro(date, "produccion", []).then(d => {
+      if (ignore) return;
       // R3: normalización defensiva al cargar. Lotes legacy "enviado" → "envasando".
       // Lotes activos sin campo litrosUsados explícito → setear null para evitar
       // caer en el branch legacy de calcAutoLitros que descuenta directo.
@@ -3430,11 +3572,18 @@ const SecProduccion = ({ date, syncKey = 0, dayClosed = false, perfil = null }) 
         return next;
       });
       setList(norm);
-      setLoading(false);
+      setLoading(false); setReadFailed(false); loadedDateRef.current = date;
+    }).catch(() => {
+      if (ignore) return;
+      setLoading(false); setReadFailed(true);
+      if (loadedDateRef.current !== date) setList([]);
     });
+    return () => { ignore = true; };
   }, [date, syncKey, modal]);
 
   const persist = async updated => {
+    // Tanda 2: ver comentario en SecIngresos.persist (linaje de la lectura).
+    if (loadedDateRef.current !== date) { _onSaveNoLeido?.({ sec: "produccion", date }); return false; }
     const ok = await save(date, "produccion", updated);
     if (ok !== false) setList(updated);
     return ok;
@@ -3446,7 +3595,16 @@ const SecProduccion = ({ date, syncKey = 0, dayClosed = false, perfil = null }) 
   // - Si el lote tiene destinoSobrante="otro_silo" y sobrante>0, crea uno nuevo.
   // Esto evita movimientos huérfanos cuando se re-edita un lote ya finalizado.
   const syncAutoMovSobrante = async (item, oldItem) => {
-    const movData = await load(date, "movimientos", { movs: [], ctrls: [] });
+    // Estricto: computar el sobrante sobre un default nacido de un fallo de red
+    // borraría todos los movimientos del día al guardar el array filtrado.
+    let movData;
+    try { movData = await loadSeguro(date, "movimientos", { movs: [], ctrls: [] }); }
+    catch {
+      track("sobrante_skip_noread");
+      // Mensaje propio: el LOTE ya se guardó — lo que se omitió es el mov de sobrante.
+      _onSobranteOmitido?.();
+      return;
+    }
     const movs = movData.movs || [];
     // Filtrar movimientos viejos asociados a este lote
     const kept = movs.filter(m => {
@@ -3476,7 +3634,14 @@ const SecProduccion = ({ date, syncKey = 0, dayClosed = false, perfil = null }) 
       added = 1;
     }
     if (removed > 0 || added > 0) {
-      await save(date, "movimientos", { ...movData, movs: nextMovs });
+      const ok = await save(date, "movimientos", { ...movData, movs: nextMovs });
+      if (ok === false) {
+        // Bloqueado (día cerrado / sin lectura confiable / conflicto): no auditar
+        // como hecho algo que no se escribió.
+        track("sobrante_skip_blocked");
+        _onSobranteOmitido?.();
+        return;
+      }
       _autoLitrosCache.delete(date);
       const accion = added > 0 ? (removed > 0 ? "regenerado" : "creado") : "eliminado";
       await logAudit(date, "mov_sobrante_produccion", "movimiento",
@@ -3677,6 +3842,7 @@ const SecProduccion = ({ date, syncKey = 0, dayClosed = false, perfil = null }) 
     <div>
       {confirmUI}
       {stepUpUI}
+      {readFailed && <BannerSinConexion hayDatos={list.length > 0} />}
       <div style={secTitle}>Producción — {fmtDate(date)}</div>
 
       {visibles.length === 0 ? (
@@ -3764,12 +3930,32 @@ const SecStock = ({ date, syncKey = 0, perfil = null }) => {
   const [silosVaciados, setSilosVaciados] = useState([]);
   const [envasarModal, setEnvasarModal] = useState(null);
 
+  const [readFailed, setReadFailed] = useState(false);
+  const loadedDateRef = useRef(null);
   useEffect(() => {
+    let ignore = false; // respuesta tardía de otra fecha/tick: descartarla
+    const resetDerivados = () => {
+      setData({}); setAutoLitros({}); setAutoReservados({});
+      setAutoFechas({}); setAutoProductos({}); setSilosVaciados([]);
+    };
+    const fallo = () => {
+      // Ni mostrar como cierto ni escribir: conservar lo último bueno de esta
+      // fecha, o limpiar TODO (incluidos derivados) si esta fecha nunca cargó.
+      setLoading(false); setReadFailed(true);
+      if (loadedDateRef.current !== date) resetDerivados();
+    };
     Promise.all([
-      load(date, "stock", {}),
+      // Estrictos: este efecto ESCRIBE (normalización de productos por silo) —
+      // jamás debe computar sobre un default nacido de un fallo de red.
+      loadSeguro(date, "stock", {}),
       calcAutoLitros(date),
-      load(date, "cip", {}),
-    ]).then(([d, { totals: autoTotals, productosBase, reservados: rsv, fechasBase: fbs }, cipData]) => {
+      loadSeguro(date, "cip", {}),
+    ]).then(([d, res, cipData]) => {
+      if (ignore) return;
+      // calcAutoLitros es tolerante por dentro: si alguna de sus lecturas falló
+      // (tapada con defaults), sus totales mienten — tratar como lectura fallida.
+      if (res._lecturasFallidas) { fallo(); return; }
+      const { totals: autoTotals, productosBase, reservados: rsv, fechasBase: fbs } = res;
       setAutoLitros(autoTotals);
       setAutoReservados(rsv || {});
       setAutoFechas(fbs || {});
@@ -3822,11 +4008,22 @@ const SecStock = ({ date, syncKey = 0, perfil = null }) => {
       // El saldo se actualiza al cerrar el día (handleCerrarDia) o al arrancar la app.
       // No se guarda aquí para evitar pisar valores manuales del panel "Saldo Silos".
       setData(updated);
-      setLoading(false);
+      setLoading(false); setReadFailed(false); loadedDateRef.current = date;
+    }).catch(() => {
+      // Red caída / datos corruptos: ni escribir ni pisar lo visible.
+      if (!ignore) fallo();
     });
+    return () => { ignore = true; };
   }, [date, syncKey]);
 
+  // Tanda 2: linaje de la lectura — ver comentario en SecIngresos.persist.
+  const linajeOk = () => {
+    if (loadedDateRef.current === date) return true;
+    _onSaveNoLeido?.({ sec: "stock", date });
+    return false;
+  };
   const updateSilo = async (t, s, k, v) => {
+    if (!linajeOk()) return;
     const prev = data;
     const u = {
       ...data,
@@ -3835,16 +4032,20 @@ const SecStock = ({ date, syncKey = 0, perfil = null }) => {
     setData(u); if (await save(date, "stock", u) === false) setData(prev);
   };
   const updateResp = async (t, v) => {
+    if (!linajeOk()) return;
     const prev = data;
     const u = { ...data, [t]: { ...(data[t] || {}), resp: v } };
     setData(u); if (await save(date, "stock", u) === false) setData(prev);
   };
 
   const onEnvasarSave = async (item, oldItem) => {
-    const prev = await load(date, "produccion", []);
+    // Estricto: partir de un default por fallo de red borraría los lotes del día.
+    let prev;
+    try { prev = await loadSeguro(date, "produccion", []); }
+    catch { _onSaveNoLeido?.({ sec: "produccion", date }); return; }
     const exists = prev.some(x => x.id === item.id);
     const updated = exists ? prev.map(x => x.id === item.id ? item : x) : [...prev, item];
-    await save(date, "produccion", updated);
+    if (await save(date, "produccion", updated) === false) return; // bloqueado: no auditar ni cerrar
     _autoLitrosCache.delete(date);
     await logAudit(date, exists ? "actualizar_produccion" : "nueva_produccion", "produccion",
       `${item.producto} — Lote ${item.lote || "—"} — ${item.estado} (Stock)`, perfil || "");
@@ -3859,6 +4060,7 @@ const SecStock = ({ date, syncKey = 0, perfil = null }) => {
 
   return (
     <div>
+      {readFailed && <BannerSinConexion hayDatos={Object.keys(data || {}).length > 0} />}
       {/* Banner silos vaciados */}
       {silosVaciados.length > 0 && (
         <div style={{ ...card, borderColor: C.danger.replace(/\)$/, " / 0.5)"), background: C.danger.replace(/\)$/, " / 0.10)"), marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -4372,9 +4574,20 @@ const SecFortificados = ({ date, syncKey = 0, dayClosed = false, perfil = null }
   const [confirmUI, askConfirm] = useConfirm();
   const { operario } = usePerfil();
 
+  const [readFailed, setReadFailed] = useState(false);
+  const loadedDateRef = useRef(null);
   useEffect(() => {
     if (modal) return; // no recargar mientras hay un form abierto
-    load(date, "fortificados", []).then(d => { setList(d); setLoading(false); });
+    let ignore = false;
+    loadSeguro(date, "fortificados", []).then(d => {
+      if (ignore) return;
+      setList(d); setLoading(false); setReadFailed(false); loadedDateRef.current = date;
+    }).catch(() => {
+      if (ignore) return;
+      setLoading(false); setReadFailed(true);
+      if (loadedDateRef.current !== date) setList([]);
+    });
+    return () => { ignore = true; };
   }, [date, syncKey, modal]);
 
   // Snapshot del saldo para la card contextual del silo origen (ayuda visual, no toca cálculos).
@@ -4388,6 +4601,8 @@ const SecFortificados = ({ date, syncKey = 0, dayClosed = false, perfil = null }
   }, [date, syncKey]);
 
   const persist = async u => {
+    // Tanda 2: ver comentario en SecIngresos.persist (linaje de la lectura).
+    if (loadedDateRef.current !== date) { _onSaveNoLeido?.({ sec: "fortificados", date }); return false; }
     const ok = await save(date, "fortificados", u);
     if (ok !== false) setList(u);
     return ok;
@@ -4479,6 +4694,7 @@ const SecFortificados = ({ date, syncKey = 0, dayClosed = false, perfil = null }
 
   return (
     <div>
+      {readFailed && <BannerSinConexion hayDatos={list.length > 0} />}
       {list.length > 0 && (
         <div style={{ ...card, display: "flex", justifyContent: "space-between", alignItems: "center", borderColor: C.success.replace(/\)$/, " / 0.35)"), marginBottom: 12 }}>
           <div>
@@ -6621,10 +6837,13 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
         <ProduccionForm
           initial={emptyLote({ silo: modalProd.silo, litros: String(Math.round(modalProd.litros)) })}
           onSave={async (item, oldItem) => {
-            const prev = await load(date, "produccion", []);
+            // Estricto: partir de un default por fallo de red borraría los lotes del día.
+            let prev;
+            try { prev = await loadSeguro(date, "produccion", []); }
+            catch { _onSaveNoLeido?.({ sec: "produccion", date }); return; }
             const exists = prev.some(x => x.id === item.id);
             const updated = exists ? prev.map(x => x.id === item.id ? item : x) : [...prev, item];
-            await save(date, "produccion", updated);
+            if (await save(date, "produccion", updated) === false) return; // bloqueado: no auditar ni cerrar
             _autoLitrosCache.delete(date);
             const r = await calcAutoLitros(date);
             setD(p => ({ ...p, autoLitros: r.totals, autoReservados: r.reservados || {} }));
@@ -8765,6 +8984,22 @@ export default function App() {
     return () => { _onSaveQueued = null; };
   }, [toast]);
 
+  // Tanda 2: save() bloqueado porque esta sección nunca se pudo leer bien en
+  // esta sesión — guardar pisaría los datos reales del servidor.
+  useEffect(() => {
+    let lastShown = 0;
+    _onSaveNoLeido = () => {
+      const now = Date.now();
+      if (now - lastShown < 8000) return;
+      lastShown = now;
+      toast.error("Sin conexión — no se pudo verificar la información de esta sección. El cambio NO se guardó; reintentá cuando vuelva la señal.");
+    };
+    _onSobranteOmitido = () => {
+      toast.warn("El lote se guardó, pero el movimiento de sobrante no pudo generarse. Revisá Movimientos cuando vuelva la señal o volvé a guardar el lote.");
+    };
+    return () => { _onSaveNoLeido = null; _onSobranteOmitido = null; };
+  }, [toast]);
+
   // Descartes auditables: cuando la cola descarta una entrada por 4xx permanente,
   // notificamos al operario con un toast la primera vez y mostramos un contador
   // persistente con acceso a la lista detallada.
@@ -8936,7 +9171,10 @@ export default function App() {
   const guardarResponsable = async () => {
     if (!initNombre.trim()) return;
     const t = getCurrentTurno();
-    const d = await load(date, "stock", {});
+    // Estricto: no escribir el doc de stock partiendo de un default por fallo de red.
+    let d;
+    try { d = await loadSeguro(date, "stock", {}); }
+    catch { _onSaveNoLeido?.({ sec: "stock", date }); return; }
     await save(date, "stock", { ...d, [t]: { ...(d[t] || {}), resp: initNombre.trim() } });
     setInitModal(false);
   };
@@ -9933,3 +10171,8 @@ export default function App() {
     </PerfilProvider>
   );
 }
+
+// Sólo para tests de integración (tests/lecturas-integracion.test.js):
+// expone la capa de persistencia real sin renderizar la app. Va al final del
+// archivo para que todas las const (cache, helpers) ya estén inicializadas.
+export const __test = { load, loadSeguro, save, calcAutoLitros, _autoLitrosCache };
