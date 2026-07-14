@@ -87,7 +87,9 @@ En sessionStorage:
 
 ## Identidad y perfil (importante para auditabilidad)
 
-El perfil se deriva EXCLUSIVAMENTE de la sesion de Supabase Auth: primero user_metadata.rol,
+El perfil se deriva EXCLUSIVAMENTE de la sesion de Supabase Auth: primero app_metadata.rol
+(solo editable server-side con service role; user_metadata NO se consulta porque el propio
+usuario puede editarla desde el cliente con auth.updateUser() — escalacion de privilegios),
 si no, por coincidencia de email en PERFILES. Hay tres perfiles definidos
 (recibo_yatasto.jsx:63-67): supervisor, jefe y operador (este ultimo con usuario Auth en
 supabase-schema.sql). NO se deriva de localStorage ni de session-restore: esto evita escalar

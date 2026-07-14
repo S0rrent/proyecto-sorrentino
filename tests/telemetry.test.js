@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 
 // Mock supabase y db-adapter — telemetry depende de db.get/set/list/remove.
 const _store = new Map();
+let _session = { user: { id: "test-user" } };
 
 vi.mock("@supabase/supabase-js", () => ({
   createClient: () => ({
@@ -10,23 +11,27 @@ vi.mock("@supabase/supabase-js", () => ({
         _store.set(row.key, row.value);
         return Promise.resolve({ error: null });
       },
-      select: () => ({ eq: (col, key) => ({ maybeSingle: () => {
-        const v = _store.get(key);
-        return Promise.resolve({ data: v ? { value: v } : null, error: null });
-      } }) }),
-      delete: () => ({ eq: (col, key) => { _store.delete(key); return Promise.resolve({ error: null }); } }),
-      like: () => Promise.resolve({
-        data: Array.from(_store.entries())
-          .filter(([k]) => k.startsWith("yatasto:telemetry:"))
-          .map(([key, value]) => ({ key, value })),
-        error: null,
+      select: () => ({
+        eq: (col, key) => ({ maybeSingle: () => {
+          const v = _store.get(key);
+          return Promise.resolve({ data: v ? { value: v } : null, error: null });
+        } }),
+        // db.list() encadena .select("key,value").like("key", prefix%)
+        like: (col, pattern) => Promise.resolve({
+          data: Array.from(_store.entries())
+            .filter(([k]) => k.startsWith(pattern.replace(/%$/, "")))
+            .map(([key, value]) => ({ key, value })),
+          error: null,
+        }),
       }),
+      delete: () => ({ eq: (col, key) => { _store.delete(key); return Promise.resolve({ error: null }); } }),
     }),
     auth: {
       refreshSession: () => Promise.resolve({ error: null }),
       signInWithPassword: () => Promise.resolve({ data: { session: null }, error: null }),
       signOut: () => Promise.resolve({ error: null }),
-      getSession: () => Promise.resolve({ data: { session: null }, error: null }),
+      // Sesión válida por default: flushTelemetry no escribe sin sesión.
+      getSession: () => Promise.resolve({ data: { session: _session }, error: null }),
       onAuthStateChange: () => ({ data: { subscription: { unsubscribe: () => {} } } }),
     },
   }),
@@ -36,17 +41,35 @@ async function freshTelemetry(enabled) {
   _store.clear();
   vi.resetModules();
   localStorage.clear();
-  if (enabled) localStorage.setItem("yatasto:telemetry", "true");
+  _session = { user: { id: "test-user" } };
+  // Opt-out desde Tanda 1: sin flag = activa; "false" explícito = apagada.
+  if (!enabled) localStorage.setItem("yatasto:telemetry", "false");
   return await import("../telemetry.js");
 }
 
-describe("telemetry: opt-in via localStorage flag", () => {
+// La clave del día ahora lleva sufijo de dispositivo (yatasto:telemetry:DIA:xxxxxx).
+const dayKey = () => {
+  const today = new Date().toISOString().slice(0, 10);
+  return Array.from(_store.keys()).find((k) => k.startsWith("yatasto:telemetry:" + today));
+};
+
+describe("telemetry: opt-out via localStorage flag", () => {
   beforeEach(() => {
     _store.clear();
     localStorage.clear();
   });
 
-  it("desactivado por default — track() es no-op", async () => {
+  it("activada por default (sin flag) — track() persiste", async () => {
+    _store.clear();
+    vi.resetModules();
+    localStorage.clear();
+    const { track, flushTelemetry } = await import("../telemetry.js");
+    track("ingreso_save");
+    await flushTelemetry();
+    expect(_store.size).toBe(1);
+  });
+
+  it("desactivada explícitamente — track() es no-op", async () => {
     const { track, flushTelemetry } = await freshTelemetry(false);
     track("ingreso_save");
     track("tab_open", "movimientos");
@@ -55,7 +78,7 @@ describe("telemetry: opt-in via localStorage flag", () => {
     expect(_store.size).toBe(0);
   });
 
-  it("desactivado: dumpTelemetry retorna []", async () => {
+  it("desactivada: dumpTelemetry retorna []", async () => {
     const { dumpTelemetry } = await freshTelemetry(false);
     const out = await dumpTelemetry(3);
     expect(out).toEqual([]);
@@ -69,10 +92,9 @@ describe("telemetry: activado", () => {
     track("save_queued", "movimientos");
     await flushTelemetry();
 
-    // Key del día actual
-    const today = new Date().toISOString().slice(0, 10);
-    const key = "yatasto:telemetry:" + today;
-    expect(_store.has(key)).toBe(true);
+    // Key del día actual (con sufijo de dispositivo)
+    const key = dayKey();
+    expect(key).toBeTruthy();
 
     const data = JSON.parse(_store.get(key));
     expect(data.events).toHaveLength(2);
@@ -86,8 +108,7 @@ describe("telemetry: activado", () => {
     track("tab_open");
     await flushTelemetry();
 
-    const today = new Date().toISOString().slice(0, 10);
-    const data = JSON.parse(_store.get("yatasto:telemetry:" + today));
+    const data = JSON.parse(_store.get(dayKey()));
     expect(data.events[0]).toHaveProperty("e", "tab_open");
     expect(data.events[0]).toHaveProperty("t");
     expect(data.events[0]).not.toHaveProperty("v");
@@ -101,10 +122,9 @@ describe("telemetry: activado", () => {
     await flushTelemetry();
 
     // Segundo flush sin nuevos events: no genera escritura adicional con duplicados
-    const today = new Date().toISOString().slice(0, 10);
-    const first = JSON.parse(_store.get("yatasto:telemetry:" + today));
+    const first = JSON.parse(_store.get(dayKey()));
     await flushTelemetry();
-    const second = JSON.parse(_store.get("yatasto:telemetry:" + today));
+    const second = JSON.parse(_store.get(dayKey()));
     expect(first.events.length).toBe(second.events.length);
   });
 
@@ -116,10 +136,24 @@ describe("telemetry: activado", () => {
     track("b");
     await flushTelemetry();
 
-    const today = new Date().toISOString().slice(0, 10);
-    const data = JSON.parse(_store.get("yatasto:telemetry:" + today));
+    const data = JSON.parse(_store.get(dayKey()));
     expect(data.events).toHaveLength(2);
     expect(data.events.map((e) => e.e)).toEqual(["a", "b"]);
+  });
+
+  it("sin sesión NO escribe y conserva el buffer para el próximo flush", async () => {
+    const { track, flushTelemetry } = await freshTelemetry(true);
+    _session = null; // pantalla de login: sin sesión Supabase
+    track("js_error", "boom");
+    await flushTelemetry();
+    // Nada escrito: escribir sin sesión violaría RLS y ensuciaría los descartes.
+    expect(_store.size).toBe(0);
+
+    _session = { user: { id: "test-user" } }; // post-login
+    await flushTelemetry();
+    const data = JSON.parse(_store.get(dayKey()));
+    expect(data.events).toHaveLength(1);
+    expect(data.events[0].e).toBe("js_error");
   });
 
   it("dumpTelemetry retorna eventos ordenados por timestamp", async () => {

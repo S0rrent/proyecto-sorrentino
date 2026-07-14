@@ -2,10 +2,16 @@
 // telemetry.js — recolección local mínima para decisiones de UX
 //
 // Diseño: ver propuesta en sesión. Reglas no negociables:
-//   - Si yatasto:telemetry !== "true" en localStorage, todo es no-op.
+//   - Opt-out (Tanda 1, 2026-07): activa salvo yatasto:telemetry === "false".
+//     Los datos alimentan la decisión de nav del council y las métricas de UX-V2.
 //   - Append-only en memoria; persistencia lazy (visibilitychange + flush manual).
-//   - Una clave por día: yatasto:telemetry:YYYY-MM-DD → { events: Event[] }.
-//   - Cap duro 500 eventos/día. Retención 14 días. Sin user/device IDs.
+//   - Una clave por día y dispositivo: yatasto:telemetry:YYYY-MM-DD:xxxxxx →
+//     { events: Event[] }. El sufijo es un token aleatorio local (no identifica
+//     al usuario): evita que flushes concurrentes de dos tablets se pisen
+//     (read-merge-write sobre una clave compartida = last-writer-wins).
+//   - Cap duro 500 eventos/día POR DISPOSITIVO. Retención 14 días. Sin user IDs.
+//   - No se escribe sin sesión: el upsert fallaría contra RLS y ensuciaría la
+//     cola offline y el registro de descartes auditables (__yatasto_discarded__).
 //   - Fallos de db.set o localStorage se tragan en silencio: la app nunca
 //     debe degradarse por analytics.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -17,8 +23,21 @@ const MAX_EVENTS_PER_DAY = 500;
 const RETENTION_DAYS = 14;
 
 const ENABLED = (() => {
-  try { return typeof localStorage !== "undefined" && localStorage.getItem(FLAG) === "true"; }
+  try { return typeof localStorage !== "undefined" && localStorage.getItem(FLAG) !== "false"; }
   catch { return false; }
+})();
+
+// Token aleatorio por dispositivo (persistido en localStorage, nunca sube solo).
+// No está atado a ningún usuario u operario — solo separa las claves de escritura.
+const DEVICE_ID = (() => {
+  try {
+    let id = localStorage.getItem(FLAG + ":device");
+    if (!id) {
+      id = Math.random().toString(36).slice(2, 8);
+      localStorage.setItem(FLAG + ":device", id);
+    }
+    return id;
+  } catch { return "anon"; }
 })();
 
 let buffer = [];
@@ -39,10 +58,17 @@ export const track = (e, v, f) => {
 export const flushTelemetry = async () => {
   if (!ENABLED || buffer.length === 0 || flushing) return;
   flushing = true;
-  const toFlush = buffer;
-  buffer = [];
   try {
-    const key = KEY_PREFIX + today();
+    // Sin sesión no se escribe: el upsert violaría RLS (403) y el retry de la
+    // cola terminaría registrando analytics en los descartes auditables.
+    // Los eventos quedan en buffer y salen en el próximo flush post-login.
+    let session = null;
+    try { session = await db.auth.getSession(); } catch { /* silent */ }
+    if (!session) return;
+
+    const toFlush = buffer;
+    buffer = [];
+    const key = KEY_PREFIX + today() + ":" + DEVICE_ID;
     let existing = [];
     try {
       const r = await db.get(key);
@@ -52,7 +78,7 @@ export const flushTelemetry = async () => {
       }
     } catch { /* silent */ }
     const remaining = MAX_EVENTS_PER_DAY - existing.length;
-    if (remaining <= 0) { flushing = false; return; }
+    if (remaining <= 0) return;
     const merged = existing.concat(toFlush.slice(0, remaining));
     await db.set(key, JSON.stringify({ events: merged }));
   } catch {
@@ -69,7 +95,8 @@ const cleanupOldDays = async () => {
     const cutoff = new Date(Date.now() - RETENTION_DAYS * 86400000)
       .toISOString().slice(0, 10);
     for (const row of all) {
-      const day = row.key.replace(KEY_PREFIX, "");
+      // Soporta claves nuevas (día:device) y legacy (solo día).
+      const day = row.key.replace(KEY_PREFIX, "").slice(0, 10);
       if (day < cutoff) {
         try { await db.remove(row.key); } catch { /* silent */ }
       }
@@ -93,16 +120,20 @@ export const initTelemetry = () => {
 // Helper opcional para análisis manual desde consola
 export const dumpTelemetry = async (days = RETENTION_DAYS) => {
   const out = [];
-  for (let i = 0; i < days; i++) {
-    const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
-    try {
-      const r = await db.get(KEY_PREFIX + d);
-      if (r?.value) {
-        const parsed = JSON.parse(r.value);
-        (parsed?.events || []).forEach(e => out.push({ day: d, ...e }));
-      }
-    } catch { /* silent */ }
-  }
+  const cutoff = new Date(Date.now() - (days - 1) * 86400000).toISOString().slice(0, 10);
+  try {
+    // Una sola lista y filtrado client-side: agrega los eventos de TODOS los
+    // dispositivos (claves día:device) y sigue leyendo las claves legacy.
+    const all = await db.list(KEY_PREFIX);
+    for (const row of all) {
+      const day = row.key.replace(KEY_PREFIX, "").slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || day < cutoff) continue;
+      try {
+        const parsed = JSON.parse(row.value);
+        (parsed?.events || []).forEach(e => out.push({ day, ...e }));
+      } catch { /* silent */ }
+    }
+  } catch { /* silent */ }
   return out.sort((a, b) => a.t - b.t);
 };
 

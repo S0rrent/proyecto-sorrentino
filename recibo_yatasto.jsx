@@ -7,7 +7,7 @@ import { OperarioLogin } from "./components/OperarioLogin.jsx";
 import { SecUsuarios } from "./components/SecUsuarios.jsx";
 import { useStepUpPin } from "./components/StepUpPin.jsx";
 import { loadOperarios, operariosActivos } from "./lib/operarios.js";
-import { stampOperario } from "./lib/audit.js";
+import { stampOperario, respFor } from "./lib/audit.js";
 import { ACCIONES, tienePermiso } from "./lib/permisos.js";
 import {
   getToday, getPreviousDate, addDay, getLastNDays, getDaysInRange,
@@ -1972,7 +1972,7 @@ const SecIngresos = ({ date, syncKey = 0, dayClosed = false, perfil = null }) =>
       track("stepup_eliminar_ingreso_cerrado", id);
     }
 
-    if (item) await logDelete("ingreso", item);
+    if (item) await logDelete("ingreso", item, respFor(operario, perfil, PERFILES[perfil]?.label));
     const ok = await persist(list.filter(i => i.id !== id), stepUpAuth ? { bypassClosed: true } : {});
     if (ok !== false && stepUpAuth) {
       // Audit complementario con doble autoría para casos de bypass.
@@ -2469,7 +2469,7 @@ const SecCarga = ({ date, syncKey = 0, dayClosed = false, perfil = null }) => {
     const item = list.find(i => i.id === id);
     const resumen = item ? buildResumen("carga", item) : "";
     if (await askConfirm({ title: "Eliminar carga", message: `¿Eliminar esta carga?${resumen ? "\n\n" + resumen : ""}`, danger: true, confirmLabel: "Eliminar" })) {
-      if (item) await logDelete("carga", item);
+      if (item) await logDelete("carga", item, respFor(operario, perfil, PERFILES[perfil]?.label));
       await persist(list.filter(i => i.id !== id)); setModal(null);
     }
   };
@@ -2722,7 +2722,7 @@ const SecMovimientos = ({ date, syncKey = 0, dayClosed = false, perfil = null })
     const item = data.movs.find(i => i.id === id);
     const resumen = item ? buildResumen("movimiento", item) : "";
     if (await askConfirm({ title: "Eliminar movimiento", message: `¿Eliminar este movimiento?${resumen ? "\n\n" + resumen : ""}`, danger: true, confirmLabel: "Eliminar" })) {
-      if (item) await logDelete("movimiento", item);
+      if (item) await logDelete("movimiento", item, respFor(operario, perfil, PERFILES[perfil]?.label));
       await persist({ ...data, movs: data.movs.filter(i => i.id !== id) });
     }
     setModal(null);
@@ -2736,7 +2736,7 @@ const SecMovimientos = ({ date, syncKey = 0, dayClosed = false, perfil = null })
     const item = data.ctrls.find(i => i.id === id);
     const resumen = item ? buildResumen("control", item) : "";
     if (await askConfirm({ title: "Eliminar control", message: `¿Eliminar este control?${resumen ? "\n\n" + resumen : ""}`, danger: true, confirmLabel: "Eliminar" })) {
-      if (item) await logDelete("control", item);
+      if (item) await logDelete("control", item, respFor(operario, perfil, PERFILES[perfil]?.label));
       await persist({ ...data, ctrls: data.ctrls.filter(i => i.id !== id) });
     }
     setModal(null);
@@ -4468,7 +4468,7 @@ const SecFortificados = ({ date, syncKey = 0, dayClosed = false, perfil = null }
     const item = list.find(i => i.id === id);
     const resumen = item ? buildResumen("fortificado", item) : "";
     if (await askConfirm({ title: "Eliminar lote fortificado", message: `¿Eliminar este lote?${resumen ? "\n\n" + resumen : ""}`, danger: true, confirmLabel: "Eliminar" })) {
-      if (item) await logDelete("fortificado", item);
+      if (item) await logDelete("fortificado", item, respFor(operario, perfil, PERFILES[perfil]?.label));
       await persist(list.filter(i => i.id !== id));
       setModal(null);
     }
@@ -6858,11 +6858,11 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
               <div>
                 <div style={{ fontSize: 11, color: C.sub, marginBottom: 4 }}>Desde</div>
-                <input type="date" value={exportFrom} onChange={e => { setExportFrom(e.target.value); if (e.target.value > exportTo) setExportTo(e.target.value); }} style={{ ...inp, width: "100%" }} />
+                <input type="date" value={exportFrom} max={getToday()} onChange={e => { const v = e.target.value; if (v > getToday()) return; setExportFrom(v); if (v > exportTo) setExportTo(v); }} style={{ ...inp, width: "100%" }} />
               </div>
               <div>
                 <div style={{ fontSize: 11, color: C.sub, marginBottom: 4 }}>Hasta</div>
-                <input type="date" value={exportTo} onChange={e => { setExportTo(e.target.value); if (e.target.value < exportFrom) setExportFrom(e.target.value); }} style={{ ...inp, width: "100%" }} />
+                <input type="date" value={exportTo} max={getToday()} onChange={e => { const v = e.target.value; if (v > getToday()) return; setExportTo(v); if (v < exportFrom) setExportFrom(v); }} style={{ ...inp, width: "100%" }} />
               </div>
             </div>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -7762,12 +7762,12 @@ const SecAdmin = ({ date, syncKey, perfil }) => {
         ))}
         {preset === "custom" && (
           <>
-            <input type="date" value={customFrom}
-              onChange={e => setCustomFrom(e.target.value)}
+            <input type="date" value={customFrom} max={getToday()}
+              onChange={e => { if (e.target.value > getToday()) return; setCustomFrom(e.target.value); }}
               style={{ ...inp, width: "auto", fontSize: 13, padding: "3px 8px", flex: "none" }} />
             <span style={{ color: C.sub, fontSize: 12 }}>→</span>
-            <input type="date" value={customTo}
-              onChange={e => setCustomTo(e.target.value)}
+            <input type="date" value={customTo} max={getToday()}
+              onChange={e => { if (e.target.value > getToday()) return; setCustomTo(e.target.value); }}
               style={{ ...inp, width: "auto", fontSize: 13, padding: "3px 8px", flex: "none" }} />
           </>
         )}
@@ -8840,8 +8840,10 @@ export default function App() {
     let active = true;
     const resolvePerfilFromSession = (session) => {
       if (!session?.user) return null;
-      // Primero intentar user_metadata.rol (forma canónica)
-      const metaRol = session.user.user_metadata?.rol;
+      // app_metadata: solo editable con service role (server-side). user_metadata
+      // NO se consulta: el propio usuario puede editarla desde el cliente con
+      // auth.updateUser() → escalación de privilegios.
+      const metaRol = session.user.app_metadata?.rol;
       if (metaRol && PERFILES[metaRol]) return metaRol;
       // Fallback: derivar del email autenticado en Supabase
       const email = session.user.email;
@@ -9128,7 +9130,15 @@ export default function App() {
           </span>
           <button
             type="button"
-            onClick={() => updateServiceWorker(true)}
+            onClick={() => {
+              // Guard: actualizar recarga la página — con un modal/form abierto se perdería lo tipeado.
+              const modalesAbiertos = parseInt(document.body.dataset.yatModalCount || "0", 10);
+              if (modalesAbiertos > 0) {
+                toast.warn("Hay un formulario abierto — guardalo o cerralo antes de actualizar");
+                return;
+              }
+              updateServiceWorker(true);
+            }}
             style={{
               background: "#000", color: C.accent, border: "none", borderRadius: 6,
               padding: "4px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer",
@@ -9665,7 +9675,13 @@ export default function App() {
       {/* Date picker */}
       {datePicker && (
         <div style={{ background: C.card, borderBottom: `1px solid ${C.border}`, padding: isDesktop ? "14px 24px" : "12px 16px", display: "flex", gap: 8, marginLeft: isDesktop ? SIDEBAR_W : 0 }}>
-          <input type="date" value={date} onChange={e => { setDate(e.target.value); setDatePicker(false); }}
+          <input type="date" value={date} max={getToday()}
+            onChange={e => {
+              const v = e.target.value;
+              // A8: sin fechas futuras — un día futuro cerrado rompe el fast-path del saldo.
+              if (!v || v > getToday()) return;
+              setDate(v); setDatePicker(false);
+            }}
             style={{ ...inp, flex: 1, fontSize: isDesktop ? 16 : 14, padding: isDesktop ? "11px 16px" : "9px 12px" }} />
           <button type="button" onClick={() => { setDate(getToday()); setDatePicker(false); }}
             style={{ ...btnPrimary, width: "auto", padding: isDesktop ? "11px 20px" : "10px 16px", fontSize: isDesktop ? 15 : 13, whiteSpace: "nowrap" }}>Hoy</button>

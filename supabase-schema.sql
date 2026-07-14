@@ -472,20 +472,31 @@ CREATE TRIGGER trig_config_updated
 --    SELECT supabase_auth.create_user(
 --      email      := 'supervisor@yatasto.internal',
 --      password   := '<contraseña-segura-supervisor>',
---      user_metadata := '{"rol": "supervisor"}'::jsonb
+--      app_metadata := '{"rol": "supervisor"}'::jsonb
 --    );
 --
 --    SELECT supabase_auth.create_user(
 --      email      := 'jefe@yatasto.internal',
 --      password   := '<contraseña-segura-jefe>',
---      user_metadata := '{"rol": "jefe"}'::jsonb
+--      app_metadata := '{"rol": "jefe"}'::jsonb
 --    );
 --
 --    SELECT supabase_auth.create_user(
 --      email      := 'operador@yatasto.app',
 --      password   := '<contraseña-segura-operador>',
---      user_metadata := '{"rol": "operador"}'::jsonb
+--      app_metadata := '{"rol": "operador"}'::jsonb
 --    );
+--
+--  IMPORTANTE (Tanda 1, 2026-07): el rol va en app_metadata, NO en
+--  user_metadata. La app lee session.user.app_metadata.rol porque
+--  user_metadata puede editarla el propio usuario desde el cliente con
+--  auth.updateUser() (escalación de privilegios). Para usuarios ya creados
+--  con el rol en user_metadata, migrar con service role:
+--
+--    UPDATE auth.users
+--    SET raw_app_meta_data = COALESCE(raw_app_meta_data, '{}'::jsonb)
+--                            || jsonb_build_object('rol', raw_user_meta_data->>'rol')
+--    WHERE raw_user_meta_data ? 'rol';
 --
 --  Roles válidos: supervisor | jefe | operador.
 --  El rol 'admin' fue retirado — el usuario admin@yatasto.internal asociado
