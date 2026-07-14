@@ -45,14 +45,11 @@ export default defineConfig({
             },
           },
           {
+            // Tanda 2 (P0-2): los datos de Supabase NUNCA se sirven desde cache —
+            // un GET cacheado hasta 24h se presentaba como dato actual. El modo
+            // offline lo maneja la cola de escrituras + el guard de lecturas, no el SW.
             urlPattern: /^https:\/\/.*\.supabase\.co\/.*/i,
-            handler: "NetworkFirst",
-            options: {
-              cacheName: "supabase-cache",
-              expiration: { maxEntries: 50, maxAgeSeconds: 60 * 60 * 24 },
-              networkTimeoutSeconds: 10,
-              cacheableResponse: { statuses: [0, 200] },
-            },
+            handler: "NetworkOnly",
           },
         ],
       },
