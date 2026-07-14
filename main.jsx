@@ -2,6 +2,21 @@ import { createRoot } from 'react-dom/client';
 import App from './recibo_yatasto.jsx';
 import { ToastProvider } from './components/Toast.jsx';
 import { ErrorBoundary } from './components/ErrorBoundary.jsx';
+import { track, flushTelemetry } from './telemetry.js';
+
+// Errores async (promesas rechazadas, listeners) no pasan por el ErrorBoundary
+// de React: sin estos handlers quedan invisibles salvo con la consola abierta.
+// Se registran en telemetría y se flushea al toque (un error puede preceder a un crash).
+window.addEventListener('error', (e) => {
+  track('js_error', String(e?.message || 'error').slice(0, 120));
+  flushTelemetry();
+});
+window.addEventListener('unhandledrejection', (e) => {
+  // String() primero: reason.message puede ser truthy y no-string (sin .slice).
+  const msg = String(e?.reason?.message || e?.reason || 'unhandledrejection');
+  track('js_unhandled_rejection', msg.slice(0, 120));
+  flushTelemetry();
+});
 
 // Polyfill window.storage with localStorage for standalone preview
 if (!window.storage) {

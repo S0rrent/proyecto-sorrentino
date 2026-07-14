@@ -158,6 +158,18 @@ investigar el detalle.
       y verificá que se sincroniza.
 - [ ] Asegurarse de que el respaldo automático de Supabase (PITR) está
       activado.
+- [ ] **Supabase → Authentication → Sign In / Up: deshabilitar el registro
+      público (self-signup)**. Si queda habilitado, cualquiera con la anon
+      key (que es pública, viaja en el bundle) puede crearse una cuenta y
+      obtener acceso total a los datos.
+- [ ] **Rol de cada usuario en `app_metadata`** (no en `user_metadata`):
+      la app lee `app_metadata.rol` porque `user_metadata` puede editarla
+      el propio usuario desde el cliente. Se setea desde el dashboard
+      (Authentication → Users → editar usuario → `app_metadata`:
+      `{"rol": "supervisor"}`) o por SQL con service role:
+      `UPDATE auth.users SET raw_app_meta_data = COALESCE(raw_app_meta_data, '{}'::jsonb) || '{"rol":"jefe"}'::jsonb WHERE email = 'jefe@yatasto.internal';`
+      Mientras no esté seteado, la app cae al fallback por email interno
+      (funciona igual para las 3 cuentas actuales).
 
 ## 8. Dónde mirar si algo no calza
 
@@ -170,25 +182,26 @@ investigar el detalle.
 | Descartes 4xx repetitivos | Probablemente un payload corrupto. Borrá la entrada problemática del banner *Ver detalle*. |
 | Conflicto entre dispositivos seguido | Coordiná turnos: no dos personas editando la misma sección al mismo tiempo. |
 
-## 9. Telemetría (opcional)
+## 9. Telemetría
 
-La app puede registrar eventos para ver cómo la usan los operarios. Por
-defecto **está desactivada** (no manda nada a ningún servidor — todo
-queda en el navegador del dispositivo).
+La app registra eventos de uso para decidir mejoras de UX (taps por
+sección, saves ok/encolados/fallidos, errores de JS). Desde la Tanda 1
+(julio 2026) **está activada por defecto**: los datos alimentan la
+decisión de la nav nueva (council 2026-05-23 pidió 1 semana de datos
+reales) y las métricas de éxito de UX-V2. No hay IDs de usuario ni de
+dispositivo; los eventos se guardan bajo `yatasto:telemetry:FECHA` con
+retención de 14 días y tope de 500 eventos/día.
 
-Para activarla en un dispositivo:
+Para desactivarla en un dispositivo (opt-out):
 1. Abrí DevTools (F12).
 2. En la consola, escribí:
-   `localStorage.setItem("yatasto:telemetry", "true")`
+   `localStorage.setItem("yatasto:telemetry", "false")`
 3. Recargá la página.
 
 Para descargar los eventos del día:
 1. En la consola, escribí:
    `await window.__yatastoTelemetry.dump()`
-2. Se muestra un array con todos los eventos (taps por sección, saves
-   ok/encolados/fallidos, etc.).
-3. Retención: 14 días.
+2. Se muestra un array con todos los eventos.
 
 Útil para decidir si una nueva nav (4 tabs vs 6) tiene sentido, o si los
-operarios están abandonando formularios a mitad. Sólo activar con
-consentimiento explícito.
+operarios están abandonando formularios a mitad.
