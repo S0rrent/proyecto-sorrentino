@@ -18,6 +18,14 @@ window.addEventListener('unhandledrejection', (e) => {
   flushTelemetry();
 });
 
+// Tanda 2: el SW ya no cachea Supabase (NetworkOnly), pero el cache viejo
+// "supabase-cache" queda en los dispositivos — cleanupOutdatedCaches solo
+// limpia el precache. Borrarlo en cada arranque es lo que garantiza que
+// converja aunque el SW viejo siga activo un tiempo (es un no-op después).
+if ("caches" in window) {
+  window.caches.delete("supabase-cache").catch(() => {});
+}
+
 // Polyfill window.storage with localStorage for standalone preview
 if (!window.storage) {
   window.storage = {

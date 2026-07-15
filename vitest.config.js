@@ -1,8 +1,15 @@
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
+import { fileURLToPath } from "node:url";
 
 export default defineConfig({
   plugins: [react()],
+  resolve: {
+    alias: {
+      // El plugin PWA (que provee este módulo virtual) no corre en tests.
+      "virtual:pwa-register/react": fileURLToPath(new URL("./tests/stubs/pwa-register.js", import.meta.url)),
+    },
+  },
   test: {
     environment: "jsdom",
     globals: true,
