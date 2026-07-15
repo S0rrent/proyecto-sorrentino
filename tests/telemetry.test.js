@@ -11,19 +11,37 @@ vi.mock("@supabase/supabase-js", () => ({
         _store.set(row.key, row.value);
         return Promise.resolve({ error: null });
       },
-      select: () => ({
-        eq: (col, key) => ({ maybeSingle: () => {
-          const v = _store.get(key);
-          return Promise.resolve({ data: v ? { value: v } : null, error: null });
-        } }),
-        // db.list() encadena .select("key,value").like("key", prefix%)
-        like: (col, pattern) => Promise.resolve({
-          data: Array.from(_store.entries())
-            .filter(([k]) => k.startsWith(pattern.replace(/%$/, "")))
-            .map(([key, value]) => ({ key, value })),
-          error: null,
-        }),
-      }),
+      select: (cols, opts) => {
+        // db.count(): select("key", { count: "exact", head: true }).like(...)
+        if (opts?.head && opts?.count === "exact") {
+          return { like: () => Promise.resolve({ count: _store.size, error: null }) };
+        }
+        return {
+          eq: (col, key) => ({ maybeSingle: () => {
+            const v = _store.get(key);
+            return Promise.resolve({ data: v ? { value: v } : null, error: null });
+          } }),
+          // db.list() keyset: .like(...)[.gt("key", last)].order(...).limit(n)
+          like: (col, pattern) => {
+            let gtKey = null;
+            const q = {
+              gt: (c, v) => { gtKey = v; return q; },
+              order: () => ({
+                limit: (n) => Promise.resolve({
+                  data: Array.from(_store.entries())
+                    .filter(([k]) => k.startsWith(pattern.replace(/%$/, "")))
+                    .filter(([k]) => gtKey === null || k > gtKey)
+                    .sort(([a], [b]) => (a < b ? -1 : 1))
+                    .map(([key, value]) => ({ key, value }))
+                    .slice(0, n),
+                  error: null,
+                }),
+              }),
+            };
+            return q;
+          },
+        };
+      },
       delete: () => ({ eq: (col, key) => { _store.delete(key); return Promise.resolve({ error: null }); } }),
     }),
     auth: {

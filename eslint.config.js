@@ -24,6 +24,7 @@ export default [
         crypto: "readonly",
         TextEncoder: "readonly",
         TextDecoder: "readonly",
+        __APP_VERSION__: "readonly", // inyectada por Vite (define en vite.config.js)
         Uint8Array: "readonly",
         console: "readonly",
         setTimeout: "readonly",

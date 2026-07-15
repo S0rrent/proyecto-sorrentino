@@ -517,24 +517,41 @@ async function logDelete(tipo, item, by) {
 
 // Backup completo: descarga todas las keys "yatasto:*" como JSON al dispositivo
 async function generateBackup() {
-  const rows = await db.list("yatasto:");
+  const rows = await db.list("yatasto:"); // paginado — trae TODO
+  // Verificación de completitud: contar server-side y comparar. Un backup
+  // incompleto marcado como exitoso es pérdida de datos diferida (T3).
+  let esperado = null;
+  try { esperado = await db.count("yatasto:"); } catch { /* sin count no se puede verificar */ }
   const pad = n => String(n).padStart(2, "0");
   const now = new Date();
+  const datos = Object.fromEntries(rows.map(r => {
+    try { return [r.key, JSON.parse(r.value)]; } catch { return [r.key, r.value]; }
+  }));
+  const totalReal = Object.keys(datos).length; // post-dedupe: lo que de verdad contiene el archivo
+  // Tres estados: completo (verificado) / incompleto (verificado y falta algo) /
+  // sin verificar (no se pudo contar — el archivo puede estar perfecto igual).
+  const completo = esperado !== null && esperado === totalReal;
   const payload = {
     generado: now.toISOString(),
-    version: "1.0",
-    total_registros: rows.length,
-    datos: Object.fromEntries(rows.map(r => {
-      try { return [r.key, JSON.parse(r.value)]; } catch { return [r.key, r.value]; }
-    })),
+    version: "2.0", // formato del archivo de backup
+    version_app: typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "dev",
+    total_registros: totalReal,
+    total_esperado: esperado, // null = no se pudo verificar
+    completo,
+    datos,
   };
-  const filename = `yatasto-backup-${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}.json`;
+  const sufijo = completo ? "" : (esperado === null ? "-SIN-VERIFICAR" : "-INCOMPLETO");
+  const filename = `yatasto-backup-${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${sufijo}.json`;
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url; a.download = filename; a.click();
   URL.revokeObjectURL(url);
-  try { localStorage.setItem("yatasto:ultimo-backup-date", now.toISOString().split("T")[0]); } catch {}
+  // Solo cuenta como "último backup" si fue completo y verificado.
+  if (completo) {
+    try { localStorage.setItem("yatasto:ultimo-backup-date", now.toISOString().split("T")[0]); } catch {}
+  }
+  return { completo, verificado: esperado !== null, total: totalReal, esperado };
 }
 
 // Calcula litros netos por silo: saldo_anterior + ingresos + movimientos − cargas − fort_origen + fort_destino
@@ -8399,7 +8416,12 @@ ${cargas.map(r=>`<tr><td>${r._date}</td><td>${r.hora||""}</td><td>${escapeHtml(r
                   const btn = e.currentTarget;
                   btn.disabled = true;
                   btn.textContent = "Generando…";
-                  try { await generateBackup(); btn.textContent = "✓ Descargado"; }
+                  try {
+                    const r = await generateBackup();
+                    btn.textContent = r.completo ? "✓ Descargado y verificado"
+                      : r.verificado ? `⚠ INCOMPLETO (${r.total}/${r.esperado})`
+                      : "⚠ Descargado SIN verificar";
+                  }
                   catch { btn.textContent = "Error — intentá de nuevo"; }
                   finally { setTimeout(() => { btn.disabled = false; btn.textContent = "Descargar backup completo"; }, 3000); }
                 }}
@@ -9967,8 +9989,16 @@ export default function App() {
                 disabled={backupLoading}
                 onClick={async () => {
                   setBackupLoading(true);
-                  try { await generateBackup(); setBackupSuggestion(false); }
-                  catch { setBackupSuggestion(false); }
+                  try {
+                    const r = await generateBackup();
+                    if (!r.completo) {
+                      toast.warn(r.verificado
+                        ? `El backup bajó ${r.total} de ${r.esperado} registros — NO es completo. Reintentá (escrituras durante el backup pueden dar falsos incompletos).`
+                        : "Backup descargado pero SIN verificar (no se pudo contar contra el servidor). Reintentá con mejor señal.");
+                    }
+                    setBackupSuggestion(false);
+                  }
+                  catch { toast.error("No se pudo generar el backup. Reintentá con conexión."); setBackupSuggestion(false); }
                   finally { setBackupLoading(false); }
                 }}
               >

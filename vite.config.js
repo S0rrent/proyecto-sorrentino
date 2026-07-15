@@ -3,6 +3,11 @@ import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 
 export default defineConfig({
+  define: {
+    // Versión visible en backups y diagnóstico. npm inyecta npm_package_version
+    // en cualquier script (dev/build); fallback "dev" por si se corre Vite directo.
+    __APP_VERSION__: JSON.stringify(process.env.npm_package_version || "dev"),
+  },
   plugins: [
     react(),
     VitePWA({

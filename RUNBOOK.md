@@ -205,3 +205,85 @@ Para descargar los eventos del día:
 
 Útil para decidir si una nueva nav (4 tabs vs 6) tiene sentido, o si los
 operarios están abandonando formularios a mitad.
+
+## 10. Backup y restore
+
+### Backup
+
+El botón "Descargar backup completo" (panel del jefe) baja TODAS las claves
+`yatasto:*` paginando de a 1000 y **verifica contra el conteo del servidor**.
+Tres resultados posibles:
+- **Completo y verificado**: nombre normal, `"completo": true`.
+- **`-INCOMPLETO`**: la verificación contó más registros de los que bajaron.
+  Reintentar. Ojo: escrituras concurrentes durante el backup (otro dispositivo
+  guardando) pueden dar un falso incompleto — el reintento lo resuelve.
+- **`-SIN-VERIFICAR`**: no se pudo contar contra el servidor (señal). El
+  archivo puede estar perfecto, pero no cuenta como respaldo verificado.
+
+Solo el completo y verificado registra "último backup".
+
+### Restore (drill: practicarlo ANTES de necesitarlo)
+
+Siempre aditivo: escribe las claves del backup, **jamás borra** las que solo
+existen en el servidor. Con sesión de jefe, en la consola del navegador (F12):
+
+1. Abrir el archivo de backup y copiar su contenido.
+2. Dry-run (no escribe nada, muestra el reporte):
+   `await window.__yatastoRestore(<pegar el JSON acá>)`
+3. Leer el reporte: `total_en_backup`, `nuevas`, `sobrescribe`,
+   `solo_en_servidor`. Si los números cierran:
+   `await window.__yatastoRestore(<el mismo JSON>, { dryRun: false })`
+4. Verificar `escritas`. Si `encoladas` no es cero, esas claves quedaron en
+   la cola offline y se van a escribir solas al volver la red — el restore
+   se completa igual, pero conviene hacerlo con buena señal para verificarlo
+   en el momento. Refrescar la app y revisar un día conocido.
+
+Drill recomendado: una vez por trimestre, restaurar el último backup a un
+proyecto Supabase de prueba (scratch) y abrir la app apuntando a ese proyecto.
+
+## 11. Checklist de release
+
+Antes de mergear a `main` (cada push a main HOY deploya a producción — ver §12):
+
+- [ ] `npm test` verde (sin excepciones).
+- [ ] `npm run build` verde.
+- [ ] `npm run lint` sin errores.
+- [ ] Si tocó zona protegida (saldo/cola/SW/schema): pre-mortem hecho y smoke
+      manual offline en un dispositivo real.
+- [ ] Backup completo descargado y verificado ANTES del deploy.
+- [ ] Avisar a planta si el cambio altera algo visible del flujo del turno.
+
+Después del deploy:
+
+- [ ] Abrir la app en un dispositivo de planta, forzar el banner "Actualizar"
+      y verificar que carga la versión nueva (la versión figura en el backup:
+      `version_app`).
+- [ ] Cargar un ingreso de prueba en la fecha de hoy y borrarlo (queda
+      auditado como prueba).
+
+### Rollback
+
+1. `git revert` del merge en `main` y push — Vercel deploya el revert.
+2. Los datos NO se migran en ningún release (clave-valor estable): revertir
+   código nunca requiere tocar datos.
+3. Si el SW quedó pegado en un dispositivo: recargar dos veces o borrar el
+   sitio de los datos del navegador (último recurso).
+
+## 12. Gate CI→Vercel (pendiente — requiere config del dashboard)
+
+HOY Vercel deploya cada push a `main` aunque el CI de GitHub esté rojo.
+El plan para cerrarlo (decidido en la auditoría, ejecutar cuando el dueño
+tenga 15 minutos con los dashboards):
+
+1. En Vercel → Settings → Git → crear un **Deploy Hook** (URL secreta) para
+   `main`.
+2. En GitHub → Settings → Secrets → agregar `VERCEL_DEPLOY_HOOK` con esa URL.
+3. Agregar al final de `.github/workflows/ci.yml` un job `deploy` con
+   `needs: [build]` (o el job final del CI) que haga
+   `curl -X POST "$VERCEL_DEPLOY_HOOK"` solo en `main`.
+4. En `vercel.json` agregar `"git": { "deploymentEnabled": { "main": false } }`
+   para apagar el auto-deploy (los PRs previews pueden quedar activos).
+5. Probar: un PR con un test roto NO debe llegar a producción; un merge verde sí.
+
+NO aplicar el paso 4 antes del 1-3: quedaría la producción congelada sin
+mecanismo de deploy.

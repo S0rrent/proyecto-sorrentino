@@ -297,12 +297,39 @@ export const db = {
   },
 
   async list(prefix = "yatasto:") {
-    const { data, error } = await _sb
+    // Supabase corta silenciosamente en 1000 filas por request (T3 del registro
+    // de hazards). Paginación KEYSET (gt sobre la última key, no offset): inmune
+    // a inserts/deletes concurrentes (offset saltea o duplica filas del borde de
+    // página) y a un db-max-rows del servidor menor a PAGE. Corta solo cuando
+    // una página llega vacía.
+    const PAGE = 1000;
+    const all = [];
+    let last = null;
+    for (;;) {
+      let q = _sb
+        .from("yatasto_storage")
+        .select("key,value")
+        .like("key", `${prefix}%`);
+      if (last !== null) q = q.gt("key", last);
+      const { data, error } = await q.order("key", { ascending: true }).limit(PAGE);
+      if (error) throw error;
+      const rows = data || [];
+      if (rows.length === 0) break;
+      all.push(...rows);
+      last = rows[rows.length - 1].key;
+    }
+    return all;
+  },
+
+  // Cantidad exacta de filas con el prefijo, contada por el servidor.
+  // Sirve para verificar que un backup trajo TODO (list.length === count).
+  async count(prefix = "yatasto:") {
+    const { count, error } = await _sb
       .from("yatasto_storage")
-      .select("key,value")
+      .select("key", { count: "exact", head: true })
       .like("key", `${prefix}%`);
     if (error) throw error;
-    return data || [];
+    return count ?? 0;
   },
 
   auth: {
@@ -342,4 +369,57 @@ export async function migrateToSupabase() {
     }
   }
   console.log("Migración completa.");
+}
+
+// Restaura un backup generado por la app (el JSON descargado por generateBackup).
+// SIEMPRE aditivo: upsertea las claves del backup, NUNCA borra las que solo
+// existen en el servidor. Por defecto dryRun=true: no escribe nada, devuelve
+// un reporte para verificar antes de ejecutar en serio.
+//
+// Procedimiento (RUNBOOK §10): desde la consola del navegador con sesión de jefe:
+//   const r = await window.__yatastoRestore(backupJson);            // dry-run
+//   const r = await window.__yatastoRestore(backupJson, { dryRun: false }); // real
+export async function restoreFromBackup(payload, { dryRun = true } = {}) {
+  if (typeof payload === "string") {
+    try { payload = JSON.parse(payload); }
+    catch { throw new Error("Backup inválido: el texto no es JSON"); }
+  }
+  if (!payload || typeof payload !== "object" || payload.datos === null || typeof payload.datos !== "object") {
+    throw new Error("Backup inválido: falta el objeto 'datos'");
+  }
+  const todas = Object.keys(payload.datos);
+  const keys = todas.filter(k => k.startsWith("yatasto:"));
+  const existentes = await db.list("yatasto:");
+  const existentesSet = new Set(existentes.map(r => r.key));
+  const sobrescribe = keys.filter(k => existentesSet.has(k)).length;
+  const reporte = {
+    dryRun,
+    backup_generado: payload.generado || null,
+    backup_completo: payload.completo ?? null,
+    total_en_backup: keys.length,
+    claves_ajenas_ignoradas: todas.length - keys.length,
+    en_servidor_ahora: existentes.length,
+    nuevas: keys.length - sobrescribe,
+    sobrescribe,
+    solo_en_servidor: existentes.length - sobrescribe,
+  };
+  if (dryRun) return reporte;
+  // db.set nunca lanza: retorna timestamp (escrita) o null (encolada en
+  // __yatasto_wq__ por falta de red — va a drenar sola al reconectar).
+  // Encolada NO es error: el restore se completa solo, pero conviene
+  // hacerlo con buena señal para verificarlo en el momento.
+  let escritas = 0;
+  const encoladas = [];
+  for (const k of keys) {
+    const v = payload.datos[k];
+    const value = typeof v === "string" ? v : JSON.stringify(v);
+    const ts = await db.set(k, value);
+    if (ts) escritas++; else encoladas.push(k);
+  }
+  return { ...reporte, escritas, encoladas: encoladas.length, claves_encoladas: encoladas };
+}
+
+// Helper de consola (el import dinámico no funciona en el bundle de producción).
+if (typeof window !== "undefined") {
+  window.__yatastoRestore = restoreFromBackup;
 }
