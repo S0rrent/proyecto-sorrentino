@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="es-AR" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>PROTOTIPO · Dashboard Supervisor (light) · Yatasto</title>
+<!--
+  Prototipo estático del discovery frontend-dashboards-v2 (doc 03, pantalla
+  "Dashboard Supervisor", alternativa recomendada en doc 05).
+  - Paleta: LIGHT de tokens.js + extensiones propuestas en 02 §1.2.
+  - TODOS los datos son FICTICIOS (tambos y camiones inventados, no los del fuente).
+  - Mobile-first; breakpoint desktop en 1024px (BP.lg).
+  - Sin gradientes decorativos, sin glow, sin border-left grueso, sin #000/#fff,
+    sin card-grid de idénticas: 1 card dominante + filas.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  /* ── Tokens (espejo de tokens.js LIGHT + extensiones 02 §1.2) ─────────── */
+  :root {
+    --bg:          oklch(0.97 0.005 250);
+    --surface:     oklch(0.995 0.002 22);
+    --card:        oklch(0.99 0.003 22);
+    --border:      oklch(0.88 0.010 250);
+    --accent:      oklch(0.60 0.14 22);
+    --accent-dim:  oklch(0.96 0.028 22);
+    --accent-dark: oklch(0.48 0.17 22);
+    --text:        oklch(0.18 0.012 250);
+    --sub:         oklch(0.50 0.025 250);
+    --muted:       oklch(0.78 0.010 250);
+    --success:     oklch(0.56 0.17 149);
+    --danger:      oklch(0.55 0.22 25);
+    /* extensiones propuestas (02 §1.2) */
+    --warning:     oklch(0.55 0.15 75);
+    --success-bg:  oklch(0.96 0.030 149);
+    --warning-bg:  oklch(0.96 0.045 85);
+    --danger-bg:   oklch(0.96 0.025 25);
+    --info-bg:     oklch(0.96 0.015 250);
+    --shadow-card: 0 1px 3px oklch(0.2 0.02 250 / 0.08);
+    --focus-ring:  0 0 0 2px oklch(0.60 0.14 22 / 0.55);
+    --sans: 'Inter', -apple-system, 'Segoe UI', sans-serif;
+    --mono: 'JetBrains Mono', 'Courier New', monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--text);
+    font-size: 16px;
+    line-height: 1.4;
+    padding-bottom: calc(76px + env(safe-area-inset-bottom)); /* espacio bottom nav */
+  }
+  button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; }
+  button:focus-visible, a:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: 8px; }
+  .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+  /* ── Header ───────────────────────────────────────────────────────────── */
+  header.app {
+    position: sticky; top: 0; z-index: 20;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 16px;
+    display: flex; align-items: center; gap: 12px;
+  }
+  .brand { font-weight: 700; font-size: 16px; letter-spacing: 0.02em; }
+  .brand small { display: block; font-size: 12px; font-weight: 600; color: var(--sub); letter-spacing: 0.06em; }
+  .hdr-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12px; font-weight: 600;
+    border: 1px solid var(--border); border-radius: 999px;
+    padding: 5px 10px; min-height: 28px;
+    background: var(--info-bg); color: var(--sub);
+  }
+  .chip svg { width: 14px; height: 14px; }
+  .chip.ok    { background: var(--success-bg); color: var(--success); border-color: color-mix(in oklch, var(--success) 35%, var(--border)); }
+  .chip.warn  { background: var(--warning-bg); color: var(--warning); border-color: color-mix(in oklch, var(--warning) 35%, var(--border)); }
+  .chip.bad   { background: var(--danger-bg);  color: var(--danger);  border-color: color-mix(in oklch, var(--danger) 35%, var(--border)); }
+
+  /* ── Layout ───────────────────────────────────────────────────────────── */
+  .wrap { padding: 16px; display: grid; gap: 16px; max-width: 720px; margin: 0 auto; }
+  section h2 {
+    font-size: 12px; font-weight: 600; letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--sub); margin-bottom: 8px;
+    display: flex; align-items: baseline; gap: 8px;
+  }
+  section h2 .count { font-family: var(--mono); color: var(--text); }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: var(--shadow-card);
+  }
+
+  /* ── Alertas (arriba de todo: la anomalía te encuentra) ──────────────── */
+  .alert-row {
+    display: grid; grid-template-columns: 24px 1fr auto; gap: 12px;
+    align-items: center; width: 100%; text-align: left;
+    padding: 14px; min-height: 64px;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; box-shadow: var(--shadow-card);
+  }
+  .alert-row + .alert-row { margin-top: 8px; }
+  .alert-row .ic { width: 24px; height: 24px; }
+  .alert-row.sev-danger  .ic { color: var(--danger); }
+  .alert-row.sev-warning .ic { color: var(--warning); }
+  .alert-row.sev-danger  { border-color: color-mix(in oklch, var(--danger) 40%, var(--border)); background: var(--danger-bg); }
+  .alert-row.sev-warning { border-color: color-mix(in oklch, var(--warning) 40%, var(--border)); background: var(--warning-bg); }
+  .alert-row .t { font-size: 15px; font-weight: 600; }
+  .alert-row .d { font-size: 12px; color: var(--sub); margin-top: 2px; }
+  .alert-row .go {
+    font-size: 12px; font-weight: 700; color: var(--accent-dark);
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 10px 12px; min-height: 44px;
+    border: 1px solid var(--border); border-radius: 8px; background: var(--surface);
+  }
+
+  /* ── Card editorial dominante (reemplazo del StatCard SaaS) ──────────── */
+  .stat-hero { padding: 16px; }
+  .stat-hero .lbl {
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 12px; font-weight: 600; letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--sub);
+  }
+  .stat-hero .lbl svg { width: 16px; height: 16px; color: var(--sub); }
+  .stat-hero .val {
+    font-family: var(--mono); font-variant-numeric: tabular-nums;
+    font-size: 32px; font-weight: 700; margin-top: 4px;
+  }
+  .stat-hero .val.pos { color: var(--success); }
+  .stat-hero .val.neg { color: var(--danger); }
+  .stat-hero .val small { font-size: 16px; font-weight: 600; color: var(--sub); }
+  .stat-hero .ctx { font-size: 12px; color: var(--sub); margin-top: 4px; }
+  .stat-hero .ctx b { font-family: var(--mono); font-weight: 600; color: var(--text); }
+
+  /* ── Filas de métricas secundarias (no grid de cards idénticas) ──────── */
+  .metric-rows { padding: 4px 0; }
+  .metric-row {
+    display: grid; grid-template-columns: 20px 1fr auto; gap: 12px;
+    align-items: center; padding: 12px 14px; min-height: 48px;
+  }
+  .metric-row + .metric-row { border-top: 1px solid var(--border); }
+  .metric-row .ic { width: 20px; height: 20px; color: var(--sub); }
+  .metric-row .k { font-size: 14px; }
+  .metric-row .k small { display: block; font-size: 12px; color: var(--sub); }
+  .metric-row .v {
+    font-family: var(--mono); font-variant-numeric: tabular-nums;
+    font-size: 16px; font-weight: 600; text-align: right;
+  }
+  .metric-row .v small { font-size: 12px; font-weight: 400; color: var(--sub); }
+  .inline-bar {
+    width: 96px; height: 8px; border-radius: 4px;
+    background: var(--bg); border: 1px solid var(--border);
+    overflow: hidden; display: inline-block; vertical-align: middle; margin-right: 8px;
+  }
+  .inline-bar i { display: block; height: 100%; background: var(--sub); border-radius: 4px; }
+
+  /* ── Silos: filas con barra de nivel ─────────────────────────────────── */
+  .silo-row {
+    display: grid; grid-template-columns: 56px 1fr 92px; gap: 12px;
+    align-items: center; padding: 10px 14px; min-height: 52px;
+  }
+  .silo-row + .silo-row { border-top: 1px solid var(--border); }
+  .silo-row .name { font-family: var(--mono); font-size: 14px; font-weight: 600; }
+  .silo-row .name small { display: block; font-family: var(--sans); font-size: 11px; font-weight: 400; color: var(--sub); white-space: nowrap; }
+  .lvl {
+    height: 14px; border-radius: 7px; position: relative;
+    background: var(--bg); border: 1px solid var(--border); overflow: hidden;
+  }
+  .lvl .fill { position: absolute; inset: 0 auto 0 0; border-right: 1px solid oklch(0.75 0.01 90); }
+  /* tramo reservado: patrón rayado = funcional (se conserva del actual, 01 §6) */
+  .lvl .resv {
+    position: absolute; inset: 0 auto 0 auto; height: 100%;
+    background: repeating-linear-gradient(135deg,
+      oklch(0.55 0.02 250 / 0.35) 0 4px, transparent 4px 8px);
+  }
+  .silo-row .lts {
+    font-family: var(--mono); font-variant-numeric: tabular-nums;
+    font-size: 14px; font-weight: 600; text-align: right;
+  }
+  .silo-row .lts small { display: block; font-size: 11px; font-weight: 400; color: var(--sub); }
+  .silo-row.is-danger .lts { color: var(--danger); }
+
+  /* ── Tabla calidad (patrón DataTable, 02 §3.2) ───────────────────────── */
+  table.dt { width: 100%; border-collapse: collapse; }
+  table.dt th {
+    font-size: 12px; font-weight: 600; letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--sub); text-align: left;
+    padding: 10px 14px; border-bottom: 1px solid var(--border);
+  }
+  table.dt th.num, table.dt td.num { text-align: right; }
+  table.dt td {
+    padding: 12px 14px; font-size: 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  table.dt tr:last-child td { border-bottom: none; }
+  table.dt td.num { font-family: var(--mono); font-variant-numeric: tabular-nums; font-weight: 600; }
+  table.dt td .ref { font-size: 12px; color: var(--sub); font-weight: 400; }
+  /* anomalía: fondo solo en la celda del valor + icono + color (los tres) */
+  td.num.out {
+    background: var(--warning-bg); color: var(--warning);
+  }
+  td.num.out svg { width: 14px; height: 14px; vertical-align: -2px; margin-right: 4px; }
+
+  /* ── Bottom nav (mobile) · 4 tabs por council 2026-05-23 ─────────────── */
+  nav.bottom {
+    position: fixed; inset: auto 0 0 0; z-index: 30;
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    background: var(--surface); border-top: 1px solid var(--border);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  nav.bottom button {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 4px; min-height: 64px; padding: 8px 0;
+    font-size: 11px; font-weight: 700; color: var(--sub);
+  }
+  nav.bottom button svg { width: 26px; height: 26px; }
+  nav.bottom button.active {
+    color: var(--accent-dark);
+  }
+  nav.bottom button.active .pill {
+    background: var(--accent-dim); border-radius: 14px; padding: 4px 14px;
+  }
+  nav.bottom button .pill { padding: 4px 14px; }
+
+  /* ── Sidebar + layout desktop ────────────────────────────────────────── */
+  aside.side { display: none; }
+  .proto-note {
+    font-size: 11px; color: var(--muted); text-align: center; padding: 8px 0 2px;
+  }
+  @media (min-width: 1024px) {
+    body { padding-bottom: 0; display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; }
+    nav.bottom { display: none; }
+    header.app { grid-column: 2; }
+    aside.side {
+      display: flex; flex-direction: column; gap: 4px;
+      grid-row: 1 / span 2; grid-column: 1;
+      background: var(--surface); border-right: 1px solid var(--border);
+      padding: 20px 12px;
+      position: sticky; top: 0; height: 100vh;
+    }
+    aside.side .brand { padding: 0 12px 20px; }
+    aside.side button {
+      display: flex; align-items: center; gap: 12px;
+      padding: 12px 14px; min-height: 46px; border-radius: 10px;
+      font-size: 14px; font-weight: 600; color: var(--sub); text-align: left;
+    }
+    aside.side button svg { width: 20px; height: 20px; }
+    /* indicador activo: fondo lleno, NO border-left (UI-PLAN §5.9) */
+    aside.side button.active { background: var(--accent-dim); color: var(--accent-dark); }
+    aside.side .spacer { flex: 1; }
+    .wrap {
+      grid-column: 2; max-width: 1200px; width: 100%;
+      padding: 24px 32px;
+      grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+      grid-template-areas:
+        "alerts alerts"
+        "hero   silos"
+        "rows   silos"
+        "rows   calidad";
+      align-items: start;
+    }
+    #alerts  { grid-area: alerts; }
+    #hero    { grid-area: hero; }
+    #rows    { grid-area: rows; }
+    #silos   { grid-area: silos; }
+    #calidad { grid-area: calidad; }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .lvl .fill { transition: width 600ms cubic-bezier(0.16, 1, 0.3, 1); }
+  }
+</style>
+</head>
+<body>
+
+<aside class="side" aria-label="Navegación">
+  <div class="brand">LACTEOS YATASTO<small>Recibo · planta</small></div>
+  <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M1 8h13v8H1zM14 11h5l3 3v2h-8zM5.5 19a1.5 1.5 0 1 0 0-.01M17.5 19a1.5 1.5 0 1 0 0-.01"/></svg>Ingresos</button>
+  <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="4" y="3" width="7" height="18" rx="2"/><rect x="14" y="8" width="7" height="13" rx="2"/></svg>Stock</button>
+  <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M8 3 4 7l4 4M4 7h16M16 21l4-4-4-4M20 17H4"/></svg>Movimientos</button>
+  <button class="active" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M3 3v18h18"/><path d="M7 13l3-3 4 4 5-6"/></svg>Control</button>
+  <div class="spacer"></div>
+  <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>Laura S. (Supervisora)</button>
+</aside>
+
+<header class="app">
+  <div class="brand">Panel de control<small>miércoles 15 jul · día abierto</small></div>
+  <div class="hdr-right">
+    <span class="chip ok" title="Sincronización">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M20 6 9 17l-5-5"/></svg>
+      Sincronizado
+    </span>
+    <span class="chip">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
+      Laura S.
+    </span>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <!-- 1. ALERTAS: primero. El supervisor no busca la anomalía, la anomalía lo busca. -->
+  <section id="alerts" aria-label="Alertas activas">
+    <h2>Alertas activas <span class="count">3</span></h2>
+
+    <button class="alert-row sev-danger">
+      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4M12 17.5v.5"/></svg>
+      <span>
+        <span class="t">Silo 80 al 92 por ciento</span>
+        <span class="d">73.600 de 80.000 L · Leche Cruda · máx. recomendado 76.000</span>
+      </span>
+      <span class="go">Ver stock</span>
+    </button>
+
+    <button class="alert-row sev-warning">
+      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M4 4h8l2 3h6v13H4z"/><path d="M9 12c1.5-1.5 4.5-1.5 6 0M10.5 15c.8-.8 2.2-.8 3 0"/></svg>
+      <span>
+        <span class="t">CIP pendiente: silo 60</span>
+        <span class="d">Sin limpieza registrada hoy · último vaciado 11:20</span>
+      </span>
+      <span class="go">Ir a CIP</span>
+    </button>
+
+    <button class="alert-row sev-warning">
+      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M12 3v18M7 7l5-4 5 4M3 13l4-6 4 6H3zM13 13l4-6 4 6h-8z"/></svg>
+      <span>
+        <span class="t">Diferencia Fca/Tbo: +180 L</span>
+        <span class="d">Tambo LOS TILOS (ficticio) · ingreso 09:14 · Carla D.</span>
+      </span>
+      <span class="go">Revisar</span>
+    </button>
+  </section>
+
+  <!-- 2. Una sola card dominante: la decisión del día -->
+  <section id="hero" aria-label="Balance del día">
+    <div class="card stat-hero">
+      <div class="lbl">Balance del día
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M12 3v18M5 8l7-5 7 5"/></svg>
+      </div>
+      <div class="val pos mono">+12.450 <small>L</small></div>
+      <div class="ctx">ingresado <b>86.150</b> · cargado <b>73.700</b></div>
+    </div>
+  </section>
+
+  <!-- 3. El resto del día: filas, no grid de cards idénticas -->
+  <section id="rows" aria-label="El día en números">
+    <h2>El día en números</h2>
+    <div class="card metric-rows">
+      <div class="metric-row">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M1 8h13v8H1zM14 11h5l3 3v2h-8zM5.5 19a1.5 1.5 0 1 0 0-.01M17.5 19a1.5 1.5 0 1 0 0-.01"/></svg>
+        <span class="k">Ingresos<small>último 13:42 · LA MATERA (ficticio)</small></span>
+        <span class="v">14</span>
+      </div>
+      <div class="metric-row">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M3 6h13v10H3zM16 9h4l2 3v4h-6zM6.5 19a1.5 1.5 0 1 0 0-.01M18.5 19a1.5 1.5 0 1 0 0-.01"/></svg>
+        <span class="k">Cargas despachadas<small>CARGA 1 y 2 completas</small></span>
+        <span class="v">2 <small>· 34.000 L</small></span>
+      </div>
+      <div class="metric-row">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M8 3 4 7l4 4M4 7h16M16 21l4-4-4-4M20 17H4"/></svg>
+        <span class="k">Movimientos entre silos</span>
+        <span class="v">6</span>
+      </div>
+      <div class="metric-row">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M4 4h8l2 3h6v13H4z"/><path d="M9 12c1.5-1.5 4.5-1.5 6 0M10.5 15c.8-.8 2.2-.8 3 0"/></svg>
+        <span class="k">CIP completados<small>faltan: 60, LINEA 2, camión RUTA 5 (ficticio)</small></span>
+        <span class="v">7 <small>de 10</small></span>
+      </div>
+      <div class="metric-row">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="4" y="3" width="7" height="18" rx="2"/><rect x="14" y="8" width="7" height="13" rx="2"/></svg>
+        <span class="k">Capacidad ocupada<small>silos principales</small></span>
+        <span class="v"><span class="inline-bar" aria-hidden="true"><i style="width:62%"></i></span>62 <small>%</small></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4. Silos: nivel + reservado (rayado funcional), tap lleva a Stock -->
+  <section id="silos" aria-label="Silos">
+    <h2>Silos <span class="count">8 principales</span></h2>
+    <div class="card">
+      <div class="silo-row">
+        <span class="name">100 N<small>L. Cruda</small></span>
+        <span class="lvl" role="img" aria-label="78.200 de 100.000 litros, 12.000 reservados">
+          <span class="fill" style="width:78%; background:#eeece8;"></span>
+          <span class="resv" style="width:12%; right:22%;"></span>
+        </span>
+        <span class="lts">78.2k<small>de 100k L</small></span>
+      </div>
+      <div class="silo-row is-danger">
+        <span class="name">80<small>L. Cruda</small></span>
+        <span class="lvl" role="img" aria-label="73.600 de 80.000 litros, sobre el máximo">
+          <span class="fill" style="width:92%; background:#eeece8;"></span>
+        </span>
+        <span class="lts">73.6k<small>de 80k L · 92%</small></span>
+      </div>
+      <div class="silo-row">
+        <span class="name">60<small>Sucio</small></span>
+        <span class="lvl" role="img" aria-label="vacío, CIP pendiente">
+          <span class="fill" style="width:0%;"></span>
+        </span>
+        <span class="lts">0<small>CIP pendiente</small></span>
+      </div>
+      <div class="silo-row">
+        <span class="name">42<small>L. Descr.</small></span>
+        <span class="lvl"><span class="fill" style="width:45%; background:#7ddb7d;"></span></span>
+        <span class="lts">18.9k<small>de 42k L</small></span>
+      </div>
+      <div class="silo-row">
+        <span class="name">40F<small>L. Fortif.</small></span>
+        <span class="lvl"><span class="fill" style="width:31%; background:#ffa600;"></span></span>
+        <span class="lts">12.4k<small>de 40k L</small></span>
+      </div>
+      <div class="silo-row">
+        <span class="name">20<small>Crema</small></span>
+        <span class="lvl"><span class="fill" style="width:22%; background:#fdf0b0;"></span></span>
+        <span class="lts">4.4k<small>de 20k L</small></span>
+      </div>
+      <div class="silo-row">
+        <span class="name">15<small>Suero</small></span>
+        <span class="lvl"><span class="fill" style="width:60%; background:#ffe000;"></span></span>
+        <span class="lts">9.0k<small>de 15k L</small></span>
+      </div>
+      <div class="silo-row">
+        <span class="name">100 V<small>Limpio</small></span>
+        <span class="lvl"><span class="fill" style="width:0%;"></span></span>
+        <span class="lts">0<small>disponible</small></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5. Calidad promedio del día: tabla, anomalía marcada en la celda -->
+  <section id="calidad" aria-label="Calidad promedio">
+    <h2>Calidad promedio <span class="count">14 ingresos</span></h2>
+    <div class="card">
+      <table class="dt">
+        <thead>
+          <tr><th>Parámetro</th><th class="num">Promedio</th><th class="num">Referencia</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Acidez (°D)</td><td class="num">15.8</td><td class="num"><span class="ref">14 a 18</span></td></tr>
+          <tr><td>pH</td><td class="num">6.68</td><td class="num"><span class="ref">6.6 a 6.8</span></td></tr>
+          <tr><td>Grasa butirosa (%)</td><td class="num">3.42</td><td class="num"><span class="ref">3.0 a 4.0</span></td></tr>
+          <tr><td>SNG (%)</td><td class="num">8.61</td><td class="num"><span class="ref">8.2 a 9.0</span></td></tr>
+          <tr>
+            <td>Temperatura (°C)</td>
+            <td class="num out">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4M12 17.5v.5"/></svg>9.2
+            </td>
+            <td class="num"><span class="ref">3 a 8</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="proto-note">PROTOTIPO ESTÁTICO · datos ficticios · discovery 2026-07</p>
+  </section>
+
+</main>
+
+<!-- Bottom nav mobile: 4 tabs planos por council 2026-05-23 (variante supervisor: CONTROL) -->
+<nav class="bottom" aria-label="Navegación principal">
+  <button>
+    <span class="pill"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M1 8h13v8H1zM14 11h5l3 3v2h-8zM5.5 19a1.5 1.5 0 1 0 0-.01M17.5 19a1.5 1.5 0 1 0 0-.01"/></svg></span>
+    INGRESOS
+  </button>
+  <button>
+    <span class="pill"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="4" y="3" width="7" height="18" rx="2"/><rect x="14" y="8" width="7" height="13" rx="2"/></svg></span>
+    STOCK
+  </button>
+  <button>
+    <span class="pill"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M8 3 4 7l4 4M4 7h16M16 21l4-4-4-4M20 17H4"/></svg></span>
+    MOVIM.
+  </button>
+  <button class="active" aria-current="page">
+    <span class="pill"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M3 3v18h18"/><path d="M7 13l3-3 4 4 5-6"/></svg></span>
+    CONTROL
+  </button>
+</nav>
+
+</body>
+</html>

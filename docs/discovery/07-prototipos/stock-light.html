@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="es-AR" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>PROTOTIPO · Stock (light) · Yatasto</title>
+<!--
+  Prototipo estático del discovery frontend-dashboards-v2 (doc 03, pantalla
+  "Stock", alternativa 4A recomendada en doc 05 §2.4 para mobile).
+  - Paleta: LIGHT de tokens.js + extensiones 02 §1.2.
+  - SiloSVG en variante light (02 §5): cuerpo 0.93, contorno 0.55.
+  - Colores de líquido = PROD_COLOR reales del fuente (son representación).
+  - Capacidades reales de SILO_CAP; LITROS FICTICIOS.
+  - Estados: color + icono + texto, borde 1px, sin teñir el fondo de la card.
+  - Tramo reservado rayado: se conserva (funcional, 01 §6).
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:          oklch(0.97 0.005 250);
+    --surface:     oklch(0.995 0.002 22);
+    --card:        oklch(0.99 0.003 22);
+    --border:      oklch(0.88 0.010 250);
+    --accent:      oklch(0.60 0.14 22);
+    --accent-dim:  oklch(0.96 0.028 22);
+    --accent-dark: oklch(0.48 0.17 22);
+    --text:        oklch(0.18 0.012 250);
+    --sub:         oklch(0.50 0.025 250);
+    --muted:       oklch(0.78 0.010 250);
+    --success:     oklch(0.56 0.17 149);
+    --danger:      oklch(0.55 0.22 25);
+    --warning:     oklch(0.55 0.15 75);
+    --success-bg:  oklch(0.96 0.030 149);
+    --warning-bg:  oklch(0.96 0.045 85);
+    --danger-bg:   oklch(0.96 0.025 25);
+    --info-bg:     oklch(0.96 0.015 250);
+    --shadow-card: 0 1px 3px oklch(0.2 0.02 250 / 0.08);
+    --focus-ring:  0 0 0 2px oklch(0.60 0.14 22 / 0.55);
+    /* SiloSVG light (02 §5) */
+    --silo-body:   oklch(0.93 0.008 250);
+    --silo-stroke: oklch(0.55 0.02 250);
+    --sans: 'Inter', -apple-system, 'Segoe UI', sans-serif;
+    --mono: 'JetBrains Mono', 'Courier New', monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: var(--sans); background: var(--bg); color: var(--text);
+    font-size: 16px; line-height: 1.4;
+    padding-bottom: calc(76px + env(safe-area-inset-bottom));
+  }
+  button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; }
+  button:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: 8px; }
+  .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+  header.app {
+    position: sticky; top: 0; z-index: 20;
+    background: var(--surface); border-bottom: 1px solid var(--border);
+    padding: 12px 16px; display: flex; align-items: center; gap: 12px;
+  }
+  .brand { font-weight: 700; font-size: 16px; }
+  .brand small { display: block; font-size: 12px; font-weight: 600; color: var(--sub); letter-spacing: 0.06em; }
+  .hdr-right { margin-left: auto; display: flex; gap: 8px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12px; font-weight: 600; border: 1px solid var(--border);
+    border-radius: 999px; padding: 5px 10px; min-height: 28px;
+    background: var(--info-bg); color: var(--sub);
+  }
+  .chip svg { width: 14px; height: 14px; }
+  .chip.ok { background: var(--success-bg); color: var(--success); border-color: color-mix(in oklch, var(--success) 35%, var(--border)); }
+
+  /* ── Selector de turno: 3 targets grandes ────────────────────────────── */
+  .turnos {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+    padding: 12px 16px 0;
+    max-width: 720px; margin: 0 auto;
+  }
+  .turnos button {
+    min-height: 52px; border: 1px solid var(--border); border-radius: 10px;
+    background: var(--card); font-weight: 600; font-size: 14px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  }
+  .turnos button small { font-size: 12px; font-weight: 400; color: var(--sub); font-family: var(--mono); }
+  .turnos button.active {
+    background: var(--accent-dim); border-color: var(--accent);
+    color: var(--accent-dark);
+  }
+  .turnos button.active small { color: var(--accent-dark); }
+
+  /* ── Franja resumen ──────────────────────────────────────────────────── */
+  .totales {
+    max-width: 720px; margin: 0 auto; padding: 12px 16px;
+    display: flex; gap: 16px; flex-wrap: wrap;
+    font-size: 12px; color: var(--sub);
+  }
+  .totales b { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 14px; color: var(--text); display: block; }
+
+  .wrap { padding: 0 16px 16px; display: grid; gap: 16px; max-width: 720px; margin: 0 auto; }
+  section h2 {
+    font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--sub); margin-bottom: 8px; display: flex; justify-content: space-between; align-items: baseline;
+  }
+  section h2 .count { font-family: var(--mono); color: var(--text); }
+  .grid { display: grid; gap: 12px; }
+
+  /* ── Card de silo ────────────────────────────────────────────────────── */
+  .silo-card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; box-shadow: var(--shadow-card);
+    padding: 14px; display: grid; grid-template-columns: 64px 1fr; gap: 14px;
+  }
+  .silo-card.is-danger { border-color: color-mix(in oklch, var(--danger) 45%, var(--border)); }
+  .silo-card .head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .silo-card .name { font-family: var(--mono); font-size: 16px; font-weight: 700; }
+  .silo-card .prod { font-size: 12px; color: var(--sub); }
+  .silo-card .lts {
+    font-family: var(--mono); font-variant-numeric: tabular-nums;
+    font-size: 24px; font-weight: 700; margin-top: 2px;
+  }
+  .silo-card .lts small { font-size: 12px; font-weight: 400; color: var(--sub); }
+  .silo-card .lts.zero { color: var(--sub); }
+
+  .lvl {
+    height: 14px; border-radius: 7px; position: relative; margin-top: 8px;
+    background: var(--bg); border: 1px solid var(--border); overflow: hidden;
+  }
+  .lvl .fill { position: absolute; inset: 0 auto 0 0; border-right: 1px solid oklch(0.75 0.01 90); }
+  .lvl .resv {
+    position: absolute; top: 0; bottom: 0; height: 100%;
+    background: repeating-linear-gradient(135deg,
+      oklch(0.55 0.02 250 / 0.35) 0 4px, transparent 4px 8px);
+  }
+  .lvl-meta {
+    display: flex; justify-content: space-between; margin-top: 4px;
+    font-size: 12px; color: var(--sub);
+    font-family: var(--mono); font-variant-numeric: tabular-nums;
+  }
+
+  /* chips de estado: icono + texto + color, borde 1px, fondo *Bg (02 §3.4) */
+  .st {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12px; font-weight: 600; border-radius: 999px;
+    padding: 4px 10px; margin-top: 8px; border: 1px solid;
+  }
+  .st svg { width: 14px; height: 14px; }
+  .st.resv { background: var(--accent-dim);  color: var(--accent-dark); border-color: color-mix(in oklch, var(--accent) 40%, var(--border)); }
+  .st.full { background: var(--danger-bg);   color: var(--danger);      border-color: color-mix(in oklch, var(--danger) 40%, var(--border)); }
+  .st.cip  { background: var(--danger-bg);   color: var(--danger);      border-color: color-mix(in oklch, var(--danger) 40%, var(--border)); }
+  .st.limp { background: var(--success-bg);  color: var(--success);     border-color: color-mix(in oklch, var(--success) 40%, var(--border)); }
+  .st.ok   { background: var(--info-bg);     color: var(--sub);         border-color: var(--border); }
+
+  /* ── SiloSVG mini (variante light) ───────────────────────────────────── */
+  .ssvg { width: 64px; height: 104px; }
+
+  /* ── Tanques: filas compactas ────────────────────────────────────────── */
+  .tk-rows { background: var(--card); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow-card); }
+  .tk-row {
+    display: grid; grid-template-columns: 56px 1fr 100px; gap: 12px;
+    align-items: center; padding: 10px 14px; min-height: 48px;
+  }
+  .tk-row + .tk-row { border-top: 1px solid var(--border); }
+  .tk-row .name { font-family: var(--mono); font-size: 14px; font-weight: 600; }
+  .tk-row .name small { display: block; font-family: var(--sans); font-size: 11px; font-weight: 400; color: var(--sub); white-space: nowrap; }
+  .tk-row .lts { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 14px; font-weight: 600; text-align: right; }
+  .tk-row .lts small { display: block; font-size: 11px; font-weight: 400; color: var(--sub); }
+  .vermas {
+    width: 100%; min-height: 48px; font-size: 14px; font-weight: 600; color: var(--accent-dark);
+    border-top: 1px solid var(--border);
+  }
+  .proto-note { font-size: 11px; color: var(--muted); text-align: center; padding: 8px 0 2px; }
+
+  /* ── Bottom nav: 4 tabs council (variante operario: MENÚ) ────────────── */
+  nav.bottom {
+    position: fixed; inset: auto 0 0 0; z-index: 30;
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    background: var(--surface); border-top: 1px solid var(--border);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  nav.bottom button {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 4px; min-height: 64px; padding: 8px 0;
+    font-size: 11px; font-weight: 700; color: var(--sub);
+  }
+  nav.bottom button svg { width: 26px; height: 26px; }
+  nav.bottom button .pill { padding: 4px 14px; }
+  nav.bottom button.active { color: var(--accent-dark); }
+  nav.bottom button.active .pill { background: var(--accent-dim); border-radius: 14px; }
+
+  /* ── Desktop ─────────────────────────────────────────────────────────── */
+  aside.side { display: none; }
+  @media (min-width: 1024px) {
+    body { padding-bottom: 0; display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; }
+    nav.bottom { display: none; }
+    header.app, .turnos, .totales, .wrap { grid-column: 2; }
+    aside.side {
+      display: flex; flex-direction: column; gap: 4px;
+      grid-row: 1 / span 4; grid-column: 1;
+      background: var(--surface); border-right: 1px solid var(--border);
+      padding: 20px 12px; position: sticky; top: 0; height: 100vh;
+    }
+    aside.side .brand { padding: 0 12px 20px; }
+    aside.side button {
+      display: flex; align-items: center; gap: 12px;
+      padding: 12px 14px; min-height: 46px; border-radius: 10px;
+      font-size: 14px; font-weight: 600; color: var(--sub); text-align: left;
+    }
+    aside.side button svg { width: 20px; height: 20px; }
+    aside.side button.active { background: var(--accent-dim); color: var(--accent-dark); }
+    .turnos, .totales, .wrap { max-width: 1200px; padding-left: 32px; padding-right: 32px; }
+    .grid.main { grid-template-columns: repeat(4, 1fr); }
+    .grid.tanques-grid { grid-template-columns: 1fr 1fr; }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .lvl .fill { transition: width 600ms cubic-bezier(0.16, 1, 0.3, 1); }
+  }
+</style>
+</head>
+<body>
+
+<aside class="side" aria-label="Navegación">
+  <div class="brand">LACTEOS YATASTO<small>Recibo · planta</small></div>
+  <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M1 8h13v8H1zM14 11h5l3 3v2h-8zM5.5 19a1.5 1.5 0 1 0 0-.01M17.5 19a1.5 1.5 0 1 0 0-.01"/></svg>Ingresos</button>
+  <button class="active" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="4" y="3" width="7" height="18" rx="2"/><rect x="14" y="8" width="7" height="13" rx="2"/></svg>Stock</button>
+  <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M8 3 4 7l4 4M4 7h16M16 21l4-4-4-4M20 17H4"/></svg>Movimientos</button>
+  <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M4 6h16M4 12h16M4 18h16"/></svg>Menú</button>
+</aside>
+
+<header class="app">
+  <div class="brand">Stock por turno<small>miércoles 15 jul</small></div>
+  <div class="hdr-right">
+    <span class="chip ok">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M20 6 9 17l-5-5"/></svg>
+      Sincronizado
+    </span>
+    <span class="chip">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
+      Carla D.
+    </span>
+  </div>
+</header>
+
+<!-- Selector de turno: targets 52px, icono + hora + nombre -->
+<div class="turnos" role="tablist" aria-label="Turno">
+  <button role="tab" aria-selected="false">Mañana<small>07:00</small></button>
+  <button role="tab" aria-selected="true" class="active">Tarde<small>14:00</small></button>
+  <button role="tab" aria-selected="false">Noche<small>21:00</small></button>
+</div>
+
+<div class="totales">
+  <span>Total en planta<b class="mono">219.700 L</b></span>
+  <span>Reservado producción<b class="mono">12.000 L</b></span>
+  <span>Disponible<b class="mono">207.700 L</b></span>
+</div>
+
+<main class="wrap">
+
+  <section aria-label="Silos principales">
+    <h2>Silos principales <span class="count">8</span></h2>
+    <div class="grid main">
+
+      <!-- 100 N · Leche Cruda · reservado -->
+      <div class="silo-card">
+        <svg class="ssvg" viewBox="0 0 64 104" role="img" aria-label="Silo 100 N al 78 por ciento">
+          <clipPath id="c1"><rect x="13" y="15" width="38" height="68" rx="7"/></clipPath>
+          <rect x="12" y="14" width="40" height="70" rx="8" fill="var(--silo-body)" stroke="var(--silo-stroke)" stroke-width="1.5"/>
+          <!-- líquido: Leche Cruda #eeece8 con borde oscuro en light (02 §5) -->
+          <g clip-path="url(#c1)">
+            <rect x="13" y="30" width="38" height="53" fill="#eeece8"/>
+            <line x1="13" y1="30" x2="51" y2="30" stroke="oklch(0.75 0.01 90)" stroke-width="1.5"/>
+          </g>
+          <line x1="12" y1="34" x2="52" y2="34" stroke="var(--silo-stroke)" stroke-width="0.5" opacity="0.4"/>
+          <line x1="12" y1="58" x2="52" y2="58" stroke="var(--silo-stroke)" stroke-width="0.5" opacity="0.4"/>
+          <path d="M16 84 12 98M48 84l4 14M32 84v14" stroke="var(--silo-stroke)" stroke-width="1.5"/>
+        </svg>
+        <div>
+          <div class="head"><span class="name">100 N</span><span class="prod">Leche Cruda</span></div>
+          <div class="lts">78.200 <small>/ 100.000 L</small></div>
+          <div class="lvl"><span class="fill" style="width:78%; background:#eeece8;"></span><span class="resv" style="width:12%; right:22%;"></span></div>
+          <div class="lvl-meta"><span>disp 66.200</span><span>78%</span></div>
+          <span class="st resv">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+            Reservado 12.000 L
+          </span>
+        </div>
+      </div>
+
+      <!-- 80 · lleno 92% -->
+      <div class="silo-card is-danger">
+        <svg class="ssvg" viewBox="0 0 64 104" role="img" aria-label="Silo 80 al 92 por ciento, sobre el máximo">
+          <clipPath id="c2"><rect x="13" y="15" width="38" height="68" rx="7"/></clipPath>
+          <rect x="12" y="14" width="40" height="70" rx="8" fill="var(--silo-body)" stroke="var(--silo-stroke)" stroke-width="1.5"/>
+          <g clip-path="url(#c2)">
+            <rect x="13" y="20" width="38" height="63" fill="#eeece8"/>
+            <line x1="13" y1="20" x2="51" y2="20" stroke="oklch(0.75 0.01 90)" stroke-width="1.5"/>
+          </g>
+          <!-- marca de máximo recomendado -->
+          <line x1="10" y1="18" x2="54" y2="18" stroke="var(--danger)" stroke-width="1" stroke-dasharray="3 2"/>
+          <path d="M16 84 12 98M48 84l4 14M32 84v14" stroke="var(--silo-stroke)" stroke-width="1.5"/>
+        </svg>
+        <div>
+          <div class="head"><span class="name">80</span><span class="prod">Leche Cruda</span></div>
+          <div class="lts">73.600 <small>/ 80.000 L</small></div>
+          <div class="lvl"><span class="fill" style="width:92%; background:#eeece8;"></span></div>
+          <div class="lvl-meta"><span>máx rec 76.000</span><span>92%</span></div>
+          <span class="st full">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4M12 17.5v.5"/></svg>
+            Lleno · mover antes del próximo ingreso
+          </span>
+        </div>
+      </div>
+
+      <!-- 60 · CIP pendiente -->
+      <div class="silo-card is-danger">
+        <svg class="ssvg" viewBox="0 0 64 104" role="img" aria-label="Silo 60 vacío, requiere lavado">
+          <rect x="12" y="14" width="40" height="70" rx="8" fill="var(--silo-body)" stroke="var(--silo-stroke)" stroke-width="1.5"/>
+          <path d="M16 84 12 98M48 84l4 14M32 84v14" stroke="var(--silo-stroke)" stroke-width="1.5"/>
+        </svg>
+        <div>
+          <div class="head"><span class="name">60</span><span class="prod">Sucio (vacío)</span></div>
+          <div class="lts zero">0 <small>/ 60.000 L</small></div>
+          <div class="lvl"></div>
+          <div class="lvl-meta"><span>vaciado 11:20</span><span>0%</span></div>
+          <span class="st cip">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M4 4h8l2 3h6v13H4z"/><path d="M9 12c1.5-1.5 4.5-1.5 6 0M10.5 15c.8-.8 2.2-.8 3 0"/></svg>
+            CIP pendiente · no cargar
+          </span>
+        </div>
+      </div>
+
+      <!-- 100 V · limpio -->
+      <div class="silo-card">
+        <svg class="ssvg" viewBox="0 0 64 104" role="img" aria-label="Silo 100 V limpio y vacío">
+          <rect x="12" y="14" width="40" height="70" rx="8" fill="var(--silo-body)" stroke="var(--silo-stroke)" stroke-width="1.5"/>
+          <path d="M16 84 12 98M48 84l4 14M32 84v14" stroke="var(--silo-stroke)" stroke-width="1.5"/>
+        </svg>
+        <div>
+          <div class="head"><span class="name">100 V</span><span class="prod">Limpio</span></div>
+          <div class="lts zero">0 <small>/ 100.000 L</small></div>
+          <div class="lvl"></div>
+          <div class="lvl-meta"><span>CIP hoy 07:40</span><span>0%</span></div>
+          <span class="st limp">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M20 6 9 17l-5-5"/></svg>
+            Limpio · disponible como destino
+          </span>
+        </div>
+      </div>
+
+      <!-- 42 · Leche Descremada -->
+      <div class="silo-card">
+        <svg class="ssvg" viewBox="0 0 64 104" role="img" aria-label="Silo 42 al 45 por ciento">
+          <clipPath id="c3"><rect x="13" y="15" width="38" height="68" rx="7"/></clipPath>
+          <rect x="12" y="14" width="40" height="70" rx="8" fill="var(--silo-body)" stroke="var(--silo-stroke)" stroke-width="1.5"/>
+          <g clip-path="url(#c3)"><rect x="13" y="52" width="38" height="31" fill="#00ff00ff" opacity="0.85"/></g>
+          <path d="M16 84 12 98M48 84l4 14M32 84v14" stroke="var(--silo-stroke)" stroke-width="1.5"/>
+        </svg>
+        <div>
+          <div class="head"><span class="name">42</span><span class="prod">L. Descremada</span></div>
+          <div class="lts">18.900 <small>/ 42.000 L</small></div>
+          <div class="lvl"><span class="fill" style="width:45%; background:#00ff00ff; opacity:.85;"></span></div>
+          <div class="lvl-meta"><span>disp 23.100</span><span>45%</span></div>
+          <span class="st ok">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M20 6 9 17l-5-5"/></svg>
+            Sin novedades
+          </span>
+        </div>
+      </div>
+
+      <!-- 40F · Leche Fortificada -->
+      <div class="silo-card">
+        <svg class="ssvg" viewBox="0 0 64 104" role="img" aria-label="Silo 40F al 31 por ciento">
+          <clipPath id="c4"><rect x="13" y="15" width="38" height="68" rx="7"/></clipPath>
+          <rect x="12" y="14" width="40" height="70" rx="8" fill="var(--silo-body)" stroke="var(--silo-stroke)" stroke-width="1.5"/>
+          <g clip-path="url(#c4)"><rect x="13" y="62" width="38" height="21" fill="#ffa600"/></g>
+          <path d="M16 84 12 98M48 84l4 14M32 84v14" stroke="var(--silo-stroke)" stroke-width="1.5"/>
+        </svg>
+        <div>
+          <div class="head"><span class="name">40F</span><span class="prod">L. Fortificada</span></div>
+          <div class="lts">12.400 <small>/ 40.000 L</small></div>
+          <div class="lvl"><span class="fill" style="width:31%; background:#ffa600;"></span></div>
+          <div class="lvl-meta"><span>disp 27.600</span><span>31%</span></div>
+          <span class="st ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M20 6 9 17l-5-5"/></svg>Sin novedades</span>
+        </div>
+      </div>
+
+      <!-- 20 · Crema -->
+      <div class="silo-card">
+        <svg class="ssvg" viewBox="0 0 64 104" role="img" aria-label="Silo 20 al 22 por ciento">
+          <clipPath id="c5"><rect x="13" y="15" width="38" height="68" rx="7"/></clipPath>
+          <rect x="12" y="14" width="40" height="70" rx="8" fill="var(--silo-body)" stroke="var(--silo-stroke)" stroke-width="1.5"/>
+          <g clip-path="url(#c5)"><rect x="13" y="68" width="38" height="15" fill="#fdf0b0"/></g>
+          <path d="M16 84 12 98M48 84l4 14M32 84v14" stroke="var(--silo-stroke)" stroke-width="1.5"/>
+        </svg>
+        <div>
+          <div class="head"><span class="name">20</span><span class="prod">Crema</span></div>
+          <div class="lts">4.400 <small>/ 20.000 L</small></div>
+          <div class="lvl"><span class="fill" style="width:22%; background:#fdf0b0;"></span></div>
+          <div class="lvl-meta"><span>disp 15.600</span><span>22%</span></div>
+          <span class="st ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M20 6 9 17l-5-5"/></svg>Sin novedades</span>
+        </div>
+      </div>
+
+      <!-- 15 · Suero -->
+      <div class="silo-card">
+        <svg class="ssvg" viewBox="0 0 64 104" role="img" aria-label="Silo 15 al 60 por ciento">
+          <clipPath id="c6"><rect x="13" y="15" width="38" height="68" rx="7"/></clipPath>
+          <rect x="12" y="14" width="40" height="70" rx="8" fill="var(--silo-body)" stroke="var(--silo-stroke)" stroke-width="1.5"/>
+          <g clip-path="url(#c6)"><rect x="13" y="42" width="38" height="41" fill="#ffe000"/></g>
+          <path d="M16 84 12 98M48 84l4 14M32 84v14" stroke="var(--silo-stroke)" stroke-width="1.5"/>
+        </svg>
+        <div>
+          <div class="head"><span class="name">15</span><span class="prod">Suero</span></div>
+          <div class="lts">9.000 <small>/ 15.000 L</small></div>
+          <div class="lvl"><span class="fill" style="width:60%; background:#ffe000;"></span></div>
+          <div class="lvl-meta"><span>disp 6.000</span><span>60%</span></div>
+          <span class="st ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M20 6 9 17l-5-5"/></svg>Sin novedades</span>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <section aria-label="Tanques de proceso">
+    <h2>Tanques de proceso <span class="count">11</span></h2>
+    <div class="grid tanques-grid">
+      <div class="tk-rows">
+        <div class="tk-row">
+          <span class="name">TQ6<small>Crema</small></span>
+          <span class="lvl"><span class="fill" style="width:56%; background:#fdf0b0;"></span></span>
+          <span class="lts">8.400<small>/ 15.000 L</small></span>
+        </div>
+        <div class="tk-row">
+          <span class="name">TQ7<small>Suero</small></span>
+          <span class="lvl"><span class="fill" style="width:75%; background:#ffe000;"></span></span>
+          <span class="lts">11.200<small>/ 15.000 L</small></span>
+        </div>
+        <div class="tk-row">
+          <span class="name">TINA<small>Yogurt</small></span>
+          <span class="lvl"><span class="fill" style="width:35%; background:#f4a0c0;"></span></span>
+          <span class="lts">2.100<small>/ 6.000 L</small></span>
+        </div>
+      </div>
+      <div class="tk-rows">
+        <div class="tk-row">
+          <span class="name">POSTRE<small>Postre</small></span>
+          <span class="lvl"><span class="fill" style="width:49%; background:#8b6242;"></span></span>
+          <span class="lts">900<small>/ 1.850 L</small></span>
+        </div>
+        <div class="tk-row">
+          <span class="name">DULCE<small>Leche Entera</small></span>
+          <span class="lvl"><span class="fill" style="width:32%; background:#1a6fcc;"></span></span>
+          <span class="lts">600<small>/ 1.900 L</small></span>
+        </div>
+        <button class="vermas">Ver 6 tanques vacíos</button>
+      </div>
+    </div>
+    <p class="proto-note">PROTOTIPO ESTÁTICO · datos ficticios · discovery 2026-07</p>
+  </section>
+
+</main>
+
+<!-- Bottom nav mobile: 4 tabs planos por council 2026-05-23 (variante operario: MENÚ) -->
+<nav class="bottom" aria-label="Navegación principal">
+  <button>
+    <span class="pill"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M1 8h13v8H1zM14 11h5l3 3v2h-8zM5.5 19a1.5 1.5 0 1 0 0-.01M17.5 19a1.5 1.5 0 1 0 0-.01"/></svg></span>
+    INGRESOS
+  </button>
+  <button class="active" aria-current="page">
+    <span class="pill"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="4" y="3" width="7" height="18" rx="2"/><rect x="14" y="8" width="7" height="13" rx="2"/></svg></span>
+    STOCK
+  </button>
+  <button>
+    <span class="pill"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M8 3 4 7l4 4M4 7h16M16 21l4-4-4-4M20 17H4"/></svg></span>
+    MOVIM.
+  </button>
+  <button>
+    <span class="pill"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M4 6h16M4 12h16M4 18h16"/></svg></span>
+    MENÚ
+  </button>
+</nav>
+
+</body>
+</html>
