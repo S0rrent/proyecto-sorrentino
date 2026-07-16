@@ -9,10 +9,11 @@ import { useStepUpPin } from "./components/StepUpPin.jsx";
 import { loadOperarios, operariosActivos } from "./lib/operarios.js";
 import { stampOperario, respFor } from "./lib/audit.js";
 import { leerClave, esLecturaConfiable, contadorFallosLectura, registrarFalloLectura } from "./lib/lecturas.js";
+import { turnosDe, turnoLabelsDe, turnoCierreDe, turnoActual as turnoActualDe, normalizarTurno, TURNOS_TODAS_LAS_CLAVES } from "./lib/turnos.js";
 import { ACCIONES, tienePermiso } from "./lib/permisos.js";
 import {
   getToday, getPreviousDate, addDay, getLastNDays, getDaysInRange,
-  fmtDate, getNow,
+  fmtDate, getNow, TZ_OPERATIVA,
 } from "./lib/dates.js";
 import {
   isEcomilkDensity, normalizeDensity, formatDensity, validateDensity,
@@ -91,9 +92,9 @@ const CIP_SILOS = ["100 N", "100 V", "80", "60", "42", "40F", "20", "15", "LINEA
 const SILOS_GRUPO   = ["100 N","100 V","80","60","42","40F","20","15"];
 const PROCESO_GRUPO = ["TQ1","TQ2","TQ3","TQ5","TQ6","TQ7","TQ8","TQ9","TINA","DULCE","POSTRE"];
 const STOCK_SILOS   = [...SILOS_GRUPO, ...PROCESO_GRUPO];
-const TURNOS = ["07:00", "14:00", "21:00"];
-const TURNO_LABELS = { "07:00": "Mañana", "14:00": "Tarde", "21:00": "Noche" };
-const TURNO_CIERRE = { "07:00": "14:00", "14:00": "21:00", "21:00": "07:00" }; // hora de cierre
+// Turnos: viven en lib/turnos.js con VIGENCIA POR DÍA OPERATIVO
+// (TURNOS_VIGENCIA_DESDE) — legacy 07/14/21 para fechas históricas,
+// 05/13/21 desde la vigencia. Usar turnosDe(date)/turnoLabelsDe(date).
 const PRODUCTOS = ["Leche Cruda", "Leche Descremada", "Lactosa", "Suero", "Permeado", "Permeado de Suero", "Permeado de Lactosa", "Crema"];
 const PRODS_STOCK = [
   "Leche Cruda", "Leche Entera", "Leche Descremada", "Leche Fortificada",
@@ -221,7 +222,9 @@ const PRODS_CONCENTRADOS = ["Lactosa", "Suero", "Permeado", "Permeado de Suero",
 // getToday/getPreviousDate/addDay/getLastNDays/getDaysInRange/fmtDate/getNow
 // importados de ./lib/dates.js (extraídos para tener tests propios).
 const DIAS_ES = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
-const getCurrentTurno = () => { const h = new Date().getHours(); return h >= 7 && h < 14 ? "07:00" : h >= 14 && h < 21 ? "14:00" : "21:00"; };
+// Turno en curso según hora OPERATIVA (TZ pinneada) y el esquema vigente del
+// día operativo actual — lib/turnos.js. La firma acepta now para tests.
+const getCurrentTurno = (now = new Date()) => turnoActualDe(now);
 const sKey = (date, sec) => `yatasto:${date}:${sec}`;
 const CFG_KEY = "yatasto:config";
 
@@ -342,6 +345,19 @@ async function save(date, sec, data, options = {}) {
     // Invalidar inmediatamente todas las fechas posteriores (no esperar al rebuild)
     invalidateAutoLitrosFrom(date);
     scheduleRebuildSaldoChain(date, `edit-retro:${sec}`);
+  } else if (options.bypassClosed && _closedDates.has(date)) {
+    // Día operativo de HOY cerrado y editado con step-up: el cierre dejó un
+    // snapshot en SALDO_KEY (fast-path de mañana) que esta edición volvió
+    // viejo, y el rebuild retro no aplica porque date === hoy. Regenerarlo
+    // con el mismo camino del cierre; sin señal, el próximo cierre/arranque
+    // lo reintenta (no escribir un saldo computado sobre defaults).
+    try {
+      const _fallos0 = contadorFallosLectura();
+      const { totals, productosBase, fechasBase } = await calcAutoLitros(date);
+      if (contadorFallosLectura() === _fallos0) {
+        await saveSaldo(totals, date, productosBase, fechasBase);
+      }
+    } catch { /* nunca degradar el save por el snapshot */ }
   }
   return true;
 }
@@ -549,7 +565,7 @@ async function generateBackup() {
   URL.revokeObjectURL(url);
   // Solo cuenta como "último backup" si fue completo y verificado.
   if (completo) {
-    try { localStorage.setItem("yatasto:ultimo-backup-date", now.toISOString().split("T")[0]); } catch {}
+    try { localStorage.setItem("yatasto:ultimo-backup-date", getToday()); } catch {}
   }
   return { completo, verificado: esperado !== null, total: totalReal, esperado };
 }
@@ -3991,7 +4007,7 @@ const SecStock = ({ date, syncKey = 0, perfil = null }) => {
       let changed = false;
       const vaciados = [];
 
-      TURNOS.forEach(t => {
+      turnosDe(date).forEach(t => {
         STOCK_SILOS.forEach(silo => {
           const sd = (((updated[t] || {}).silos) || {})[silo] || {};
           const upd = (u, extra) => {
@@ -4073,7 +4089,10 @@ const SecStock = ({ date, syncKey = 0, perfil = null }) => {
   };
 
   if (loading) return <div style={{ padding: 40, textAlign: "center", color: C.sub }}>Cargando...</div>;
-  const td = data[turno] || {};
+  // El turno seleccionado se normaliza al esquema del día visible (un tab
+  // "05:00" no existe en un día legacy — se mapea por posición Mañana↔Mañana).
+  const turnoDia = normalizarTurno(turno, date);
+  const td = data[turnoDia] || {};
 
   return (
     <div>
@@ -4093,15 +4112,15 @@ const SecStock = ({ date, syncKey = 0, perfil = null }) => {
 
       {/* Selector de turno */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 14 }}>
-        {TURNOS.map(t => {
+        {turnosDe(date).map(t => {
           const filled = Object.values((data[t] || {}).silos || {}).filter(s => s.ph && s.grasa).length;
           const isActive = t === getCurrentTurno() && date === getToday();
           return (
-            <button type="button" key={t} onClick={() => setTurno(t)} style={{ ...(turno === t ? btnPrimary : btnSecondary), padding: "8px 4px", position: "relative" }}>
-              {isActive && <span style={{ position: "absolute", top: 4, right: 6, width: 6, height: 6, borderRadius: 3, background: turno === t ? C.bg : C.success, display: "inline-block" }} />}
-              <div style={{ fontSize: 13, fontWeight: 700 }}>{TURNO_LABELS[t]}</div>
-              <div style={{ fontSize: 11, opacity: 0.7 }}>{t}–{TURNO_CIERRE[t]} hs.</div>
-              <div style={{ fontSize: 10, marginTop: 2, color: turno === t ? C.text.replace(/\)$/, " / 0.6)") : C.success.replace(/\)$/, " / 0.55)") }}>
+            <button type="button" key={t} onClick={() => setTurno(t)} style={{ ...(turnoDia === t ? btnPrimary : btnSecondary), padding: "8px 4px", position: "relative" }}>
+              {isActive && <span style={{ position: "absolute", top: 4, right: 6, width: 6, height: 6, borderRadius: 3, background: turnoDia === t ? C.bg : C.success, display: "inline-block" }} />}
+              <div style={{ fontSize: 13, fontWeight: 700 }}>{turnoLabelsDe(date)[t]}</div>
+              <div style={{ fontSize: 11, opacity: 0.7 }}>{t}–{turnoCierreDe(date)[t]} hs.</div>
+              <div style={{ fontSize: 10, marginTop: 2, color: turnoDia === t ? C.text.replace(/\)$/, " / 0.6)") : C.success.replace(/\)$/, " / 0.55)") }}>
                 {filled > 0 ? `✓ ${filled} silos` : "Sin datos"}
               </div>
             </button>
@@ -4111,8 +4130,8 @@ const SecStock = ({ date, syncKey = 0, perfil = null }) => {
 
       {/* Responsable del turno */}
       <div style={panel}>
-        <div style={secTitle}>Responsable — Turno {TURNO_LABELS[turno]} ({turno} hs.)</div>
-        <Inp value={td.resp || ""} onChange={v => updateResp(turno, v)} placeholder="Nombre del responsable" />
+        <div style={secTitle}>Responsable — Turno {turnoLabelsDe(date)[turnoDia]} ({turnoDia} hs.)</div>
+        <Inp value={td.resp || ""} onChange={v => updateResp(turnoDia, v)} placeholder="Nombre del responsable" />
       </div>
 
       {/* Tarjetas de silos — agrupadas */}
@@ -4252,7 +4271,7 @@ const SecStock = ({ date, syncKey = 0, perfil = null }) => {
                         ...(sd.producto && fillColor ? { borderColor: fillColor, boxShadow: `0 0 0 1px ${fillColor}44` } : {})
                       }}
                       value={sd.producto || ""}
-                      onChange={e => updateSilo(turno, silo, "producto", e.target.value)}
+                      onChange={e => updateSilo(turnoDia, silo, "producto", e.target.value)}
                     >
                       <option value="">Sin producto</option>
                       {PRODS_STOCK.map(p => (
@@ -4265,10 +4284,10 @@ const SecStock = ({ date, syncKey = 0, perfil = null }) => {
                 {/* pH / Grasa / °D / °C — SiloField usa estado local + guarda en onBlur
                     para evitar revert por conflicto de timestamp al guardar en cada tecla */}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-                  <SiloField label="pH"     value={sd.ph    || ""} step="0.01" onSave={v => updateSilo(turno, silo, "ph",    v)} />
-                  <SiloField label="Grasa %" value={sd.grasa || ""} step="0.01" onSave={v => updateSilo(turno, silo, "grasa", v)} />
-                  <SiloField label="°D"     value={sd.gD    || ""} step="0.1"  onSave={v => updateSilo(turno, silo, "gD",    v)} />
-                  <SiloField label="°C"     value={sd.gC    || ""} step="0.1"  onSave={v => updateSilo(turno, silo, "gC",    v)} />
+                  <SiloField label="pH"     value={sd.ph    || ""} step="0.01" onSave={v => updateSilo(turnoDia, silo, "ph",    v)} />
+                  <SiloField label="Grasa %" value={sd.grasa || ""} step="0.01" onSave={v => updateSilo(turnoDia, silo, "grasa", v)} />
+                  <SiloField label="°D"     value={sd.gD    || ""} step="0.1"  onSave={v => updateSilo(turnoDia, silo, "gD",    v)} />
+                  <SiloField label="°C"     value={sd.gC    || ""} step="0.1"  onSave={v => updateSilo(turnoDia, silo, "gC",    v)} />
                 </div>
 
                 {disponibleL > 0 && (perfil === "supervisor" || perfil === "jefe") && (
@@ -4853,7 +4872,7 @@ const InformeModal = ({ date, onClose }) => {
   const silosPend = CIP_SILOS.filter(s => !(d.cip.silos || {})[s]?.hora);
   const camsPend = CAMIONES_BASE.filter(c => !(d.cip.camiones || {})[c]?.hora);
   const vacios = STOCK_SILOS.filter(s => (d.litros[s] || 0) <= 0);
-  const resps = TURNOS.map(t => (d.stk[t] || {}).resp).filter(Boolean);
+  const resps = TURNOS_TODAS_LAS_CLAVES.map(t => (d.stk[t] || {}).resp).filter(Boolean);
 
   return (
     <Modal title={`Informe — ${fmtDate(date)}`} onClose={onClose}>
@@ -5235,7 +5254,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
     const cap = SILO_CAP[silo] || 10000;
     const pct = Math.min(100, Math.max(0, (litros / cap) * 100));
     let prod = "";
-    for (const t of TURNOS) { const p = ((((d.stock[t] || {}).silos || {})[silo]) || {}).producto; if (p) { prod = p; break; } }
+    for (const t of TURNOS_TODAS_LAS_CLAVES) { const p = ((((d.stock[t] || {}).silos || {})[silo]) || {}).producto; if (p) { prod = p; break; } }
     // Fortifications override product type directly (no need to wait for SecStock to save)
     if (d.fort && d.fort.length > 0) {
       for (const fort of d.fort) {
@@ -5392,7 +5411,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
 
       // ── Timestamp ────────────────────────────────────────────
       const now = new Date();
-      const ts  = now.toLocaleDateString("es-AR") + " " + now.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
+      const ts  = now.toLocaleDateString("es-AR", { timeZone: TZ_OPERATIVA }) + " " + now.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", timeZone: TZ_OPERATIVA });
 
       // ── Donut SVG (silo utilization) ─────────────────────────
       const dpct  = Math.min(100, Math.max(0, fillPct));
@@ -5702,7 +5721,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
         const cap    = SILO_CAP[silo] || 10000;
         const pct    = cap > 0 ? (litros / cap) * 100 : 0;
         let prod = "";
-        for (const t of TURNOS) { const p = (((stk[t] || {}).silos || {})[silo] || {}).producto; if (p) { prod = p; break; } }
+        for (const t of TURNOS_TODAS_LAS_CLAVES) { const p = (((stk[t] || {}).silos || {})[silo] || {}).producto; if (p) { prod = p; break; } }
         const barColor = pct === 0 ? "#e2e8f0" : pct > 88 ? "#ef4444" : pct > 65 ? "#f59e0b" : "#10b981";
         const barGrad  = pct === 0 ? "#e2e8f0"
           : pct > 88 ? "linear-gradient(90deg,#f87171,#ef4444)"
@@ -5966,7 +5985,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
         return vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : null;
       };
       const now = new Date();
-      const ts  = now.toLocaleDateString("es-AR") + " " + now.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
+      const ts  = now.toLocaleDateString("es-AR", { timeZone: TZ_OPERATIVA }) + " " + now.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", timeZone: TZ_OPERATIVA });
 
       // ── Donut SVG ─────────────────────────────────────────────
       const dpct  = Math.min(100, Math.max(0, fillPct));
@@ -6302,7 +6321,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
         const cap    = SILO_CAP[silo] || 10000;
         const pct    = cap > 0 ? (litros / cap) * 100 : 0;
         let prod = "";
-        for (const t of TURNOS) { const p = (((stk[t] || {}).silos || {})[silo] || {}).producto; if (p) { prod = p; break; } }
+        for (const t of TURNOS_TODAS_LAS_CLAVES) { const p = (((stk[t] || {}).silos || {})[silo] || {}).producto; if (p) { prod = p; break; } }
         const barColor = pct === 0 ? "#e2e8f0" : pct > 88 ? "#ef4444" : pct > 65 ? "#f59e0b" : "#10b981";
         const barGrad  = pct === 0 ? "#e2e8f0"
           : pct > 88 ? "linear-gradient(90deg,#f87171,#ef4444)"
@@ -7094,11 +7113,11 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
               <div>
                 <div style={{ fontSize: 11, color: C.sub, marginBottom: 4 }}>Desde</div>
-                <input type="date" value={exportFrom} max={getToday()} onChange={e => { const v = e.target.value; if (v > getToday()) return; setExportFrom(v); if (v > exportTo) setExportTo(v); }} style={{ ...inp, width: "100%" }} />
+                <input type="date" value={exportFrom} max={getToday()} onChange={e => { const v = e.target.value; if (!v || v > getToday()) return; setExportFrom(v); if (v > exportTo) setExportTo(v); }} style={{ ...inp, width: "100%" }} />
               </div>
               <div>
                 <div style={{ fontSize: 11, color: C.sub, marginBottom: 4 }}>Hasta</div>
-                <input type="date" value={exportTo} max={getToday()} onChange={e => { const v = e.target.value; if (v > getToday()) return; setExportTo(v); if (v < exportFrom) setExportFrom(v); }} style={{ ...inp, width: "100%" }} />
+                <input type="date" value={exportTo} max={getToday()} onChange={e => { const v = e.target.value; if (!v || v > getToday()) return; setExportTo(v); if (v < exportFrom) setExportFrom(v); }} style={{ ...inp, width: "100%" }} />
               </div>
             </div>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -7277,7 +7296,7 @@ const SecDashboard = ({ date, perfil, perfilLabel, syncKey = 0 }) => {
                 onClick={() => {
                   if (!techRebuilding) {
                     scheduleRebuildSaldoChain(
-                      new Date(date).toISOString().slice(0, 10),
+                      date, // ya es ISO — el roundtrip por Date reintroducía TZ
                       "forzar_rebuild_completo"
                     );
                     setTimeout(() => { setTechRebuildLog(getRebuildLog()); }, 2500);
@@ -7999,11 +8018,11 @@ const SecAdmin = ({ date, syncKey, perfil }) => {
         {preset === "custom" && (
           <>
             <input type="date" value={customFrom} max={getToday()}
-              onChange={e => { if (e.target.value > getToday()) return; setCustomFrom(e.target.value); }}
+              onChange={e => { const v = e.target.value; if (!v || v > getToday()) return; setCustomFrom(v); }}
               style={{ ...inp, width: "auto", fontSize: 13, padding: "3px 8px", flex: "none" }} />
             <span style={{ color: C.sub, fontSize: 12 }}>→</span>
             <input type="date" value={customTo} max={getToday()}
-              onChange={e => { if (e.target.value > getToday()) return; setCustomTo(e.target.value); }}
+              onChange={e => { const v = e.target.value; if (!v || v > getToday()) return; setCustomTo(v); }}
               style={{ ...inp, width: "auto", fontSize: 13, padding: "3px 8px", flex: "none" }} />
           </>
         )}
@@ -8341,7 +8360,7 @@ const SecAdmin = ({ date, syncKey, perfil }) => {
 </style></head><body>
 <div class="header">
   <div class="title">Lácteos Yatasto SA — Administración</div>
-  <div class="sub">Período: ${rangeLabel} · Generado: ${new Date().toLocaleString("es-AR")}</div>
+  <div class="sub">Período: ${rangeLabel} · Generado: ${new Date().toLocaleString("es-AR", { timeZone: TZ_OPERATIVA })}</div>
 </div>
 <div class="kpis">
   <div class="kpi"><div class="kpi-label">Litros ingresados</div><div class="kpi-val">${Math.round(totalIn).toLocaleString("es-AR")} L</div></div>
@@ -8403,7 +8422,7 @@ ${cargas.map(r=>`<tr><td>${r._date}</td><td>${r.hora||""}</td><td>${escapeHtml(r
                 Guardá este archivo en un lugar seguro como respaldo ante pérdida de datos.
                 {(() => {
                   const lastBackup = localStorage.getItem("yatasto:ultimo-backup-date");
-                  const today = new Date().toISOString().split("T")[0];
+                  const today = getToday(); // día operativo — coherente con el registro del backup
                   if (!lastBackup) return <span style={{ color: C.danger, fontWeight: 700 }}> No se generó ningún backup todavía.</span>;
                   if (lastBackup < today) return <span style={{ color: "#f97316", fontWeight: 600 }}> Último backup: {new Date(lastBackup + "T00:00:00").toLocaleDateString("es-AR")}.</span>;
                   return <span style={{ color: C.success, fontWeight: 600 }}> Backup del día descargado.</span>;
@@ -8886,7 +8905,11 @@ export default function App() {
   // Restaura sección/fecha/perfil guardados justo antes de recargar para cambio de tema
   const { isDesktop } = useViewport();
   const [section, setSection] = useState(_restoredSession?.section || "ingresos");
-  const [date, setDate]       = useState(_restoredSession?.date    || getToday());
+  // Clamp: una fecha restaurada FUTURA (guardada por el bundle viejo con el
+  // bug UTC entre 21:00 y 23:59) esquivaría la guarda A8 del picker.
+  const [date, setDate]       = useState(
+    (_restoredSession?.date && _restoredSession.date <= getToday()) ? _restoredSession.date : getToday()
+  );
   const [datePicker, setDatePicker] = useState(false);
   const [informe, setInforme] = useState(false);
   const [initModal, setInitModal] = useState(false);
@@ -9079,8 +9102,8 @@ export default function App() {
     }, [operarioActivo, setOperarioActivo, toast]),
   });
 
-  // Cambio de turno (UX-V2 §5.3): cuando estamos en la ventana ±30min de
-  // 07:00/14:00/21:00, mostramos banner sugerente. Operario decide.
+  // Cambio de turno (UX-V2 §5.3): ventana ±30min alrededor del inicio de cada
+  // turno del esquema vigente (lib/turnos.js). Banner sugerente; operario decide.
   const shiftWindow = useShiftChange({
     enabled: !!perfil,
     onShiftChange: useCallback((turno) => {
@@ -9138,6 +9161,9 @@ export default function App() {
     const yesterday = getPreviousDate(today);
     loadSaldo().then(async saldo => {
       if (saldo && saldo.fromDate === yesterday) return; // ya está al día
+      // Guard offline: con lecturas fallidas los defaults mienten — no pisar
+      // el saldo bueno del servidor con totals vacíos (ver interval de 10s).
+      const _fallos0 = contadorFallosLectura();
       let totals, productosBase, fechasBase;
       if (saldo && saldo.fromDate && saldo.fromDate < yesterday) {
         // Hay un gap: encadenar desde la fecha del saldo hasta ayer
@@ -9146,6 +9172,7 @@ export default function App() {
         // No hay saldo previo o es futuro: calcular ayer directamente
         ({ totals, productosBase, fechasBase } = await calcAutoLitros(yesterday));
       }
+      if (contadorFallosLectura() !== _fallos0) return;
       await saveSaldo(totals, yesterday, productosBase, fechasBase);
     });
   }, []);
@@ -9171,17 +9198,22 @@ export default function App() {
       hbTick++;
       if (hbTick % 3 === 0) updateHeartbeat(nombre, rol); // heartbeat cada 30 s
       setTurnoActual(getCurrentTurno()); // actualizar turno si cambió la hora
-      // Detectar cambio de día (app abierta al cruzar la medianoche)
+      // Detectar cambio de día operativo (app abierta al cruzar las 05:00)
       const today = getToday();
       if (today !== lastDate) {
         const yesterday = getPreviousDate(today);
         loadSaldo().then(async saldo => {
+          // Guard offline: si alguna lectura falla, los defaults mienten — un
+          // saveSaldo con totals vacíos pisaría el saldo bueno de todos al
+          // drenar la cola. Sin señal, el próximo tick/arranque lo reintenta.
+          const _fallos0 = contadorFallosLectura();
           let totals, productosBase, fechasBase;
           if (saldo && saldo.fromDate && saldo.fromDate < yesterday) {
             ({ totals, productosBase, fechasBase } = await buildChainedSaldo(saldo, yesterday));
           } else {
             ({ totals, productosBase, fechasBase } = await calcAutoLitros(yesterday));
           }
+          if (contadorFallosLectura() !== _fallos0) return;
           await saveSaldo(totals, yesterday, productosBase, fechasBase);
         });
         lastDate = today;
@@ -9192,12 +9224,17 @@ export default function App() {
 
   const guardarResponsable = async () => {
     if (!initNombre.trim()) return;
-    const t = getCurrentTurno();
+    // Fecha y turno del MISMO instante: si el modal quedó abierto cruzando las
+    // 05:00, el responsable va al día operativo y turno de AHORA — no al date
+    // capturado al montar (clave equivocada) ni a un turno de otro esquema.
+    const ahora = new Date();
+    const dia = getToday(ahora);
+    const t = getCurrentTurno(ahora); // ya usa el esquema del día operativo de `ahora`
     // Estricto: no escribir el doc de stock partiendo de un default por fallo de red.
     let d;
-    try { d = await loadSeguro(date, "stock", {}); }
-    catch { _onSaveNoLeido?.({ sec: "stock", date }); return; }
-    await save(date, "stock", { ...d, [t]: { ...(d[t] || {}), resp: initNombre.trim() } });
+    try { d = await loadSeguro(dia, "stock", {}); }
+    catch { _onSaveNoLeido?.({ sec: "stock", date: dia }); return; }
+    await save(dia, "stock", { ...d, [t]: { ...(d[t] || {}), resp: initNombre.trim() } });
     setInitModal(false);
   };
 
@@ -9651,7 +9688,7 @@ export default function App() {
 
       {/* Modal identificación de turno */}
       {initModal && (
-        <Modal title={`Turno ${TURNO_LABELS[getCurrentTurno()]} — ${getCurrentTurno()} hs.`} onClose={() => setInitModal(false)} zIndex={200}>
+        <Modal title={`Turno ${turnoLabelsDe(getToday())[getCurrentTurno()]} — ${getCurrentTurno()} hs.`} onClose={() => setInitModal(false)} zIndex={200}>
           <div style={{ color: C.sub, fontSize: 13, marginBottom: 16, lineHeight: 1.5 }}>
             Bienvenido/a. Identificate para registrar el responsable de este turno.
           </div>
@@ -9796,7 +9833,7 @@ export default function App() {
             </div>
             {isToday && (
               <span style={{ fontSize: 10, fontWeight: 700, color: C.accent, background: C.accentDim, borderRadius: 5, padding: "2px 6px", whiteSpace: "nowrap", flexShrink: 0 }}>
-                {TURNO_LABELS[turnoActual]}
+                {turnoLabelsDe(getToday())[normalizarTurno(turnoActual, getToday())]}
               </span>
             )}
           </div>
@@ -9806,7 +9843,7 @@ export default function App() {
             <span>{navItems.find(n => n.id === section)?.id === "supervisor" ? "Dashboard" : navItems.find(n => n.id === section)?.label}</span>
             {isToday && (
               <span style={{ fontSize: 10, fontWeight: 700, color: C.accent, background: C.accentDim, borderRadius: 5, padding: "2px 7px", whiteSpace: "nowrap" }}>
-                {TURNO_LABELS[turnoActual]}
+                {turnoLabelsDe(getToday())[normalizarTurno(turnoActual, getToday())]}
               </span>
             )}
           </div>

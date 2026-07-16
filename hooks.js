@@ -3,6 +3,8 @@ import { useState, useEffect, useCallback, useContext } from "react";
 import { BP } from "./tokens.js";
 import { tienePermiso as _tienePermiso } from "./lib/permisos.js";
 import { PerfilContext } from "./components/PerfilProvider.jsx";
+import { partesOperativas } from "./lib/dates.js";
+import { iniciosDeTurno } from "./lib/turnos.js";
 
 /**
  * useViewport()
@@ -168,20 +170,18 @@ export function useInactivityLock({ enabled = true, warnMs = 5 * 60 * 1000, logo
 }
 
 // ─── Cambio de turno detector ────────────────────────────────────────────────
-// Turnos: 07:00, 14:00, 21:00. Ventana ±30 min alrededor del cambio.
+// Ventana ±30 min alrededor del inicio de cada turno del esquema VIGENTE del
+// día operativo actual (lib/turnos.js: legacy 07/14/21, actual 05/13/21).
+// Hora en TZ operativa — no la del dispositivo.
 // Cuando entra en la ventana, emite onShiftChange. App muestra banner.
 
-const TURNO_HORAS = [
-  { h: 7, label: "07:00" },
-  { h: 14, label: "14:00" },
-  { h: 21, label: "21:00" },
-];
 const TURNO_VENTANA_MIN = 30;
 
 export function isShiftChangeWindow(now = new Date()) {
-  const minutes = now.getHours() * 60 + now.getMinutes();
-  for (const t of TURNO_HORAS) {
-    if (Math.abs(minutes - t.h * 60) <= TURNO_VENTANA_MIN) return t.label;
+  const { hora, minuto } = partesOperativas(now);
+  const minutes = hora * 60 + minuto;
+  for (const t of iniciosDeTurno(now)) {
+    if (Math.abs(minutes - t.inicio * 60) <= TURNO_VENTANA_MIN) return t.key;
   }
   return null;
 }
