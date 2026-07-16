@@ -131,7 +131,7 @@ npm run preview       # preview built dist/
 - `SILO_CAP` — real capacity in litres per silo key
 - `SILO_MIN` / `SILO_MAX` — recommended minimum and maximum fill levels per silo
 - `PROD_COLOR` — hex fill colour per product type, used by `SiloSVG` and the stock level bar
-- `TURNOS` — `["07:00", "14:00", "21:00"]`; `TURNO_LABELS` maps to "Mañana/Tarde/Noche"; `TURNO_CIERRE` maps each to its closing hour
+- Turnos — viven en `lib/turnos.js` con vigencia por día operativo (`TURNOS_VIGENCIA_DESDE`): legacy `["07:00","14:00","21:00"]` para fechas históricas, `["05:00","13:00","21:00"]` desde la vigencia. Usar `turnosDe(date)` / `turnoLabelsDe(date)` / `turnoCierreDe(date)`; el día operativo corta a las 05:00 (`getToday()` en `lib/dates.js`, TZ America/Argentina/Buenos_Aires)
 - `PRODUCTOS` — product options for ingresos dropdown
 - `PRODS_STOCK` — extended product list for the stock silo product selector
 - `CARGA_PRODUCTOS_BASE` — products available for truck dispatch

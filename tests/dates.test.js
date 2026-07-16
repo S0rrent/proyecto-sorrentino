@@ -17,6 +17,62 @@ describe("getToday", () => {
   });
 });
 
+// Instante AR explícito: mismo resultado en Windows Argentina y en CI UTC.
+const ar = (hhmm, fecha = "2026-07-14") => new Date(`${fecha}T${hhmm}:00-03:00`);
+
+describe("getToday — día operativo (corte 05:00, TZ America/Argentina/Buenos_Aires)", () => {
+  it("ejemplos obligatorios de la decisión de negocio", () => {
+    expect(getToday(ar("20:59"))).toBe("2026-07-14");
+    expect(getToday(ar("21:00"))).toBe("2026-07-14"); // el bug UTC devolvía 15/07
+    expect(getToday(ar("23:59"))).toBe("2026-07-14"); // ídem
+    expect(getToday(ar("00:00", "2026-07-15"))).toBe("2026-07-14"); // madrugada → día anterior
+    expect(getToday(ar("04:59", "2026-07-15"))).toBe("2026-07-14");
+    expect(getToday(ar("05:00", "2026-07-15"))).toBe("2026-07-15"); // corte exacto
+  });
+
+  it("todos los límites horarios del día operativo", () => {
+    expect(getToday(ar("04:59"))).toBe("2026-07-13"); // pertenece al día que empezó anoche
+    expect(getToday(ar("05:00"))).toBe("2026-07-14");
+    expect(getToday(ar("12:59"))).toBe("2026-07-14");
+    expect(getToday(ar("13:00"))).toBe("2026-07-14");
+    expect(getToday(ar("20:59"))).toBe("2026-07-14");
+    expect(getToday(ar("21:00"))).toBe("2026-07-14");
+    expect(getToday(ar("23:59"))).toBe("2026-07-14");
+    expect(getToday(ar("00:00", "2026-07-15"))).toBe("2026-07-14");
+  });
+
+  it("independiente del TZ del runner: mismo instante expresado en UTC", () => {
+    // 2026-07-15T02:00Z = 14/07 23:00 hora argentina → día operativo 14/07
+    expect(getToday(new Date("2026-07-15T02:00:00.000Z"))).toBe("2026-07-14");
+    // 2026-07-15T07:30Z = 15/07 04:30 AR → sigue siendo 14/07
+    expect(getToday(new Date("2026-07-15T07:30:00.000Z"))).toBe("2026-07-14");
+    // 2026-07-15T08:00Z = 15/07 05:00 AR → 15/07
+    expect(getToday(new Date("2026-07-15T08:00:00.000Z"))).toBe("2026-07-15");
+  });
+
+  it("bordes de mes y año en la madrugada", () => {
+    expect(getToday(ar("00:30", "2026-08-01"))).toBe("2026-07-31");
+    expect(getToday(ar("03:00", "2026-01-01"))).toBe("2025-12-31");
+  });
+
+  it("integración: un ingreso a las 02:00 se guarda bajo el día operativo anterior", () => {
+    // sKey del día = `yatasto:${getToday(now)}:ingresos` — la clave del ingreso
+    // de las 02:00 debe ser la del día que empezó la noche.
+    const now = ar("02:00", "2026-07-17");
+    expect(`yatasto:${getToday(now)}:ingresos`).toBe("yatasto:2026-07-16:ingresos");
+  });
+
+  it("integración: carry-over consulta el 'ayer' operativo correcto", () => {
+    // A las 02:00 del 17/07, el día operativo es 16/07 y su 'ayer' es 15/07.
+    const now = ar("02:00", "2026-07-17");
+    expect(getPreviousDate(getToday(now))).toBe("2026-07-15");
+  });
+
+  it("integración: el cierre de día a las 21:30 NO selecciona mañana (bug UTC)", () => {
+    expect(getToday(ar("21:30", "2026-07-16"))).toBe("2026-07-16");
+  });
+});
+
 describe("getPreviousDate", () => {
   it("retrocede un día simple", () => {
     expect(getPreviousDate("2026-06-09")).toBe("2026-06-08");
@@ -111,6 +167,15 @@ describe("getDaysInRange", () => {
     const result = getDaysInRange("2025-12-30", "2026-01-02");
     expect(result).toEqual(["2025-12-30", "2025-12-31", "2026-01-01", "2026-01-02"]);
   });
+
+  it("inputs no-ISO (p.ej. el botón Borrar del date picker nativo) → [] sin lanzar", () => {
+    expect(getDaysInRange("", "2026-07-15")).toEqual([]);
+    expect(getDaysInRange("2026-07-15", "")).toEqual([]);
+    expect(getDaysInRange("", "")).toEqual([]);
+    expect(getDaysInRange("abc", "abd")).toEqual([]);
+    expect(getDaysInRange(null, "2026-07-15")).toEqual([]);
+    expect(getDaysInRange(undefined, undefined)).toEqual([]);
+  });
 });
 
 describe("fmtDate", () => {
@@ -131,22 +196,21 @@ describe("fmtDate", () => {
   });
 });
 
-describe("getNow", () => {
+describe("getNow — hora operativa (TZ pinneada, no la del dispositivo)", () => {
   it("formato HH:MM con padding cero", () => {
-    const t = new Date();
-    t.setHours(7, 5, 0, 0);
-    expect(getNow(t)).toBe("07:05");
+    expect(getNow(new Date("2026-07-14T07:05:00-03:00"))).toBe("07:05");
   });
 
-  it("hora doble dígito sin doble cero", () => {
-    const t = new Date();
-    t.setHours(14, 32, 0, 0);
-    expect(getNow(t)).toBe("14:32");
+  it("hora doble dígito", () => {
+    expect(getNow(new Date("2026-07-14T14:32:00-03:00"))).toBe("14:32");
   });
 
-  it("medianoche", () => {
-    const t = new Date();
-    t.setHours(0, 0, 0, 0);
-    expect(getNow(t)).toBe("00:00");
+  it("medianoche en formato h23 (00, no 24)", () => {
+    expect(getNow(new Date("2026-07-15T00:00:00-03:00"))).toBe("00:00");
+  });
+
+  it("dispositivo con reloj en UTC: la hora mostrada sigue siendo la argentina", () => {
+    // 12:00Z = 09:00 AR — un tablet mal configurado no debe estampar 12:00.
+    expect(getNow(new Date("2026-07-14T12:00:00.000Z"))).toBe("09:00");
   });
 });
