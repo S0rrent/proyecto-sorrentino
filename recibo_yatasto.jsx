@@ -1515,6 +1515,8 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo,
   const [stepUpUI, askStepUp] = useStepUpPin();
   const overrideSavingRef = useRef(false); // double-tap guard for CIP/aguado override buttons
   const savingRef = useRef(false); // double-tap guard for main Guardar button
+  // Confirmación de dos toques (sin modal): el primer Guardar avisa, el segundo confirma.
+  const avisoRef = useRef({ fcaCero: false });
   const [fieldError, setFieldError] = useState("");
   // PR3: estado y refs para form colapsable (sólo se usan cuando UX_V2 = true).
   // En edit mode todos los paneles arrancan abiertos para revisión rápida.
@@ -1773,6 +1775,23 @@ const IngresoForm = ({ initial, onSave, onClose, onDelete, tambos, onNuevoTambo,
       if (!fcaOk && !tboOk) {
         setFieldError("Litros (Fábrica o Tambo) debe ser mayor a 0.");
         track("save_fail", "litrosFca", "ingreso");
+        return;
+      }
+    }
+    {
+      // Guardrail de magnitud (TH8/T7): jamás más litros que la capacidad del destino.
+      const lf = parseFloat(f.litrosFca) || 0;
+      const capDest = SILO_CAP[SILO_STOCK_KEY[f.destino] || f.destino];
+      if (capDest && lf > capDest) {
+        setFieldError(`Los ${lf.toLocaleString("es-AR")} L superan la capacidad del silo ${f.destino} (${capDest.toLocaleString("es-AR")} L). Verificá litros o destino.`);
+        track("save_fail", "magnitud", "ingreso");
+        return;
+      }
+      // Fca=0 con Tbo>0 pasa la validación pero suma 0 L al silo — doble toque.
+      if (!isConcentrado && lf === 0 && (parseFloat(f.litrosTbo) || 0) > 0 && !avisoRef.current.fcaCero) {
+        avisoRef.current.fcaCero = true;
+        setFieldError("Litros Fábrica está en 0 y Tambo tiene litros: al silo se suman 0 L. Si es correcto, tocá Guardar de nuevo para confirmar.");
+        track("save_fail", "fca_cero", "ingreso");
         return;
       }
     }
@@ -2213,44 +2232,63 @@ const SecIngresos = ({ date, syncKey = 0, dayClosed = false, perfil = null }) =>
 };
 
 // ─── CIP ─────────────────────────────────────────────────────
+const CIP_PARAMS = ["alcConc", "alcTiempo", "alcTemp", "enjTiempo", "enjVerif", "acidConc", "acidTiempo", "acidTemp", "acid2Tiempo", "acid2Verif"];
 const CIPRow = ({ nombre, tipo, data, onChange }) => {
   const [open, setOpen] = useState(false);
-  const set = k => v => onChange({ ...data, [k]: v });
-  const hasData = data?.hora || data?.resp;
+  // B1: borrador local — persistir en cada tecla generaba un save por keystroke
+  // (ruido en la cola offline y falsos conflictos C5). Se comitea al salir del
+  // campo (onBlurCapture) o al cerrar la fila.
+  const [draft, setDraft] = useState(null);
+  const cur = draft ?? data ?? {};
+  const set = k => v => setDraft({ ...cur, [k]: v });
+  const commit = () => { if (draft) { onChange(draft); setDraft(null); } };
+  const toggleOpen = () => { if (open) commit(); setOpen(o => !o); };
+  // Red de seguridad: si la fila se desmonta con borrador pendiente (cambio de
+  // tab/fecha sin blur previo — p.ej. quirk de iOS), comitear al salir.
+  const draftRef = useRef(null); draftRef.current = draft;
+  const onChangeRef = useRef(onChange); onChangeRef.current = onChange;
+  useEffect(() => () => { if (draftRef.current) onChangeRef.current(draftRef.current); }, []);
+  // A4 (H1): el punto VERDE certifica una limpieza completa — hora + responsable
+  // + al menos un parámetro de lavado. Con algo cargado pero incompleto: ÁMBAR.
+  // El responsable lo garantiza el stamp de auditoría (identidad real del
+  // operario logueado) en cada commit — no depende del tipeo manual.
+  const tieneParametro = CIP_PARAMS.some(k => String(cur[k] ?? "").trim());
+  const completo = String(cur.hora ?? "").trim() && String(cur.resp ?? "").trim() && tieneParametro;
+  const algoCargado = String(cur.hora ?? "").trim() || String(cur.resp ?? "").trim() || tieneParametro;
   return (
     <div style={{ background: C.surface, borderRadius: 10, marginBottom: 8, overflow: "hidden", border: `1px solid ${open ? C.accentDark : C.border}` }}>
-      <div onClick={() => setOpen(!open)} style={{ padding: "13px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}>
+      <div onClick={toggleOpen} style={{ padding: "13px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}>
         <span style={{ fontWeight: 700, fontSize: 15, color: C.text }}>{tipo} {nombre}</span>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          {hasData && <span style={{ width: 8, height: 8, borderRadius: 4, background: C.success, display: "inline-block" }} />}
-          {data?.hora && <span style={{ fontSize: 12, color: C.success, fontFamily: FONT_MONO }}>{data.hora}</span>}
+          {algoCargado && <span title={completo ? "Limpieza completa" : "Registro incompleto"} style={{ width: 8, height: 8, borderRadius: 4, background: completo ? C.success : C.accent, display: "inline-block" }} />}
+          {cur.hora && <span style={{ fontSize: 12, color: completo ? C.success : C.accent, fontFamily: FONT_MONO }}>{cur.hora}</span>}
           <span style={{ color: C.sub }}>{open ? "▲" : "▼"}</span>
         </div>
       </div>
       {open && (
-        <div style={{ padding: "0 14px 14px", borderTop: `1px solid ${C.border}` }}>
+        <div onBlurCapture={commit} style={{ padding: "0 14px 14px", borderTop: `1px solid ${C.border}` }}>
           <div style={{ marginTop: 12 }} />
           {tipo === "SILO" && (
             <>
               <div style={secTitle}>Lavado Alcalino / Clorado</div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 8 }}>
-                <F label="Conc %"><Inp type="number" value={data?.alcConc || ""} onChange={set("alcConc")} step="0.1" /></F>
-                <F label="Tiempo"><Inp value={data?.alcTiempo || ""} onChange={set("alcTiempo")} /></F>
-                <F label="Temp °C"><Inp type="number" value={data?.alcTemp || ""} onChange={set("alcTemp")} /></F>
+                <F label="Conc %"><Inp type="number" value={cur.alcConc || ""} onChange={set("alcConc")} step="0.1" /></F>
+                <F label="Tiempo"><Inp value={cur.alcTiempo || ""} onChange={set("alcTiempo")} /></F>
+                <F label="Temp °C"><Inp type="number" value={cur.alcTemp || ""} onChange={set("alcTemp")} /></F>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 8 }}>
-                <F label="Enjuague tiempo"><Inp value={data?.enjTiempo || ""} onChange={set("enjTiempo")} /></F>
-                <F label="Verificación"><Inp value={data?.enjVerif || ""} onChange={set("enjVerif")} /></F>
+                <F label="Enjuague tiempo"><Inp value={cur.enjTiempo || ""} onChange={set("enjTiempo")} /></F>
+                <F label="Verificación"><Inp value={cur.enjVerif || ""} onChange={set("enjVerif")} /></F>
               </div>
               <div style={secTitle}>Lavado Ácido (Semanal)</div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 8 }}>
-                <F label="Conc %"><Inp type="number" value={data?.acidConc || ""} onChange={set("acidConc")} step="0.1" /></F>
-                <F label="Tiempo"><Inp value={data?.acidTiempo || ""} onChange={set("acidTiempo")} /></F>
-                <F label="Temp °C"><Inp type="number" value={data?.acidTemp || ""} onChange={set("acidTemp")} /></F>
+                <F label="Conc %"><Inp type="number" value={cur.acidConc || ""} onChange={set("acidConc")} step="0.1" /></F>
+                <F label="Tiempo"><Inp value={cur.acidTiempo || ""} onChange={set("acidTiempo")} /></F>
+                <F label="Temp °C"><Inp type="number" value={cur.acidTemp || ""} onChange={set("acidTemp")} /></F>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 8 }}>
-                <F label="Enj. tiempo"><Inp value={data?.acid2Tiempo || ""} onChange={set("acid2Tiempo")} /></F>
-                <F label="Verificación"><Inp value={data?.acid2Verif || ""} onChange={set("acid2Verif")} /></F>
+                <F label="Enj. tiempo"><Inp value={cur.acid2Tiempo || ""} onChange={set("acid2Tiempo")} /></F>
+                <F label="Verificación"><Inp value={cur.acid2Verif || ""} onChange={set("acid2Verif")} /></F>
               </div>
             </>
           )}
@@ -2258,22 +2296,22 @@ const CIPRow = ({ nombre, tipo, data, onChange }) => {
             <>
               <div style={secTitle}>Lavado Alcalino / Clorado</div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 8 }}>
-                <F label="Conc %"><Inp type="number" value={data?.alcConc || ""} onChange={set("alcConc")} step="0.1" /></F>
-                <F label="Tiempo"><Inp value={data?.alcTiempo || ""} onChange={set("alcTiempo")} /></F>
-                <F label="Temp °C"><Inp type="number" value={data?.alcTemp || ""} onChange={set("alcTemp")} /></F>
+                <F label="Conc %"><Inp type="number" value={cur.alcConc || ""} onChange={set("alcConc")} step="0.1" /></F>
+                <F label="Tiempo"><Inp value={cur.alcTiempo || ""} onChange={set("alcTiempo")} /></F>
+                <F label="Temp °C"><Inp type="number" value={cur.alcTemp || ""} onChange={set("alcTemp")} /></F>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 8 }}>
-                <F label="Enjuague tiempo"><Inp value={data?.enjTiempo || ""} onChange={set("enjTiempo")} /></F>
-                <F label="Verificación"><Inp value={data?.enjVerif || ""} onChange={set("enjVerif")} /></F>
+                <F label="Enjuague tiempo"><Inp value={cur.enjTiempo || ""} onChange={set("enjTiempo")} /></F>
+                <F label="Verificación"><Inp value={cur.enjVerif || ""} onChange={set("enjVerif")} /></F>
               </div>
             </>
           )}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-            <F label="Hora"><input style={inp} type="time" value={data?.hora || ""} onChange={e => set("hora")(e.target.value)} /></F>
-            <F label="Responsable"><Inp value={data?.resp || ""} onChange={set("resp")} /></F>
+            <F label="Hora"><input style={inp} type="time" value={cur.hora || ""} onChange={e => set("hora")(e.target.value)} /></F>
+            <F label="Responsable"><Inp value={cur.resp || ""} onChange={set("resp")} /></F>
           </div>
           <F label="Observaciones">
-            <textarea style={{ ...inp, minHeight: 48, resize: "vertical" }} value={data?.obs || ""} onChange={e => set("obs")(e.target.value)} />
+            <textarea style={{ ...inp, minHeight: 48, resize: "vertical" }} value={cur.obs || ""} onChange={e => set("obs")(e.target.value)} />
           </F>
         </div>
       )}
@@ -2420,7 +2458,12 @@ const CargaForm = ({ initial, onSave, onClose, onDelete, perfil = null }) => {
   const [f, setF] = useState(initial || emptyCarga());
   const [fieldError, setFieldError] = useState("");
   const savingRef = useRef(false);
-  const set = k => v => { setFieldError(""); setF(p => ({ ...p, [k]: v })); };
+  const binOkRef = useRef(false); // doble toque para confirmar despachos desde BIN
+  const set = k => v => {
+    setFieldError("");
+    if (k === "siloProveniente") binOkRef.current = false; // cambiar de silo invalida la confirmación de BIN
+    setF(p => ({ ...p, [k]: v }));
+  };
   const [transportistas, setTransportistas] = useState([]);
   const [cargaProductos, setCargaProductos] = useState(CARGA_PRODUCTOS_BASE);
   const [transModal, setTransModal] = useState(false);
@@ -2529,6 +2572,17 @@ const CargaForm = ({ initial, onSave, onClose, onDelete, perfil = null }) => {
           if (miss.length) { setFieldError("Faltan completar:\n• " + miss.join("\n• ")); track("save_fail", miss[0], "carga"); return; }
           const litrosN = parseFloat(f.litros);
           if (isNaN(litrosN) || litrosN <= 0) { setFieldError("Litros debe ser mayor a 0."); track("save_fail", "litros", "carga"); return; }
+          // Guardrail de magnitud: una carga no puede sacar más que la capacidad del silo origen.
+          const capSilo = SILO_CAP[SILO_STOCK_KEY[f.siloProveniente] || f.siloProveniente];
+          if (capSilo && litrosN > capSilo) { setFieldError(`Los ${litrosN.toLocaleString("es-AR")} L superan la capacidad del silo ${f.siloProveniente} (${capSilo.toLocaleString("es-AR")} L). Verificá litros o silo.`); track("save_fail", "magnitud", "carga"); return; }
+          // BIN no descuenta stock de ningún silo (TH3): doble toque para confirmar.
+          // El ref se resetea en set("siloProveniente") — cambiar de silo invalida la confirmación.
+          if (f.siloProveniente === "BIN" && !binOkRef.current) {
+            binOkRef.current = true;
+            setFieldError("Atención: BIN no descuenta stock de ningún silo — solo para casos excepcionales. Si es correcto, tocá Guardar de nuevo para confirmar.");
+            track("save_fail", "bin_confirm", "carga");
+            return;
+          }
           setFieldError("");
           track("save_ok", null, "carga");
           onSave(f);
@@ -2775,6 +2829,9 @@ const MovForm = ({ initial, onSave, onClose, onDelete, date, perfil = null }) =>
           if (isNaN(litrosN) || litrosN <= 0) { setFieldError("Litros debe ser mayor a 0."); track("save_fail", "litros", "movimientos"); return; }
           const perdidaN = parseFloat(f.perdidaLitros ?? 0);
           if (!isNaN(perdidaN) && perdidaN < 0) { setFieldError("La pérdida no puede ser negativa."); track("save_fail", "perdidaLitros", "movimientos"); return; }
+          // Guardrail de magnitud: el destino no puede recibir más que su capacidad.
+          const capHasta = SILO_CAP[SILO_STOCK_KEY[f.hasta] || f.hasta];
+          if (capHasta && litrosN > capHasta) { setFieldError(`Los ${litrosN.toLocaleString("es-AR")} L superan la capacidad del silo destino ${f.hasta} (${capHasta.toLocaleString("es-AR")} L). Verificá litros o silo.`); track("save_fail", "magnitud", "movimientos"); return; }
           setFieldError("");
           track("save_ok", null, "movimientos");
           onSave(f);
@@ -4343,6 +4400,7 @@ const FortForm = ({ initial, onSave, onClose, onDelete, siloStates = { totals: {
   const [f, setF] = useState(() => initial ? { ...emptyFort(), ...initial } : emptyFort());
   const [fieldError, setFieldError] = useState("");
   const savingRef = useRef(false);
+  const avisoKgRef = useRef(false); // doble toque si una adición en kg parece ser gramos
   const set = k => v => { setFieldError(""); setF(p => ({ ...p, [k]: v })); };
 
   // Selección de silo origen con autocompletado del producto base detectado en el saldo.
@@ -4373,7 +4431,8 @@ const FortForm = ({ initial, onSave, onClose, onDelete, siloStates = { totals: {
     }));
   };
 
-  const updAdicion = (id, key, val) =>
+  const updAdicion = (id, key, val) => {
+    avisoKgRef.current = false; // editar adiciones invalida el aviso kg/g ya mostrado
     setF(p => ({
       ...p,
       adiciones: p.adiciones.map(a => {
@@ -4386,8 +4445,11 @@ const FortForm = ({ initial, onSave, onClose, onDelete, siloStates = { totals: {
         return { ...a, [key]: val };
       }),
     }));
-  const addAdicion = () =>
+  };
+  const addAdicion = () => {
+    avisoKgRef.current = false;
     setF(p => ({ ...p, adiciones: [...p.adiciones, { id: crypto.randomUUID(), producto: "", cantidad: "", unidad: "kg" }] }));
+  };
   const delAdicion = id =>
     setF(p => ({ ...p, adiciones: p.adiciones.filter(a => a.id !== id) }));
 
@@ -4592,6 +4654,15 @@ const FortForm = ({ initial, onSave, onClose, onDelete, siloStates = { totals: {
             return isNaN(n) || n <= 0;
           });
           if (adInvalida) { setFieldError(`Cantidad de ${adInvalida.producto || "Adición"} debe ser mayor a 0.`); track("save_fail", "adicion", "fortificados"); return; }
+          // Guardrail kg/g (TH8): el select de unidad es el más chico de la app —
+          // 2.000 "kg" de vitamina casi siempre son gramos. Doble toque.
+          const adSospechosa = (f.adiciones || []).find(a => a.unidad === "kg" && (parseFloat(a.cantidad) || 0) >= 100);
+          if (adSospechosa && !avisoKgRef.current) {
+            avisoKgRef.current = true;
+            setFieldError(`¿${(parseFloat(adSospechosa.cantidad) || 0).toLocaleString("es-AR")} kg de ${adSospechosa.producto || "la adición"}? Verificá que no sean gramos. Si es correcto, tocá Guardar de nuevo para confirmar.`);
+            track("save_fail", "kg_sospechoso", "fortificados");
+            return;
+          }
           setFieldError("");
           track("save_ok", null, "fortificados");
           onSave(f);
