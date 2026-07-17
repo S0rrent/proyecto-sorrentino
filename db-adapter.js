@@ -134,6 +134,32 @@ export function clearSessionExpired() {
 function _queuePersist() {
   try { localStorage.setItem(_QUEUE_LS, JSON.stringify(_queue)); } catch {}
 }
+// Tanda 5: una escritura directa EXITOSA es más nueva que cualquier valor de la
+// misma clave que haya quedado encolado antes (v1 zombi que pisaría a v2 al
+// drenar). Purgar la clave de la cola en cada éxito directo.
+function _queuePurgeKey(key) {
+  const before = _queue.length;
+  _queue = _queue.filter(q => q.key !== key);
+  if (_queue.length !== before) {
+    _queuePersist();
+    _queueNotify();
+  }
+}
+// Tanda 5: encolar (o refrescar) una clave estampando cuándo se capturó el
+// valor — el drenado usa queuedAt para detectar que otro dispositivo escribió
+// DESPUÉS y no pisarlo (last-write-wins ciego era el modo de pérdida T4).
+function _queueUpsert(key, value) {
+  const queuedAt = new Date().toISOString();
+  const idx = _queue.findIndex(q => q.key === key);
+  // REEMPLAZAR el objeto (nueva identidad), nunca mutarlo in-place: si el
+  // drenado está escribiendo la versión vieja en este momento, su chequeo de
+  // vigencia por identidad detecta el reemplazo y NO borra este valor nuevo
+  // (mutar in-place hacía que el flush escribiera v1 y descartara v2).
+  if (idx >= 0) _queue[idx] = { key, value, queuedAt };
+  else _queue.push({ key, value, queuedAt });
+  _queuePersist();
+  _queueNotify();
+}
 function _queueNotify() {
   _listeners.forEach(fn => fn(_queue.length, _flushing));
 }
@@ -151,11 +177,61 @@ async function _flushQueue() {
 
   while (_queue.length > 0) {
     if (_sessionExpired) break; // sesión expiró durante el drenado — detener
-    const { key, value } = _queue[0];
+    const entry = _queue[0];
+    const { key, value, queuedAt } = entry;
+    // Remoción por IDENTIDAD, jamás shift(): entre los awaits de este loop
+    // (select de conflicto, sleeps de backoff) la UI puede purgar la cola
+    // (_queuePurgeKey tras un éxito directo) o reemplazar la entrada
+    // (_queueUpsert) — un shift() posicional sacaría OTRA entrada: pérdida
+    // silenciosa. Si `entry` ya no está en la cola, su valor quedó obsoleto
+    // (lo superó un éxito directo o un valor más nuevo): abandonarla.
+    const removeEntry = () => {
+      const before = _queue.length;
+      _queue = _queue.filter(q => q !== entry);
+      if (_queue.length !== before) {
+        _queuePersist();
+        _queueNotify();
+      }
+    };
+    const entryVigente = () => _queue.includes(entry);
+
+    // Tanda 5: si otro dispositivo escribió esta clave DESPUÉS de que el valor
+    // quedara encolado, drenarla la pisaría (last-write-wins ciego, modo de
+    // pérdida T4). Se descarta a la lista auditable — gana lo más nuevo del
+    // servidor. Entradas legacy sin queuedAt drenan como siempre.
+    // El updated_at remoto lo estampa el TRIGGER del servidor (NOW() de
+    // Postgres) y queuedAt es reloj del dispositivo: con el reloj local
+    // atrasado, nuestra PROPIA escritura previa podría parecer "posterior".
+    // La tolerancia absorbe ese skew; su costo es que un conflicto real
+    // dentro de la ventana no se detecta (= comportamiento pre-T5, no peor).
+    if (queuedAt) {
+      try {
+        const { data } = await _sb
+          .from("yatasto_storage")
+          .select("updated_at")
+          .eq("key", key)
+          .maybeSingle();
+        if (!entryVigente()) continue; // purgada/reemplazada durante el select
+        const remoteTs = data?.updated_at ? new Date(data.updated_at).getTime() : null;
+        const _TOLERANCIA_SKEW_MS = 120000; // 2 min de drift tolerado entre reloj local y servidor
+        if (remoteTs && remoteTs > new Date(queuedAt).getTime() + _TOLERANCIA_SKEW_MS) {
+          console.warn(`[queue] conflicto al drenar ${key}: otro dispositivo la modificó después de encolarse — descartada a la lista auditable`);
+          _recordDiscarded(key, value, {
+            status: "conflicto",
+            message: "Otro dispositivo modificó esta sección después de que el cambio quedara en cola. Se conservó lo más nuevo del servidor.",
+          });
+          removeEntry();
+          continue;
+        }
+      } catch { /* sin red para chequear: seguir con el flujo normal de reintentos */ }
+      if (!entryVigente()) continue;
+    }
     let ok = false;
     let lastError = null;
     let delay = 2000;
     for (let attempt = 0; attempt < 4; attempt++) {
+      // Purgada/reemplazada durante el backoff: no escribir el valor zombi.
+      if (!entryVigente()) break;
       try {
         const { error } = await _sb
           .from("yatasto_storage")
@@ -169,19 +245,16 @@ async function _flushQueue() {
         delay *= 2;
       }
     }
+    if (!entryVigente()) continue; // superada durante la escritura: la versión nueva sigue en cola
     if (ok) {
-      _queue.shift();
-      _queuePersist();
-      _queueNotify();
+      removeEntry();
     } else if (_isPermanent4xx(lastError)) {
       // 4xx permanente (validación, constraint, payload corrupto): reintentar es
       // inútil y bloquea la cola indefinidamente. Descartar, registrar para auditoría
       // y notificar a la UI (banner de descartes auditable).
       console.error(`[queue] descartando entrada con error 4xx permanente (status=${lastError?.status}) key=${key}:`, lastError);
       _recordDiscarded(key, value, lastError);
-      _queue.shift();
-      _queuePersist();
-      _queueNotify();
+      removeEntry();
       continue;
     } else {
       // Si el fallo fue por 401, intentar refresh una sola vez y reintentar
@@ -190,15 +263,14 @@ async function _flushQueue() {
         const refreshed = await _tryRefresh();
         _refreshing = false;
         if (refreshed) {
+          if (!entryVigente()) continue; // superada durante el refresh
           // Reintentar el mismo item con el nuevo token
           try {
             const { error } = await _sb
               .from("yatasto_storage")
               .upsert({ key, value, updated_at: new Date().toISOString() });
             if (!error) {
-              _queue.shift();
-              _queuePersist();
-              _queueNotify();
+              removeEntry();
               continue;
             }
           } catch {}
@@ -244,11 +316,7 @@ export const db = {
   async set(key, value) {
     // Si la sesión está marcada como expirada, encolar directamente sin intentar red
     if (_sessionExpired) {
-      const idx = _queue.findIndex(q => q.key === key);
-      if (idx >= 0) _queue[idx].value = value;
-      else _queue.push({ key, value });
-      _queuePersist();
-      _queueNotify();
+      _queueUpsert(key, value);
       return null;
     }
     const ts = new Date().toISOString();
@@ -257,9 +325,10 @@ export const db = {
         .from("yatasto_storage")
         .upsert({ key, value, updated_at: ts });
       if (error) throw error;
+      _queuePurgeKey(key); // éxito directo > cualquier valor viejo encolado de esta clave
       return ts; // éxito — retornar timestamp escrito
     } catch (e) {
-      // 401 JWT expirado: intentar refresh una vez y reintentar
+      // 401 JWT expirado: intentar refresh una sola vez y reintentar
       if (_is401(e) && !_refreshing) {
         _refreshing = true;
         const refreshed = await _tryRefresh();
@@ -270,7 +339,10 @@ export const db = {
             const { error: e2 } = await _sb
               .from("yatasto_storage")
               .upsert({ key, value, updated_at: ts2 });
-            if (!e2) return ts2; // éxito tras refresh
+            if (!e2) {
+              _queuePurgeKey(key);
+              return ts2; // éxito tras refresh
+            }
           } catch {}
         }
         // Refresh falló o segundo intento falló — marcar sesión expirada
@@ -278,11 +350,7 @@ export const db = {
         _notifySessionExpired();
       }
       // Escritura directa falló — encolar para reintento
-      const idx = _queue.findIndex(q => q.key === key);
-      if (idx >= 0) _queue[idx].value = value;
-      else _queue.push({ key, value });
-      _queuePersist();
-      _queueNotify();
+      _queueUpsert(key, value);
       setTimeout(_flushQueue, 2000);
       return null; // encolado/fallado — sin timestamp
     }
