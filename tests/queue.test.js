@@ -8,6 +8,10 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 // que apunten a OTRAS keys.
 let upsertByKey;
 let upsertCallCount;
+let upsertKeys = []; // registro por clave: inmune a timers residuales de otros tests
+// Tanda 5: updated_at remoto por key — el drenado lo consulta para detectar
+// que otro dispositivo escribió después de encolarse (conflicto → descarte).
+let timestampByKey;
 
 vi.mock("@supabase/supabase-js", () => ({
   createClient: () => ({
@@ -15,13 +19,17 @@ vi.mock("@supabase/supabase-js", () => ({
       upsert: (payload) => {
         upsertCallCount++;
         const key = payload?.key || "";
+        upsertKeys.push(key);
         const arr = upsertByKey[key];
         if (arr && arr.length > 0) {
           return Promise.resolve(arr.shift());
         }
         return Promise.resolve({ error: null });
       },
-      select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: null, error: null }) }) }),
+      select: () => ({ eq: (col, key) => ({ maybeSingle: () => Promise.resolve({
+        data: timestampByKey?.[key] ? { updated_at: timestampByKey[key] } : null,
+        error: null,
+      }) }) }),
       delete: () => ({ eq: () => Promise.resolve({ error: null }) }),
       like: () => Promise.resolve({ data: [], error: null }),
     }),
@@ -46,6 +54,8 @@ async function freshImport() {
   localStorage.clear();
   upsertByKey = {};
   upsertCallCount = 0;
+  upsertKeys = [];
+  timestampByKey = {};
   const mod = await import("../db-adapter.js");
   db = mod.db;
   onWriteQueueChange = mod.onWriteQueueChange;
@@ -216,6 +226,130 @@ describe("queue: drena cuando se recupera la red", () => {
       setTimeout(() => { stop(); resolve(false); }, 8000);
     });
     expect(drained).toBe(true);
+  }, 10000);
+});
+
+describe("Tanda 5: éxito directo purga la clave encolada (v1 zombi)", () => {
+  beforeEach(async () => { await freshImport(); });
+
+  it("un save exitoso elimina de la cola el valor viejo de la misma clave", async () => {
+    const KEY = "yatasto:test:purga";
+    // v1 falla y queda encolada (4 reintentos del flush también fallarán,
+    // pero acá solo importa el estado inmediato de la cola).
+    upsertByKey[KEY] = [{ error: { message: "Network", status: 0 } }];
+    await db.set(KEY, "v1");
+    expect(JSON.parse(localStorage.getItem("__yatasto_wq__"))).toHaveLength(1);
+
+    // Vuelve la red: v2 se escribe directo — la v1 zombi NO debe quedar en
+    // la cola (al drenar pisaría a v2 con el valor viejo).
+    const ts = await db.set(KEY, "v2");
+    expect(ts).toBeTruthy();
+    expect(JSON.parse(localStorage.getItem("__yatasto_wq__"))).toHaveLength(0);
+  });
+
+  it("el éxito de una clave NO purga entradas encoladas de otras claves", async () => {
+    const K1 = "yatasto:test:otra1";
+    const K2 = "yatasto:test:otra2";
+    upsertByKey[K1] = [{ error: { message: "Network", status: 0 } }];
+    await db.set(K1, "v");
+    await db.set(K2, "v"); // éxito directo
+    expect(JSON.parse(localStorage.getItem("__yatasto_wq__")).map(q => q.key)).toEqual([K1]);
+  });
+});
+
+describe("Tanda 5: el drenado no pisa escrituras más nuevas de otro dispositivo", () => {
+  beforeEach(async () => { await freshImport(); });
+
+  it("remoto modificado después de encolar → descarte auditable con status 'conflicto', sin upsert", async () => {
+    const KEY = "yatasto:test:conflicto";
+    upsertByKey[KEY] = [{ error: { message: "Network", status: 0 } }];
+    await db.set(KEY, "mi-version-vieja"); // encolada con queuedAt=ahora
+    const upsertsDeEstaClave = () => upsertKeys.filter(k => k === KEY).length;
+    expect(upsertsDeEstaClave()).toBe(1); // solo el intento directo fallido
+
+    // Otro dispositivo escribe DESPUÉS de nuestro encolado (más allá de la
+    // tolerancia de 2 min por skew de relojes).
+    timestampByKey[KEY] = new Date(Date.now() + 5 * 60000).toISOString();
+
+    const descartada = await new Promise((resolve) => {
+      const stop = onDiscarded((items) => {
+        const hit = items.find(i => i.key === KEY && i.status === "conflicto");
+        if (hit) { stop(); resolve(hit); }
+      });
+      setTimeout(() => { stop(); resolve(null); }, 8000);
+    });
+    expect(descartada).toBeTruthy();
+    expect(descartada.status).toBe("conflicto");
+    expect(JSON.parse(localStorage.getItem("__yatasto_wq__"))).toHaveLength(0);
+    expect(upsertsDeEstaClave()).toBe(1); // el drenado NO intentó escribir esta clave
+  }, 10000);
+
+  it("updated_at remoto apenas posterior (dentro de la tolerancia de skew) → NO se descarta, drena", async () => {
+    // El trigger del servidor estampa NOW() de Postgres; con el reloj local
+    // atrasado, nuestra PROPIA escritura previa parecería "posterior" al
+    // encolado. La tolerancia evita el falso auto-conflicto.
+    const KEY = "yatasto:test:skew";
+    upsertByKey[KEY] = [{ error: { message: "Network", status: 0 } }];
+    await db.set(KEY, "v");
+    timestampByKey[KEY] = new Date(Date.now() + 60000).toISOString(); // +1 min < tolerancia
+
+    const drenada = await new Promise((resolve) => {
+      const stop = onWriteQueueChange((len) => {
+        if (len === 0 && JSON.parse(localStorage.getItem("__yatasto_wq__") || "[]").length === 0) {
+          stop(); resolve(true);
+        }
+      });
+      setTimeout(() => { stop(); resolve(false); }, 8000);
+    });
+    expect(drenada).toBe(true);
+    expect(listDiscarded().find(i => i.key === KEY)).toBeUndefined();
+  }, 10000);
+
+  it("remoto SIN cambios posteriores → drena y escribe normal", async () => {
+    const KEY = "yatasto:test:sin-conflicto";
+    upsertByKey[KEY] = [{ error: { message: "Network", status: 0 } }];
+    await db.set(KEY, "v");
+    // El remoto tiene un updated_at ANTERIOR al encolado (nuestra propia escritura previa).
+    timestampByKey[KEY] = new Date(Date.now() - 60000).toISOString();
+
+    const drenada = await new Promise((resolve) => {
+      const stop = onWriteQueueChange((len) => {
+        if (len === 0 && JSON.parse(localStorage.getItem("__yatasto_wq__") || "[]").length === 0) {
+          stop(); resolve(true);
+        }
+      });
+      setTimeout(() => { stop(); resolve(false); }, 8000);
+    });
+    expect(drenada).toBe(true);
+    expect(listDiscarded().find(i => i.key === KEY)).toBeUndefined();
+  }, 10000);
+
+  it("entrada legacy sin queuedAt (cola persistida por un bundle viejo) drena como siempre", async () => {
+    // Sembrar la cola ANTES de importar el módulo (se lee en el init).
+    vi.resetModules();
+    localStorage.clear();
+    upsertByKey = {};
+    upsertCallCount = 0;
+    timestampByKey = {};
+    const LEGACY = "yatasto:test:legacy";
+    localStorage.setItem("__yatasto_wq__", JSON.stringify([{ key: LEGACY, value: "v-legacy" }]));
+    // Aunque el remoto figure "más nuevo", sin queuedAt no hay base de comparación → drena.
+    timestampByKey[LEGACY] = new Date(Date.now() + 60000).toISOString();
+    const mod = await import("../db-adapter.js");
+    db = mod.db; onWriteQueueChange = mod.onWriteQueueChange; listDiscarded = mod.listDiscarded;
+
+    // Disparar el flush encolando otra clave con fallo (agenda _flushQueue).
+    upsertByKey["yatasto:test:trigger"] = [{ error: { message: "Network", status: 0 } }];
+    await db.set("yatasto:test:trigger", "x");
+
+    const drenada = await new Promise((resolve) => {
+      const stop = onWriteQueueChange((len) => {
+        if (len === 0) { stop(); resolve(true); }
+      });
+      setTimeout(() => { stop(); resolve(false); }, 8000);
+    });
+    expect(drenada).toBe(true);
+    expect(listDiscarded().find(i => i.key === LEGACY)).toBeUndefined();
   }, 10000);
 });
 
