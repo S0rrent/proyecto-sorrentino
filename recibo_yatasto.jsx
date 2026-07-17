@@ -229,7 +229,10 @@ const sKey = (date, sec) => `yatasto:${date}:${sec}`;
 const CFG_KEY = "yatasto:config";
 
 // ─── COLORS / THEME ──────────────────────────────────────────
-const _THEME = (() => { try { return localStorage.getItem("yatasto:theme") || "dark"; } catch { return "dark"; } })();
+// Tanda 11 (decisión del dueño 2026-07-14): LIGHT es el tema primario; DARK
+// queda como opción para el turno noche (toggle en el header). Los usuarios
+// que ya eligieron tema conservan su elección (localStorage manda).
+const _THEME = (() => { try { return localStorage.getItem("yatasto:theme") || "light"; } catch { return "light"; } })();
 const C_DARK  = DARK;
 const C_LIGHT = LIGHT;
 const C = _THEME === "light" ? C_LIGHT : C_DARK;

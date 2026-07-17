@@ -62,8 +62,10 @@ export default defineConfig({
         name: "Lácteos Yatasto · Recibo",
         short_name: "Yatasto",
         description: "Registro de recibo de leche — Lácteos Yatasto SA",
-        theme_color: "#f59e0b",
-        background_color: "#0f0f0f",
+        // Tanda 11: light primario — chrome del SO y splash acordes al tema claro
+        // (aprox. hex de LIGHT.bg de tokens.js; el manifest no acepta oklch).
+        theme_color: "#f4f4f6",
+        background_color: "#f4f4f6",
         display: "standalone",
         start_url: "/",
         orientation: "portrait",
