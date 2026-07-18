@@ -36,6 +36,7 @@ import {
 import {
   Ingresos as IcoIngresos, Movimientos as IcoMovimientos, Carga as IcoCarga,
   Fortificados as IcoFortificados, CIP as IcoCIP, Stock as IcoStock, Produccion as IcoProduccion,
+  MenuNav as IcoMenu,
   Supervisor as IcoSupervisor, Jefe as IcoJefe, Operador as IcoOperador, Admin as IcoAdmin,
   ThemeLight, ThemeDark, DatePicker as IcoDate, Informe as IcoInforme, Offline as IcoOffline,
   Destino as IcoDestino, Concentrado as IcoConcentrado, Calidad as IcoCalidad,
@@ -112,6 +113,22 @@ const NAV = [
   { id: "cip",         label: "CIP",    Icon: IcoCIP },
   { id: "stock",       label: "Stock",  Icon: IcoStock },
 ];
+
+// Council 2026-05-23 (docs/council/2026-05-23--bottom-nav-operario.md):
+// bottom bar mobile = 4 tabs planos INGRESOS / STOCK / MOVIMIENTOS / MENÚ.
+// Sin HOME, sin hub anidado; STOCK a ≤1 tap es no negociable. El 4º slot
+// abre un bottom-sheet (Modal) con el resto de las secciones; para
+// supervisor/jefe ese slot se llama CONTROL. Desktop no cambia (usa NAV).
+const NAV_MOBILE = [
+  { id: "ingresos",    label: "Ingresos",    Icon: IcoIngresos },
+  { id: "stock",       label: "Stock",       Icon: IcoStock },
+  { id: "movimientos", label: "Movimientos", Icon: IcoMovimientos },
+];
+// Secciones que viven detrás del sheet MENÚ/CONTROL en mobile. Si la sección
+// activa es una de éstas, el 4º tab se marca activo ("usuarios" no aparece en
+// el sheet — se llega desde el modal de perfil — pero igual marca el slot para
+// que la barra nunca quede sin tab activo).
+const MENU_SECTIONS = ["carga", "fortificados", "cip", "produccion", "supervisor", "usuarios"];
 
 // Capacidades reales de cada silo (litros)
 const SILO_CAP = {
@@ -1227,7 +1244,7 @@ const Pair = ({ label, v1, v2, on1, on2, decimalAfter = 1 }) => (
 const FAB = ({ onClick }) => (
   <button type="button" onClick={onClick} aria-label="Nuevo" style={{
     position: "fixed", right: 20,
-    bottom: UX_V2 ? "calc(env(safe-area-inset-bottom, 0px) + 88px)" : 82,
+    bottom: "calc(env(safe-area-inset-bottom, 0px) + 88px)",
     width: 56, height: 56, borderRadius: 28,
     background: C.accent, border: "none", color: "#000", fontSize: 28, fontWeight: 700,
     cursor: "pointer", boxShadow: `0 4px 24px ${C.accent}55`,
@@ -8986,6 +9003,7 @@ export default function App() {
   );
   const [datePicker, setDatePicker] = useState(false);
   const [informe, setInforme] = useState(false);
+  const [menuSheet, setMenuSheet] = useState(false); // bottom-sheet MENÚ/CONTROL (nav mobile)
   const [initModal, setInitModal] = useState(false);
   const [initNombre, setInitNombre] = useState(_restoredSession?.nombre || "");
   // Perfil NO se inicializa desde localStorage por seguridad — sólo desde Supabase session.
@@ -9466,7 +9484,7 @@ export default function App() {
     <PerfilProvider perfil={perfil} operario={operarioActivo} permisosExtra={null}>
     <div style={{
       background: C.bg, minHeight: "100vh", color: C.text, fontFamily: FONT_SANS,
-      paddingBottom: isDesktop ? 0 : (UX_V2 ? "calc(env(safe-area-inset-bottom, 0px) + 76px)" : 72),
+      paddingBottom: isDesktop ? 0 : "calc(env(safe-area-inset-bottom, 0px) + 76px)",
       overflowX: "clip",
     }}>
 
@@ -10144,47 +10162,114 @@ export default function App() {
         </div>
       </div>
 
-      {/* Bottom nav — mobile only, gated por sesión */}
-      {perfil && !isDesktop && <div style={{
-        position: "fixed", bottom: 0, left: 0, right: 0,
-        background: C.surface, borderTop: `1px solid ${C.border}`,
-        display: "grid", gridTemplateColumns: `repeat(${navItems.length},1fr)`,
-        zIndex: 40,
-        boxShadow: _THEME === "light" ? "0 -2px 12px rgba(0,0,0,0.08)" : "0 -2px 12px rgba(0,0,0,0.4)",
-        ...(UX_V2 ? { paddingBottom: "env(safe-area-inset-bottom, 0px)" } : {}),
-      }}>
-        {navItems.map(n => {
-          const active = section === n.id;
-          return (
-            <button type="button" key={n.id} onClick={() => { track("tab_open", n.id); setSection(n.id); }}
-              aria-current={active ? "page" : undefined}
+      {/* Bottom nav — mobile only, gated por sesión.
+          Council 2026-05-23: 4 tabs planos INGRESOS / STOCK / MOVIMIENTOS / MENÚ
+          (CONTROL para supervisor/jefe). El resto de las secciones vive en el
+          bottom-sheet del 4º tab. */}
+      {perfil && !isDesktop && (() => {
+        const esSupJefe = perfil === "supervisor" || perfil === "jefe";
+        const menuActivo = MENU_SECTIONS.includes(section);
+        const tabs = [
+          ...NAV_MOBILE.map(n => ({ ...n, active: section === n.id, onTap: () => { track("tab_open", n.id); setSection(n.id); } })),
+          {
+            id: "__menu", label: esSupJefe ? "Control" : "Menú", Icon: IcoMenu,
+            active: menuActivo, onTap: () => { track("menu_open"); setMenuSheet(true); },
+          },
+        ];
+        return <div style={{
+          position: "fixed", bottom: 0, left: 0, right: 0,
+          background: C.surface, borderTop: `1px solid ${C.border}`,
+          display: "grid", gridTemplateColumns: "repeat(4,1fr)",
+          zIndex: 40,
+          boxShadow: _THEME === "light" ? "0 -2px 12px rgba(0,0,0,0.08)" : "0 -2px 12px rgba(0,0,0,0.4)",
+          paddingBottom: "env(safe-area-inset-bottom, 0px)",
+        }}>
+          {tabs.map(n => (
+            <button type="button" key={n.id} onClick={n.onTap}
+              aria-current={n.active ? "page" : undefined}
+              aria-haspopup={n.id === "__menu" ? "dialog" : undefined}
               style={{
-                background: active && UX_V2 ? `${C.accent}1a` : "none",
+                background: n.active ? `${C.accent}1a` : "none",
                 border: "none", cursor: "pointer",
-                padding: UX_V2 ? "10px 0 12px" : "10px 0 13px",
-                minHeight: 64,
+                padding: "10px 0 12px",
+                minHeight: 64, minWidth: 0,
                 display: "flex", flexDirection: "column", alignItems: "center",
-                gap: UX_V2 ? 4 : 2,
-                borderTop: active ? `2.5px solid ${C.accent}` : "2.5px solid transparent",
+                gap: 4,
+                borderTop: n.active ? `2.5px solid ${C.accent}` : "2.5px solid transparent",
                 transition: "border-color 0.18s, background-color 0.18s",
                 touchAction: "manipulation", WebkitTapHighlightColor: "transparent",
             }}>
               <span style={{
                 display: "flex",
-                color: active ? C.accent : C.sub,
-                filter: active ? `drop-shadow(0 0 6px ${C.accent}88)` : "none",
-                transition: "filter 0.18s, color 0.18s",
-              }}><n.Icon size={UX_V2 ? 28 : 20} strokeWidth={SW} /></span>
+                color: n.active ? C.accent : C.sub,
+                transition: "color 0.18s",
+              }}><n.Icon size={26} strokeWidth={SW} /></span>
               <span style={{
-                fontSize: UX_V2 ? 11 : 9, fontWeight: 700,
-                color: active ? C.accent : C.sub,
-                letterSpacing: "0.05em", textTransform: "uppercase",
+                fontSize: 11, fontWeight: 700,
+                color: n.active ? C.accent : C.sub,
+                letterSpacing: "0.02em", textTransform: "uppercase",
+                maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                 transition: "color 0.18s",
               }}>{n.label}</span>
             </button>
-          );
-        })}
-      </div>}
+          ))}
+        </div>;
+      })()}
+
+      {/* Bottom-sheet MENÚ/CONTROL — accesos a las secciones fuera de los 4 tabs.
+          Reusa Modal: en mobile ya es bottom-sheet con back-button de Android. */}
+      {menuSheet && (() => {
+        const esSupJefe = perfil === "supervisor" || perfil === "jefe";
+        const items = [
+          // Accesos de supervisor/jefe arriba (council: "mismo sheet, con sus accesos extra arriba")
+          ...(esSupJefe ? [
+            { id: "supervisor", label: "Dashboard",   Icon: PERFILES[perfil]?.Icon || IcoSupervisor },
+            { id: "produccion", label: "Producción",  Icon: IcoProduccion },
+          ] : []),
+          { id: "carga",        label: "Carga",        Icon: IcoCarga },
+          { id: "fortificados", label: "Fortificados", Icon: IcoFortificados },
+          { id: "cip",          label: "CIP",          Icon: IcoCIP },
+        ];
+        const filaBase = {
+          width: "100%", minHeight: 52, cursor: "pointer",
+          display: "flex", alignItems: "center", gap: 12,
+          background: C.card, border: `1px solid ${C.border}`, borderRadius: 10,
+          padding: "12px 14px", marginBottom: 8, textAlign: "left",
+          color: C.text, fontSize: 15, fontWeight: 600, fontFamily: FONT_SANS,
+          touchAction: "manipulation", WebkitTapHighlightColor: "transparent",
+        };
+        return (
+          <Modal title={esSupJefe ? "Control" : "Menú"} onClose={() => setMenuSheet(false)}>
+            {items.map(it => {
+              const activa = section === it.id;
+              return (
+                <button type="button" key={it.id}
+                  aria-current={activa ? "page" : undefined}
+                  onClick={() => { setMenuSheet(false); track("tab_open", it.id); setSection(it.id); }}
+                  style={{
+                    ...filaBase,
+                    ...(activa ? { background: C.accentDim, border: `1px solid ${C.accentDark}`, color: C.accent } : {}),
+                  }}>
+                  <it.Icon size={20} strokeWidth={SW} color={activa ? C.accent : C.sub} />
+                  <span>{it.label}</span>
+                </button>
+              );
+            })}
+            <div style={{ height: 1, background: C.border, margin: "6px 0 14px" }} />
+            <button type="button" onClick={() => { setMenuSheet(false); setDatePicker(true); }} style={filaBase}>
+              <IcoDate size={20} strokeWidth={SW} color={C.sub} />
+              <span>Cambiar fecha</span>
+              <span style={{ marginLeft: "auto", fontSize: 12, fontFamily: FONT_MONO, fontWeight: 700, color: isToday ? C.sub : C.accent }}>
+                {isToday ? "Hoy" : fmtDate(date)}
+              </span>
+            </button>
+            <button type="button" onClick={() => { setMenuSheet(false); setInforme(true); }} style={filaBase}>
+              <IcoInforme size={20} strokeWidth={SW} color={C.sub} />
+              <span>Informe del día</span>
+            </button>
+          </Modal>
+        );
+      })()}
       {confirmUI}
       {stepUpUI}
 

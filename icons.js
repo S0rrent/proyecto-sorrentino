@@ -11,6 +11,7 @@ export {
   SprayCan       as CIP,
   BarChart3      as Stock,
   Boxes          as Produccion,
+  Menu           as MenuNav,
 
   // ── Perfiles ─────────────────────────────────────────────────
   UserCog   as Supervisor,
