@@ -32,3 +32,24 @@ jobs:
           VITE_SUPABASE_URL: "https://placeholder.supabase.co"
           VITE_SUPABASE_ANON_KEY: "placeholder-anon-key"
         run: npm run build
+
+  # Gate CI→Vercel (RUNBOOK §12): dispara el deploy de producción SOLO si
+  # verify pasó. Es un NO-OP mientras el secret VERCEL_DEPLOY_HOOK no exista
+  # (el auto-deploy de Vercel sigue activo hasta entonces — sin riesgo de
+  # congelar producción). Cuando el secret esté cargado y este job dispare
+  # deploys, recién ahí se apaga el auto-deploy en vercel.json.
+  deploy:
+    needs: [verify]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Disparar deploy de Vercel (solo con CI verde)
+        env:
+          HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$HOOK" ]; then
+            echo "VERCEL_DEPLOY_HOOK no configurado — no-op (auto-deploy de Vercel sigue activo)."
+            exit 0
+          fi
+          curl -sf -X POST "$HOOK" > /dev/null
+          echo "Deploy de producción disparado tras CI verde."
